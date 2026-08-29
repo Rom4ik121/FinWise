@@ -24,7 +24,8 @@ from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.layout import make_v_scroll
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.transaction_tile import TransactionTile
 
 if TYPE_CHECKING:
@@ -81,12 +82,13 @@ class TransactionsPage(ft.Column):
         self._accounts: list = []
         self._goals: list = []
         self._category_map: dict[str, object] = {}
-        self._list = ft.Column(spacing=6, expand=True, scroll=ft.ScrollMode.HIDDEN)
+        self._list = make_v_scroll(spacing=6)
         self._offset = 0
         self._has_more = False
         self._shown: list[Transaction] = []
         self._search_cache: list[Transaction] = []
         self._search_gen = 0
+        self._last_group: str | None = None
         lang = state.language
         self._search = ft.TextField(
             label=tr("field.search", lang),
@@ -350,8 +352,29 @@ class TransactionsPage(ft.Column):
             filters["has_transfer"] = False
         return filters
 
-    def _render_list(self, items: list[Transaction], *, lang: str) -> None:
-        if not items:
+    def _load_more_button(self, lang: str) -> ft.Control:
+        return ft.Container(
+            padding=ft.Padding.symmetric(vertical=8),
+            content=ft.OutlinedButton(
+                tr(
+                    "action.load_more",
+                    lang,
+                    default="Показать ещё",
+                ),
+                icon=ft.Icons.EXPAND_MORE,
+                on_click=lambda _e: run_async(self._page, self._load_more),
+            ),
+            alignment=ft.Alignment.CENTER,
+        )
+
+    def _render_list(
+        self,
+        items: list[Transaction],
+        *,
+        lang: str,
+        incremental: bool = False,
+    ) -> None:
+        if not items and not incremental:
             self._list.controls = [
                 EmptyState(
                     tr("empty.transactions", lang),
@@ -361,26 +384,48 @@ class TransactionsPage(ft.Column):
                     ),
                 )
             ]
+            self._last_group = None
             safe_update(self._list)
             return
 
+        if not incremental:
+            self._last_group = None
+        extra = self._build_item_controls(items, lang=lang)
+        if self._has_more:
+            extra.append(self._load_more_button(lang))
+        if incremental and self._list.controls:
+            last = self._list.controls[-1]
+            if isinstance(last, ft.Container):
+                self._list.controls.pop()
+            self._list.controls.extend(extra)
+        else:
+            self._list.controls = extra
+        safe_update(self._list)
+
+    def _build_item_controls(
+        self, items: list[Transaction], *, lang: str
+    ) -> list[ft.Control]:
+        if not items:
+            return []
         group_mode = self._group_by_value or StatsPeriod.DAY.value
         grouped: dict[str, list[Transaction]] = defaultdict(list)
         for tx in items:
             grouped[_period_key(tx.date, group_mode)].append(tx)
 
-        controls: list[ft.Control] = []
+        extra: list[ft.Control] = []
         for period, period_items in grouped.items():
-            controls.append(
-                ft.Text(
-                    period,
-                    weight=ft.FontWeight.W_700,
-                    size=13,
-                    color=ft.Colors.PRIMARY,
+            if period != self._last_group:
+                extra.append(
+                    ft.Text(
+                        period,
+                        weight=ft.FontWeight.W_700,
+                        size=13,
+                        color=ft.Colors.PRIMARY,
+                    )
                 )
-            )
+            self._last_group = period
             for tx in period_items:
-                controls.append(
+                extra.append(
                     TransactionTile(
                         tx,
                         category=self._category_map.get(tx.category),  # type: ignore[arg-type]
@@ -391,24 +436,7 @@ class TransactionsPage(ft.Column):
                         on_delete=self._confirm_delete,
                     )
                 )
-        if self._has_more:
-            controls.append(
-                ft.Container(
-                    padding=ft.Padding.symmetric(vertical=8),
-                    content=ft.OutlinedButton(
-                        tr(
-                            "action.load_more",
-                            lang,
-                            default="Показать ещё",
-                        ),
-                        icon=ft.Icons.EXPAND_MORE,
-                        on_click=lambda _e: run_async(self._page, self._load_more),
-                    ),
-                    alignment=ft.Alignment.CENTER,
-                )
-            )
-        self._list.controls = controls
-        safe_update(self._list)
+        return extra
 
     async def _load_more(self) -> None:
         """Append the next page of transactions."""
@@ -421,7 +449,7 @@ class TransactionsPage(ft.Column):
             chunk = self._search_cache[start : start + _PAGE_SIZE]
             self._shown.extend(chunk)
             self._has_more = start + _PAGE_SIZE < len(self._search_cache)
-            self._render_list(self._shown, lang=lang)
+            self._render_list(chunk, lang=lang, incremental=True)
             return
 
         c = self._state.container
@@ -445,15 +473,14 @@ class TransactionsPage(ft.Column):
         chunk = rows[:_PAGE_SIZE]
         self._shown.extend(chunk)
         self._offset += len(chunk)
-        self._render_list(self._shown, lang=lang)
+        self._render_list(chunk, lang=lang, incremental=True)
 
     async def reload(self) -> None:
         """Reload the first page of filtered transactions."""
         self._token = self._state.transactions_token
         lang = self._state.language
         self._filter_summary.value = self._filter_summary_text()
-        self._list.controls = [loading_indicator()]
-        safe_update(self._list)
+        fill_loading(self._list)
         safe_update(self._filter_summary)
 
         c = self._state.container

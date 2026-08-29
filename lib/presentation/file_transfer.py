@@ -62,12 +62,29 @@ def classify_restore_payload(name: str, payload: bytes) -> str:
     return "unknown"
 
 
+def is_restricted_save_path(path: Path | str | None) -> bool:
+    """True when Python cannot write here (iCloud Drive, other app sandboxes)."""
+    if path is None:
+        return False
+    text = str(path).replace("\\", "/")
+    return any(
+        marker in text
+        for marker in (
+            "com~apple~CloudDocs",
+            "Mobile Documents",
+            "/Android/data/",
+        )
+    )
+
+
 def default_save_directory() -> Path:
     """Prefer Documents / Desktop so the save dialog opens where users look."""
     home = Path.home()
+    if is_restricted_save_path(home):
+        return home
     for name in ("Documents", "Документы", "Desktop", "Рабочий стол"):
         candidate = home / name
-        if candidate.is_dir():
+        if candidate.is_dir() and not is_restricted_save_path(candidate):
             return candidate
     return home
 
@@ -83,6 +100,8 @@ def materialize_saved_file(source: Path, dest: str | Path | None) -> Path | None
     target = Path(raw)
     if target.is_dir() or raw.endswith(("/", "\\")):
         target = target / source.name
+    if is_restricted_save_path(target) or is_restricted_save_path(target.parent):
+        raise PermissionError(f"restricted path: {target}")
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         if (not target.exists()) or target.resolve() != source.resolve():
@@ -93,6 +112,42 @@ def materialize_saved_file(source: Path, dest: str | Path | None) -> Path | None
         logger.exception("Failed to write saved file to %s", target)
         raise
     return target
+
+
+def _shareable_copy(source: Path) -> Path:
+    """tmp is readable by the iOS/Android share sheet; Application Support is not."""
+    import tempfile
+
+    dest = Path(tempfile.gettempdir()) / source.name
+    if dest.resolve() != source.resolve():
+        shutil.copy2(source, dest)
+    return dest
+
+
+async def _share_sandbox_file(
+    page: ft.Page, file_path: Path, *, title: str
+) -> str | None:
+    """Present the system share sheet. Returns the sandbox path, or None if dismissed."""
+    name = file_path.name
+    shared = _shareable_copy(file_path)
+    try:
+        result = await share_service(page).share_files(
+            [ft.ShareFile(path=str(shared), name=name)],
+            title=title,
+            text=name,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("share_files failed", exc_info=True)
+        try:
+            await share_service(page).share_text(str(file_path), title=title)
+            return str(file_path)
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not present share sheet for %s", file_path)
+            return None
+    status = str(getattr(getattr(result, "status", None), "value", result) or "").lower()
+    if "dismiss" in status:
+        return None
+    return str(file_path)
 
 
 def _tk_save_as(file_name: str) -> str | None:
@@ -121,6 +176,10 @@ async def offer_saved_file(page: ft.Page, path: Path | str, *, title: str = "Fin
     file_path = Path(path)
     if not file_path.is_file():
         raise FileNotFoundError(str(file_path))
+    # Phones cannot write to iCloud Drive / system Downloads. Share the sandbox file.
+    if _mobile(page):
+        return await _share_sandbox_file(page, file_path, title=title)
+
     data = file_path.read_bytes()
     name = file_path.name
     picker = file_picker(page)
@@ -139,30 +198,20 @@ async def offer_saved_file(page: ft.Page, path: Path | str, *, title: str = "Fin
         dest = None
 
     if dest:
-        written = materialize_saved_file(file_path, dest)
-        return str(written) if written else None
-
-    if _mobile(page):
+        if is_restricted_save_path(dest):
+            logger.warning("Save picker returned a restricted path: %s", dest)
+            return None
         try:
-            await share_service(page).share_files(
-                [ft.ShareFile(path=str(file_path), name=name)],
-                title=title,
-                text=name,
-            )
-            return str(file_path)
-        except Exception:  # noqa: BLE001
-            logger.debug("share_files failed", exc_info=True)
-            try:
-                await share_service(page).share(text=str(file_path), subject=title)
-                return str(file_path)
-            except Exception:  # noqa: BLE001
-                logger.exception("Could not present share sheet for %s", file_path)
-                return None
+            written = materialize_saved_file(file_path, dest)
+        except OSError:
+            logger.exception("Could not copy export to %s", dest)
+            raise
+        return str(written) if written else None
 
     if not picker_failed:
         return None
     fallback = _tk_save_as(name)
-    if not fallback:
+    if not fallback or is_restricted_save_path(fallback):
         return None
     written = materialize_saved_file(file_path, fallback)
     return str(written) if written else None

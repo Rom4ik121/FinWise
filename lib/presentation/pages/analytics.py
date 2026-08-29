@@ -48,8 +48,9 @@ from lib.presentation.widgets.charts import (
     build_pie_chart_image,
     chart_layout,
 )
+from lib.presentation.layout import h_chip_row
 from lib.presentation.widgets.empty_state import EmptyState
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -98,26 +99,18 @@ class AnalyticsPage(ft.Column):
         self._analytics_period = DEFAULT_ANALYTICS_PERIOD
         self._section = "flow"
         self._token = -1
-        self._period_row = ft.ListView(
-            horizontal=True,
-            spacing=4,
-            padding=ft.Padding.only(right=12),
-            height=32,
-            scroll=ft.ScrollMode.HIDDEN,
-        )
+        self._period_row = h_chip_row()
         self._kpi_host = ft.Column(spacing=4, tight=True)
-        self._section_chips = ft.ListView(
-            horizontal=True,
-            spacing=4,
-            padding=ft.Padding.only(right=12),
-            height=32,
-            scroll=ft.ScrollMode.HIDDEN,
-        )
+        self._section_chips = h_chip_row()
+        self._period_chip_map: dict[str, ft.Container] = {}
+        self._section_chip_map: dict[str, ft.Container] = {}
         self._pager = ft.PageView(
             expand=True,
             horizontal=True,
             snap=True,
             pad_ends=False,
+            keep_page=True,
+            implicit_scrolling=False,
             on_change=self._on_pager_change,
         )
         super().__init__(
@@ -146,9 +139,9 @@ class AnalyticsPage(ft.Column):
                         expand=True,
                         spacing=6,
                         controls=[
-                            self._period_row,
+                            ft.Container(height=34, content=self._period_row),
                             self._kpi_host,
-                            self._section_chips,
+                            ft.Container(height=34, content=self._section_chips),
                             self._pager,
                         ],
                     ),
@@ -182,19 +175,28 @@ class AnalyticsPage(ft.Column):
         signed: bool = False,
     ) -> None:
         lang = self._state.language
-        full = format_money(amount, currency, signed=signed)
-        dialog = ft.AlertDialog(
+        dialog = ft.CupertinoAlertDialog(
             modal=True,
-            title=ft.Text(label or tr("analytics.full_amount", lang), max_lines=2),
-            content=ft.Text(
-                full,
-                size=22,
-                weight=ft.FontWeight.W_800,
-                selectable=True,
+            title=ft.Text(
+                label or tr("analytics.full_amount", lang),
+                size=13,
+                text_align=ft.TextAlign.CENTER,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+            ),
+            content=ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                content=ft.Text(
+                    format_money(amount, currency, signed=signed),
+                    size=17,
+                    weight=ft.FontWeight.W_800,
+                    text_align=ft.TextAlign.CENTER,
+                    selectable=True,
+                ),
             ),
             actions=[
-                ft.TextButton(
+                ft.CupertinoDialogAction(
                     tr("action.close", lang),
+                    default=True,
                     on_click=lambda _e: self._page.pop_dialog(),
                 ),
             ],
@@ -283,9 +285,7 @@ class AnalyticsPage(ft.Column):
                 skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
             ),
             ink=True,
-            animate=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
-            scale=1.04 if selected else 1.0,
-            animate_scale=ft.Animation(220, ft.AnimationCurve.EASE_OUT_BACK),
+            animate=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
             on_click=on_click,
             content=ft.Text(
                 label,
@@ -371,18 +371,6 @@ class AnalyticsPage(ft.Column):
             on_click=lambda _e, k=key: self._set_period(k),
         )
 
-    def _set_period(self, key: str) -> None:
-        if self._analytics_period == key:
-            return
-        self._analytics_period = key
-        run_async(self._page, self.reload)
-
-    def _rebuild_period_row(self, lang: str) -> None:
-        self._period_row.controls = [
-            self._period_chip(key, lang) for key in ANALYTICS_PERIOD_KEYS
-        ]
-        safe_update(self._period_row)
-
     def _section_chip(self, key: str, lang: str) -> ft.Control:
         return self._chip(
             tr(f"analytics.tab.{key}", lang),
@@ -390,12 +378,63 @@ class AnalyticsPage(ft.Column):
             on_click=lambda _e, k=key: self._set_section(k),
         )
 
+    def _set_period(self, key: str) -> None:
+        if self._analytics_period == key:
+            return
+        self._analytics_period = key
+        self._tint_period_chips()
+        run_async(self._page, self.reload)
+
+    def _rebuild_period_row(self, lang: str) -> None:
+        if self._period_chip_map:
+            self._tint_period_chips()
+            return
+        chips = [self._period_chip(key, lang) for key in ANALYTICS_PERIOD_KEYS]
+        self._period_chip_map = {
+            key: chip  # type: ignore[misc]
+            for key, chip in zip(ANALYTICS_PERIOD_KEYS, chips)
+        }
+        self._period_row.controls = [*chips, ft.Container(width=28)]
+        safe_update(self._period_row)
+
     def _rebuild_section_chips(self) -> None:
+        if self._section_chip_map:
+            self._tint_section_chips()
+            return
         lang = self._state.language
-        self._section_chips.controls = [
-            self._section_chip(key, lang) for key in _SECTIONS
-        ]
+        chips = [self._section_chip(key, lang) for key in _SECTIONS]
+        self._section_chip_map = {
+            key: chip  # type: ignore[misc]
+            for key, chip in zip(_SECTIONS, chips)
+        }
+        self._section_chips.controls = [*chips, ft.Container(width=28)]
         safe_update(self._section_chips)
+
+    def _tint_period_chips(self) -> None:
+        self._tint_chip_map(self._period_chip_map, self._analytics_period)
+
+    def _tint_section_chips(self) -> None:
+        self._tint_chip_map(self._section_chip_map, self._section)
+
+    def _tint_chip_map(self, mapping: dict[str, ft.Container], selected_key: str) -> None:
+        skin = get_active_skin()
+        dark = self._dark()
+        for key, chip in mapping.items():
+            selected = key == selected_key
+            chip.bgcolor = skin.badge_bg(dark=dark) if selected else None
+            chip.border = ft.Border.all(
+                1,
+                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
+            )
+            label = chip.content
+            if isinstance(label, ft.Text):
+                label.color = (
+                    skin.badge_fg(dark=dark)
+                    if selected
+                    else ft.Colors.ON_SURFACE_VARIANT
+                )
+                safe_update(label)
+            safe_update(chip)
 
     def _set_section(self, key: str, *, from_pager: bool = False) -> None:
         if key in {"spend", "income"}:
@@ -403,14 +442,12 @@ class AnalyticsPage(ft.Column):
         if key not in _SECTIONS:
             key = "flow"
         if self._section == key:
-            if from_pager:
-                self._rebuild_section_chips()
             return
         self._section = key
         if not from_pager:
             self._pager.selected_index = _SECTIONS.index(key)
             safe_update(self._pager)
-        self._rebuild_section_chips()
+        self._tint_section_chips()
 
     def _on_pager_change(self, e: ft.ControlEvent) -> None:
         control = getattr(e, "control", None) or self._pager
@@ -419,7 +456,21 @@ class AnalyticsPage(ft.Column):
             idx = int(raw)
         else:
             idx = int(getattr(control, "selected_index", 0) or 0)
-        idx = max(0, min(idx, len(_SECTIONS) - 1))
+        last = len(_SECTIONS) - 1
+        idx = max(0, min(idx, last))
+        prev = _SECTIONS.index(self._section) if self._section in _SECTIONS else 0
+        wrapped = (prev == last and idx == 0) or (prev == 0 and idx == last)
+        if wrapped:
+            async def _stay() -> None:
+                try:
+                    await self._pager.jump_to_page(prev)
+                except Exception:  # noqa: BLE001
+                    self._pager.selected_index = prev
+                    safe_update(self._pager)
+
+            self._pager.selected_index = prev
+            run_async(self._page, _stay)
+            return
         self._set_section(_SECTIONS[idx], from_pager=True)
 
     def _metric_cell(
@@ -507,7 +558,8 @@ class AnalyticsPage(ft.Column):
                 ft.Text(
                     trailing,
                     size=11,
-                    width=40,
+                    no_wrap=True,
+                    max_lines=1,
                     text_align=ft.TextAlign.END,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 )
@@ -532,10 +584,11 @@ class AnalyticsPage(ft.Column):
         return ft.Container(
             expand=True,
             padding=ft.Padding.only(right=2),
-            content=ft.Column(
+            content=ft.ListView(
                 expand=True,
-                scroll=ft.ScrollMode.HIDDEN,
                 spacing=8,
+                padding=ft.Padding.only(bottom=40),
+                auto_scroll=False,
                 controls=list(controls),
             ),
         )
@@ -565,6 +618,7 @@ class AnalyticsPage(ft.Column):
             language=lang,
             show_legend=False,
             empty_message=empty_chart,
+            page=self._page,
         )
         rows: list[ft.Control] = []
         denom = total if total > 0 else Decimal("0")
@@ -590,13 +644,23 @@ class AnalyticsPage(ft.Column):
                             overflow=ft.TextOverflow.ELLIPSIS,
                             max_lines=1,
                         ),
-                        self._money(amount, base, label=name, size=11, color=None),
-                        ft.Text(
-                            f"{share:.0f}%",
-                            size=11,
-                            width=36,
-                            text_align=ft.TextAlign.END,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ft.Row(
+                            spacing=6,
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                self._money(
+                                    amount, base, label=name, size=11, color=None
+                                ),
+                                ft.Text(
+                                    f"{share:.0f}%",
+                                    size=11,
+                                    no_wrap=True,
+                                    max_lines=1,
+                                    text_align=ft.TextAlign.END,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                            ],
                         ),
                     ],
                 )
@@ -618,8 +682,7 @@ class AnalyticsPage(ft.Column):
         lang = self._state.language
         self._rebuild_period_row(lang)
         self._rebuild_section_chips()
-        self._kpi_host.controls = [loading_indicator(message=tr("action.refresh", lang))]
-        safe_update(self._kpi_host)
+        fill_loading(self._kpi_host, message=tr("action.refresh", lang))
 
         c = self._state.container
         now = datetime.now(timezone.utc)
@@ -778,7 +841,6 @@ class AnalyticsPage(ft.Column):
                     ),
                 ]
             ),
-            muted_text(tr("analytics.tap_hint", lang), size=11),
         ]
         safe_update(self._kpi_host)
 
@@ -859,6 +921,7 @@ class AnalyticsPage(ft.Column):
                                 language=lang,
                                 show_income=True,
                                 show_expense=True,
+                                page=self._page,
                             ),
                         ],
                     ),

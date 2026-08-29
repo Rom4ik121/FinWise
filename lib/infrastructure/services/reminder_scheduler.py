@@ -114,6 +114,7 @@ async def _schedule_os_upcoming(
 ) -> None:
     """Ask the OS to fire reminders even if the app is closed."""
     from lib.infrastructure.services.push_notifier import (
+        get_android_notifications,
         reminder_fire_at,
         schedule_os_notification,
     )
@@ -122,6 +123,13 @@ async def _schedule_os_upcoming(
     reminder_time = str(getattr(settings, "reminder_time", "09:00") or "09:00")
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=30)
+    svc = get_android_notifications()
+    cancel_all = getattr(svc, "cancel_all", None) if svc is not None else None
+    if callable(cancel_all):
+        try:
+            await cancel_all()
+        except Exception:  # noqa: BLE001
+            logger.debug("cancel_all notifications failed", exc_info=True)
 
     async def _arm(
         *,

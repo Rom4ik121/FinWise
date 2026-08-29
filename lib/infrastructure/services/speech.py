@@ -65,3 +65,55 @@ async def listen_speech(*, language: str = "ru", seconds: int = 8) -> str:
     if payload.get("ok"):
         return str(payload.get("text") or "").strip()
     return ""
+
+
+async def prepare_speech_permissions() -> dict[str, Any]:
+    """Ask for microphone and speech recognition. Does not open Settings."""
+    service = _speech_service
+    if service is None:
+        return {"ok": False, "error": "unavailable"}
+    try:
+        req = getattr(service, "request_permissions", None)
+        if req is not None:
+            payload = await req()
+            if isinstance(payload, dict):
+                return {
+                    "ok": bool(payload.get("ok")),
+                    "error": payload.get("error"),
+                }
+            return {"ok": bool(payload)}
+        ok = await service.is_available()
+        return {"ok": bool(ok), "error": None if ok else "permission"}
+    except Exception:  # noqa: BLE001
+        logger.exception("Speech permission request failed")
+        return {"ok": False, "error": "permission"}
+
+
+async def open_os_app_settings(page: Any) -> None:
+    """Open this app's system Settings page (Microphone, Speech, etc.)."""
+    service = _speech_service
+    opener = getattr(service, "open_settings", None)
+    if opener is not None:
+        try:
+            if await opener():
+                return
+        except Exception:  # noqa: BLE001
+            logger.debug("native open_settings failed", exc_info=True)
+    plat = str(getattr(page, "platform", "")).lower()
+    urls = ["app-settings:"]
+    if "android" in plat:
+        urls = [
+            "intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;"
+            "scheme=package;package=com.finanse.app;end",
+            "package:com.finanse.app",
+            "app-settings:",
+        ]
+    launch = getattr(page, "launch_url", None)
+    if not callable(launch):
+        return
+    for url in urls:
+        try:
+            launch(url)
+            return
+        except Exception:  # noqa: BLE001
+            logger.debug("launch_url %s failed", url, exc_info=True)

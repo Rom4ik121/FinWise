@@ -47,6 +47,8 @@ def test_localize_category_name() -> None:
     assert localize_category_name("Еда", "ru") == "Еда"
     assert localize_category_name("Еда", "en") == "Food"
     assert localize_category_name("Еда", "uz") == "Ovqat"
+    assert localize_category_name("Торговля", "en") == "Trading"
+    assert localize_category_name("Комиссия", "uz") == "Komissiya"
     assert localize_category_name("Custom", "en") == "Custom"
 
 

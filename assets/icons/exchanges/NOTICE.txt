@@ -1,0 +1,2 @@
+Icons from https://github.com/0xa3k5/web3icons (MIT License).
+Background variants rasterized for FinWise account badges.

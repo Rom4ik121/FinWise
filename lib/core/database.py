@@ -144,6 +144,7 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
         ],
         "budgets": [
             ("last_alert_level", "INTEGER NOT NULL DEFAULT 0"),
+            ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
         ],
         "transactions": [
             ("debt_id", "VARCHAR(36)"),
@@ -243,6 +244,11 @@ def _ensure_sqlite_indexes(engine: Engine) -> None:
         }
         for sql in statements:
             conn.exec_driver_sql(sql)
+        if "exchange_connections" in tables:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_exchange_connections_provider "
+                "ON exchange_connections (provider)"
+            )
         if "budgets" in tables:
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_budgets_month_year "

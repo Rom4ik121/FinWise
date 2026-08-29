@@ -28,6 +28,7 @@ from lib.presentation.utils import (
     format_money,
     load_rate_book,
     run_async,
+    safe_update,
     snack,
     tr,
 )
@@ -37,7 +38,8 @@ from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.widgets.goal_progress import GoalProgress
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.layout import make_v_scroll
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -53,7 +55,7 @@ class GoalsPage(ft.Column):
     def __init__(self, page: ft.Page, state: "AppState") -> None:
         self._page = page
         self._state = state
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=14)
+        self._list = make_v_scroll(spacing=14)
         self._status_filter = "active"
         self._sort_by = "priority"
         self._group_by_category = False
@@ -154,8 +156,8 @@ class GoalsPage(ft.Column):
         """Reload goals list."""
         self._token = self._state.goals_token
         lang = self._state.language
-        self._list.controls = [loading_indicator()]
-        self._list.update()
+        fill_loading(self._list)
+        safe_update(self._list)
         self._alert_ids = pending_related_ids(
             self._state.container,
             self._state.settings,
@@ -175,7 +177,7 @@ class GoalsPage(ft.Column):
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
-            self._list.update()
+            safe_update(self._list)
             return
         if not goals:
             self._list.controls = [
@@ -185,7 +187,7 @@ class GoalsPage(ft.Column):
                     on_action=lambda _e: self._open_editor(),
                 )
             ]
-            self._list.update()
+            safe_update(self._list)
             return
 
         base = self._state.base_currency
@@ -229,7 +231,7 @@ class GoalsPage(ft.Column):
             cards.extend(self._goal_card(g) for g in goals)
 
         self._list.controls = cards
-        self._list.update()
+        safe_update(self._list)
 
     def _goal_card(self, goal: Goal) -> ft.Control:
         return GoalProgress(

@@ -4,6 +4,20 @@ from __future__ import annotations
 
 import flet as ft
 
+from lib.presentation.utils import safe_update
+
+
+def fill_loading(host: ft.Control, *, message: str = "") -> None:
+    """Show a spinner only when the host is still empty.
+
+    Replacing populated scroll content with a spinner jumps the page to the top.
+    """
+    current = getattr(host, "controls", None)
+    if current:
+        return
+    host.controls = [loading_indicator(message=message)]
+    safe_update(host)
+
 
 def loading_indicator(*, message: str = "") -> ft.Control:
     """Compact centered progress ring with optional caption."""

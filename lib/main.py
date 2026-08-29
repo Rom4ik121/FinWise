@@ -223,8 +223,6 @@ async def _flet_main(page: ft.Page) -> None:
         logger.exception("process_due_subscriptions failed")
 
     app = FinanseApp(page, container)
-    page.controls.clear()
-    page.update()
 
     from lib.infrastructure.services.biometric import register_local_auth_service
     from lib.infrastructure.services.push_notifier import (
@@ -233,7 +231,7 @@ async def _flet_main(page: ft.Page) -> None:
     )
     from lib.infrastructure.services.speech import register_speech_service
 
-    # Services must not be page.add()'d — that paints "Unknown control" on splash.
+    # Keep the splash visible — do not clear the page before the shell is ready.
     register_local_auth_service(page)
     register_android_notifications(page)
     register_speech_service(page)
@@ -242,7 +240,8 @@ async def _flet_main(page: ft.Page) -> None:
         settings = await container.get_settings.execute()
         if settings.notifications_enabled:
             try:
-                await request_push_permissions()
+                granted = await request_push_permissions()
+                logger.info("Push permission granted=%s", granted)
             except Exception:  # noqa: BLE001
                 logger.exception("Push permission request failed")
         await schedule_reminders(

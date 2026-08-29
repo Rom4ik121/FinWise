@@ -20,6 +20,13 @@ def amount_separators(lang: str) -> tuple[str, str]:
     return ".", ","
 
 
+def parse_optional_amount(text: str | None) -> Decimal:
+    """Parse a fee-like field: empty means zero."""
+    if not (text or "").strip():
+        return Decimal("0")
+    return parse_amount(text)
+
+
 def parse_amount(text: str | None) -> Decimal:
     """Parse a grouped amount into ``Decimal``.
 

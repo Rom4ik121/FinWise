@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class FinanseSpeechService extends FletService with WidgetsBindingObserver {
   FinanseSpeechService({required super.control});
@@ -75,7 +76,11 @@ class FinanseSpeechService extends FletService with WidgetsBindingObserver {
     debugPrint("FinanseSpeech.$name($args)");
     switch (name) {
       case "is_available":
-        return await _speech.initialize();
+        return await _ensureReady();
+      case "request_permissions":
+        return await _requestPermissions();
+      case "open_settings":
+        return await _openSettings();
       case "listen":
         return _listen(args);
       case "take_pending_voice":
@@ -85,6 +90,36 @@ class FinanseSpeechService extends FletService with WidgetsBindingObserver {
       default:
         throw Exception("Unknown FinanseSpeech method: $name");
     }
+  }
+
+  Future<bool> _ensureReady() async {
+    try {
+      return await _speech.initialize();
+    } catch (error) {
+      debugPrint("FinanseSpeech.initialize failed: $error");
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> _requestPermissions() async {
+    final ready = await _ensureReady();
+    return {
+      "ok": ready,
+      "ready": ready,
+      "error": ready ? null : "permission",
+    };
+  }
+
+  Future<bool> _openSettings() async {
+    try {
+      final uri = Uri.parse("app-settings:");
+      if (await canLaunchUrl(uri)) {
+        return await launchUrl(uri);
+      }
+    } catch (error) {
+      debugPrint("FinanseSpeech.open_settings failed: $error");
+    }
+    return false;
   }
 
   String _lastWords() {
@@ -99,9 +134,9 @@ class FinanseSpeechService extends FletService with WidgetsBindingObserver {
     final locale = (args?["locale"] as String?) ?? "ru_RU";
     final seconds = (args?["seconds"] as num?)?.toInt() ?? 8;
     try {
-      final ready = await _speech.initialize();
+      final ready = await _ensureReady();
       if (!ready) {
-        return {"ok": false, "text": "", "error": "unavailable"};
+        return {"ok": false, "text": "", "error": "permission"};
       }
       final completer = Completer<String>();
       await _speech.listen(

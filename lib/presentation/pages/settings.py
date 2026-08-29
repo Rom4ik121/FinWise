@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import flet as ft
@@ -20,7 +21,7 @@ from lib.infrastructure.services.push_notifier import request_push_permissions
 from lib.presentation.styles import card_surface, labeled_field, labeled_switch, page_header, section_title
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
-from lib.presentation.utils import run_async, snack, tr
+from lib.presentation.utils import dropdown_select_kwargs, run_async, snack, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 
@@ -110,6 +111,7 @@ class SettingsPage(ft.Column):
         self._page = page
         self._state = state
         self._sections: list[ft.Container] = []
+        self._save_gen = 0
 
         s = state.settings
         lang = state.language
@@ -119,6 +121,8 @@ class SettingsPage(ft.Column):
                 apply = (getattr(item, "data", None) or {}).get("apply")
                 if callable(apply):
                     apply(item is section and will_open)
+            if will_open and section is getattr(self, "_voice_section", None):
+                run_async(self._page, self._on_voice_section_open)
 
         def section(
             title: str,
@@ -144,6 +148,7 @@ class SettingsPage(ft.Column):
             value=normalize_currency_code(s.default_currency),
             include_crypto=True,
             expand=True,
+            on_changed=lambda _code: self._autosave(),
         )
         self._theme = ft.Dropdown(
             label=tr("settings.theme", lang),
@@ -155,6 +160,7 @@ class SettingsPage(ft.Column):
             ],
             expand=True,
             dense=True,
+            **dropdown_select_kwargs(lambda _e: self._autosave()),
         )
         self._ui_style = normalize_skin_id(getattr(s, "ui_style", None))
         self._style_host = ft.Row(
@@ -175,6 +181,7 @@ class SettingsPage(ft.Column):
             ],
             expand=True,
             dense=True,
+            **dropdown_select_kwargs(lambda _e: self._autosave()),
         )
         self._interval = ft.TextField(
             value=str(s.exchange_update_interval_minutes),
@@ -184,6 +191,9 @@ class SettingsPage(ft.Column):
             border_radius=12,
             filled=True,
             bgcolor=ft.Colors.SURFACE,
+            on_change=lambda _e: self._autosave_debounced(),
+            on_blur=lambda _e: self._autosave(),
+            on_submit=lambda _e: self._autosave(),
         )
         self._reminder_time = ft.TextField(
             value=s.reminder_time or "09:00",
@@ -193,6 +203,9 @@ class SettingsPage(ft.Column):
             border_radius=12,
             filled=True,
             bgcolor=ft.Colors.SURFACE,
+            on_change=lambda _e: self._autosave_debounced(),
+            on_blur=lambda _e: self._autosave(),
+            on_submit=lambda _e: self._autosave(),
         )
         self._reminder_days = ft.TextField(
             value=str(getattr(s, "reminder_days", 3) or 3),
@@ -202,6 +215,9 @@ class SettingsPage(ft.Column):
             border_radius=12,
             filled=True,
             bgcolor=ft.Colors.SURFACE,
+            on_change=lambda _e: self._autosave_debounced(),
+            on_blur=lambda _e: self._autosave(),
+            on_submit=lambda _e: self._autosave(),
         )
         self._notifications = ft.Switch(
             value=s.notifications_enabled,
@@ -209,18 +225,23 @@ class SettingsPage(ft.Column):
         )
         self._debt_reminders = ft.Switch(
             value=s.debt_reminders,
+            on_change=lambda _e: self._autosave(),
         )
         self._sub_reminders = ft.Switch(
             value=s.subscription_reminders,
+            on_change=lambda _e: self._autosave(),
         )
         self._check_balance_sub = ft.Switch(
             value=bool(getattr(s, "check_balance_before_subscription", True)),
+            on_change=lambda _e: self._autosave(),
         )
         self._goal_milestones = ft.Switch(
             value=s.goal_milestones,
+            on_change=lambda _e: self._autosave(),
         )
         self._budget_alerts = ft.Switch(
             value=bool(getattr(s, "budget_alerts", True)),
+            on_change=lambda _e: self._autosave(),
         )
         self._biometric = ft.Switch(
             value=s.biometric_enabled,
@@ -247,11 +268,47 @@ class SettingsPage(ft.Column):
             shape=ft.RoundedRectangleBorder(radius=12),
             padding=ft.Padding.symmetric(horizontal=14, vertical=12),
         )
+        self._voice_section = section(
+            tr("voice.shortcut_title", lang),
+            ft.Icons.MIC_NONE,
+            [
+                ft.Text(
+                    tr("voice.shortcut_how", lang),
+                    size=12,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+                ft.Text(
+                    tr("voice.shortcut_android", lang),
+                    size=11,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+                ft.Text(
+                    tr("voice.shortcut_ios", lang),
+                    size=11,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+                ft.FilledTonalButton(
+                    tr("voice.grant_permissions", lang),
+                    icon=ft.Icons.SETTINGS_VOICE,
+                    style=btn_style,
+                    on_click=lambda _e: run_async(
+                        page, self._grant_voice_permissions
+                    ),
+                ),
+                ft.FilledTonalButton(
+                    tr("voice.listen_now", lang),
+                    icon=ft.Icons.MIC,
+                    style=btn_style,
+                    on_click=lambda _e: self._listen_voice_now(),
+                ),
+            ],
+        )
 
-        scroll_body = ft.Column(
+        scroll_body = ft.ListView(
             expand=True,
-            scroll=ft.ScrollMode.HIDDEN,
             spacing=14,
+            padding=ft.Padding.only(bottom=40),
+            auto_scroll=False,
             controls=[
                 section(
                     tr("settings.appearance", lang),
@@ -345,33 +402,7 @@ class SettingsPage(ft.Column):
                         ),
                     ],
                 ),
-                section(
-                    tr("voice.shortcut_title", lang),
-                    ft.Icons.MIC_NONE,
-                    [
-                        ft.Text(
-                            tr("voice.shortcut_how", lang),
-                            size=12,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                        ft.Text(
-                            tr("voice.shortcut_android", lang),
-                            size=11,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                        ft.Text(
-                            tr("voice.shortcut_ios", lang),
-                            size=11,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                        ft.FilledTonalButton(
-                            tr("voice.listen_now", lang),
-                            icon=ft.Icons.MIC,
-                            style=btn_style,
-                            on_click=lambda _e: self._listen_voice_now(),
-                        ),
-                    ],
-                ),
+                self._voice_section,
                 section(
                     tr("settings.sections", lang),
                     ft.Icons.APPS_OUTLINED,
@@ -515,43 +546,7 @@ class SettingsPage(ft.Column):
                         ),
                     ],
                 ),
-                # Space so the last section is not hidden under the floating save bar.
-                ft.Container(height=110),
             ],
-        )
-
-        floating_save = ft.Container(
-            left=0,
-            right=0,
-            bottom=0,
-            padding=ft.Padding.only(left=4, right=4, bottom=8),
-            content=ft.Container(
-                border_radius=18,
-                bgcolor=ft.Colors.PRIMARY,
-                padding=ft.Padding.symmetric(horizontal=16, vertical=14),
-                ink=True,
-                on_click=lambda _e: run_async(page, self.save),
-                shadow=ft.BoxShadow(
-                    spread_radius=0,
-                    blur_radius=20,
-                    color="#00000044",
-                    offset=ft.Offset(0, 6),
-                ),
-                content=ft.Row(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=10,
-                    tight=True,
-                    controls=[
-                        ft.Icon(ft.Icons.SAVE_OUTLINED, color=ft.Colors.ON_PRIMARY),
-                        ft.Text(
-                            tr("action.save", lang),
-                            color=ft.Colors.ON_PRIMARY,
-                            weight=ft.FontWeight.W_700,
-                            size=15,
-                        ),
-                    ],
-                ),
-            ),
         )
 
         super().__init__(
@@ -562,13 +557,7 @@ class SettingsPage(ft.Column):
                 ft.Container(
                     expand=True,
                     padding=ft.Padding.symmetric(horizontal=12, vertical=4),
-                    content=ft.Stack(
-                        expand=True,
-                        controls=[
-                            scroll_body,
-                            floating_save,
-                        ],
-                    ),
+                    content=scroll_body,
                 ),
             ],
         )
@@ -592,6 +581,7 @@ class SettingsPage(ft.Column):
                 self._style_host.update()
             except Exception:  # noqa: BLE001
                 pass
+            self._autosave()
 
         return ft.Container(
             width=156,
@@ -680,7 +670,40 @@ class SettingsPage(ft.Column):
         if capture is None:
             snack(self._page, tr("voice.unavailable", self._state.language), error=True)
             return
-        run_async(self._page, capture)
+        run_async(self._page, self._listen_voice_after_permissions, capture)
+
+    async def _listen_voice_after_permissions(self, capture) -> None:
+        allowed = await self._prepare_voice_permissions(announce_ok=False)
+        if not allowed:
+            return
+        await capture()
+
+    async def _on_voice_section_open(self) -> None:
+        await self._prepare_voice_permissions(announce_ok=False)
+
+    async def _grant_voice_permissions(self) -> None:
+        await self._prepare_voice_permissions(announce_ok=True)
+
+    async def _prepare_voice_permissions(self, *, announce_ok: bool = False) -> bool:
+        """Ask for mic + speech, then open OS Settings if still denied."""
+        from lib.infrastructure.services.speech import (
+            get_speech_service,
+            open_os_app_settings,
+            prepare_speech_permissions,
+        )
+
+        lang = self._state.language
+        if get_speech_service() is None:
+            snack(self._page, tr("voice.unavailable", lang), error=True)
+            return False
+        result = await prepare_speech_permissions()
+        if result.get("ok"):
+            if announce_ok:
+                snack(self._page, tr("voice.permission_ok", lang))
+            return True
+        snack(self._page, tr("voice.permission_denied", lang), error=True)
+        await open_os_app_settings(self._page)
+        return False
 
     def _on_notifications_toggle(self, e: ft.ControlEvent) -> None:
         if bool(getattr(e.control, "value", False)):
@@ -699,6 +722,7 @@ class SettingsPage(ft.Column):
                 self._budget_alerts.value = True
             run_async(self._page, request_push_permissions)
         self._sync_notification_controls()
+        self._autosave()
 
     def _hint_for_status(self, status: BiometricStatus) -> str:
         lang = self._state.language
@@ -729,6 +753,7 @@ class SettingsPage(ft.Column):
         lang = self._state.language
         enabled = bool(getattr(e.control, "value", False))
         if not enabled:
+            await self.save(silent=True)
             return
         repo = self._state.container.settings_repository
         has_pin = False
@@ -773,8 +798,25 @@ class SettingsPage(ft.Column):
                 snack(self._page, tr("lock.biometric_failed", lang), error=True)
             return
         snack(self._page, tr("settings.biometric_confirmed", lang))
+        await self.save(silent=True)
 
-    async def save(self) -> None:
+    def _autosave(self, _e: ft.ControlEvent | None = None) -> None:
+        self._save_gen += 1
+        run_async(self._page, self.save, True)
+
+    def _autosave_debounced(self, _e: ft.ControlEvent | None = None) -> None:
+        self._save_gen += 1
+        gen = self._save_gen
+
+        async def _wait() -> None:
+            await asyncio.sleep(0.5)
+            if gen != self._save_gen:
+                return
+            await self.save(silent=True)
+
+        run_async(self._page, _wait)
+
+    async def save(self, silent: bool = False) -> None:
         """Persist settings via use case and apply theme/language."""
         lang = self._state.language
         try:
@@ -788,6 +830,7 @@ class SettingsPage(ft.Column):
         previous_language = normalize_lang(self._state.settings.language)
         previous_theme = self._state.theme_mode
         previous_style = normalize_skin_id(getattr(self._state.settings, "ui_style", None))
+        previous_notifications = bool(self._state.settings.notifications_enabled)
         try:
             reminder_days = int(self._reminder_days.value or 3)
         except ValueError:
@@ -862,7 +905,11 @@ class SettingsPage(ft.Column):
         apply_theme_from_settings(self._page, saved)
         if saved.notifications_enabled:
             try:
-                await request_push_permissions()
+                granted = await request_push_permissions()
+                if granted and not previous_notifications:
+                    from lib.infrastructure.services.push_notifier import notify_push_ready
+
+                    await notify_push_ready(normalize_lang(saved.language))
             except Exception:  # noqa: BLE001
                 pass
         created = await schedule_reminders(
@@ -879,9 +926,15 @@ class SettingsPage(ft.Column):
             or previous_style != saved.ui_style
         ):
             self._state.request_view_rebuild()
-        self._state.bump_refresh()
-        self._page.update()
-        snack(self._page, tr("action.saved", saved.language))
+        elif new_currency != previous_currency:
+            self._state.bump_refresh()
+        if not silent:
+            self._page.update()
+            snack(self._page, tr("action.saved", saved.language))
+        else:
+            from lib.presentation.haptics import haptic
+
+            haptic("selection")
 
     async def _migrate_account_currencies(self, old: str, new: str) -> None:
         """Retarget accounts/txs still on the previous default currency.
@@ -909,6 +962,20 @@ class SettingsPage(ft.Column):
                     tx.model_copy(update={"currency": new})
                 )
 
+    def _io_error_snack(self, exc: Exception) -> None:
+        text = str(exc)
+        lang = self._state.language
+        lowered = text.lower()
+        if (
+            "not permitted" in lowered
+            or "errno 1" in lowered
+            or "CloudDocs" in text
+            or "Mobile Documents" in text
+        ):
+            snack(self._page, tr("settings.file_denied", lang), error=True)
+            return
+        snack(self._page, text, error=True)
+
     async def export_json(self) -> None:
         try:
             result = await self._state.container.export_data.execute(
@@ -916,7 +983,7 @@ class SettingsPage(ft.Column):
             )
             await self._offer_file(result.path, kind="JSON")
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            self._io_error_snack(exc)
 
     async def export_csv(self) -> None:
         try:
@@ -925,7 +992,7 @@ class SettingsPage(ft.Column):
             path = ExportService(c.config).export_transactions_csv(txs)
             await self._offer_file(path, kind="CSV")
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            self._io_error_snack(exc)
 
     async def export_pdf(self) -> None:
         try:
@@ -945,24 +1012,33 @@ class SettingsPage(ft.Column):
             )
             await self._offer_file(path, kind="PDF")
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            self._io_error_snack(exc)
 
     async def backup(self) -> None:
         try:
             path = BackupService(self._state.container.config).backup()
             await self._offer_file(path, kind="Backup")
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            self._io_error_snack(exc)
 
     async def _offer_file(self, path, *, kind: str) -> None:
         from lib.presentation.file_transfer import offer_saved_file
 
-        location = await offer_saved_file(
-            self._page, path, title=f"FinWise {kind}"
-        )
         lang = self._state.language
+        try:
+            location = await offer_saved_file(
+                self._page, path, title=f"FinWise {kind}"
+            )
+        except OSError:
+            snack(self._page, tr("settings.file_denied", lang), error=True)
+            return
         if not location:
             snack(self._page, tr("settings.file_cancelled", lang), error=True)
+            return
+        from lib.infrastructure.services.biometric import is_mobile_platform
+
+        if is_mobile_platform(self._page):
+            snack(self._page, tr("settings.file_shared", lang).format(kind=kind))
             return
         snack(self._page, tr("settings.file_ready", lang).format(kind=kind, path=location))
 

@@ -26,6 +26,7 @@ from lib.presentation.utils import (
     format_money,
     load_rate_book,
     run_async,
+    safe_update,
     snack,
     tr,
 )
@@ -33,7 +34,8 @@ from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.layout import make_v_scroll
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.subscription_card import (
     SubscriptionCard,
     periodicity_label,
@@ -64,7 +66,7 @@ class SubscriptionsPage(ft.Column):
         self._state = state
         self._accounts: list = []
         self._calendar = ft.Column(spacing=6)
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
+        self._list = make_v_scroll(spacing=12)
         self._alert_ids: set[str] = set()
         self._token = -1
         super().__init__(
@@ -115,8 +117,8 @@ class SubscriptionsPage(ft.Column):
         """Reload subscriptions and build upcoming calendar."""
         self._token = self._state.subscriptions_token
         lang = self._state.language
-        self._list.controls = [loading_indicator()]
-        self._list.update()
+        fill_loading(self._list)
+        safe_update(self._list)
         self._alert_ids = pending_related_ids(
             self._state.container,
             self._state.settings,
@@ -136,7 +138,7 @@ class SubscriptionsPage(ft.Column):
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
-            self._list.update()
+            safe_update(self._list)
             return
 
         upcoming = sorted(
@@ -160,7 +162,7 @@ class SubscriptionsPage(ft.Column):
             self._calendar.controls = [
                 ft.Text("—", color=ft.Colors.ON_SURFACE_VARIANT)
             ]
-        self._calendar.update()
+        safe_update(self._calendar)
 
         if not items:
             self._list.controls = [
@@ -170,7 +172,7 @@ class SubscriptionsPage(ft.Column):
                     on_action=lambda _e: self._open_editor(),
                 )
             ]
-            self._list.update()
+            safe_update(self._list)
             return
 
         base = self._state.base_currency
@@ -225,7 +227,7 @@ class SubscriptionsPage(ft.Column):
                 for s in items
             ],
         ]
-        self._list.update()
+        safe_update(self._list)
 
     def _confirm_delete(self, sub: Subscription) -> None:
         lang = self._state.language
@@ -551,12 +553,6 @@ class SubscriptionsPage(ft.Column):
             snack(self._page, tr("empty.accounts", lang), error=True)
             return
 
-        cat_names: list[str] = [tr("category.other", lang)]
-        if self._state.container.list_categories is not None:
-            cats = await self._state.container.list_categories.execute()
-            if cats:
-                cat_names = [c.name for c in cats]
-
         name_tf = ft.TextField(
             label=tr("field.name", lang), value=sub.name if sub else ""
         )
@@ -571,11 +567,6 @@ class SubscriptionsPage(ft.Column):
             options=[
                 ft.DropdownOption(key=a.id, text=a.name) for a in self._accounts
             ],
-        )
-        category_dd = ft.Dropdown(
-            label=tr("field.category", lang),
-            value=sub.category if sub else cat_names[0],
-            options=[ft.DropdownOption(key=c, text=c) for c in cat_names],
         )
         period_dd = ft.Dropdown(
             label=tr("field.period", lang),
@@ -726,7 +717,7 @@ class SubscriptionsPage(ft.Column):
                 amount=amount,
                 currency=account.currency,
                 account_id=account.id,
-                category=category_dd.value or cat_names[0],
+                category=sub.category if sub else "Прочее",
                 periodicity=periodicity,
                 custom_interval_days=custom_days,
                 start_date=start,
@@ -760,7 +751,6 @@ class SubscriptionsPage(ft.Column):
                 name_tf,
                 amount_tf,
                 account_dd,
-                category_dd,
                 period_dd,
                 custom_tf,
                 start_field,

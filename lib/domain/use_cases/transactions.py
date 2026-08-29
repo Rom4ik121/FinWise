@@ -565,6 +565,29 @@ class GetTransactionStatsUseCase:
 
 
 TRANSFER_CATEGORY = "Перевод"
+FEE_CATEGORY = "Комиссия"
+
+
+def make_fee_expense(
+    *,
+    account_id: str,
+    currency: str,
+    amount: Decimal,
+    date: Optional[datetime] = None,
+    comment: str = "",
+) -> Transaction:
+    """Ordinary expense used for a bank/exchange fee."""
+    extra = (comment or "").strip()
+    return Transaction(
+        account_id=account_id,
+        amount=quantize_money(amount),
+        category=FEE_CATEGORY,
+        tags=["fee"],
+        date=date or _utc_now(),
+        comment=extra or FEE_CATEGORY,
+        type=TransactionType.EXPENSE,
+        currency=currency,
+    )
 
 
 class TransferAccountsUseCase:
@@ -592,8 +615,12 @@ class TransferAccountsUseCase:
         amount: Decimal,
         comment: str = "",
         date: Optional[datetime] = None,
+        fee: Decimal = Decimal("0"),
     ) -> tuple[Transaction, Transaction]:
-        """Create both transfer legs and return ``(outgoing, incoming)``."""
+        """Create both transfer legs and return ``(outgoing, incoming)``.
+
+        ``fee`` is an extra expense on the source account (not credited to dest).
+        """
         from uuid import uuid4
 
         from lib.domain.entities.category import CategoryKind
@@ -602,8 +629,11 @@ class TransferAccountsUseCase:
         if from_account_id == to_account_id:
             raise ValueError("Cannot transfer to the same account")
         amount = quantize_money(amount)
+        fee = quantize_money(fee)
         if amount <= 0:
             raise ValueError("Transfer amount must be positive")
+        if fee < 0:
+            raise ValueError("Fee cannot be negative")
 
         source = await self._accounts.get_by_id(from_account_id)
         dest = await self._accounts.get_by_id(to_account_id)
@@ -611,7 +641,7 @@ class TransferAccountsUseCase:
             raise ValueError(f"Account not found: {from_account_id}")
         if dest is None:
             raise ValueError(f"Account not found: {to_account_id}")
-        if source.balance < amount:
+        if source.balance < amount + fee:
             raise ValueError("Insufficient funds")
 
         dest_amount = amount
@@ -665,6 +695,25 @@ class TransferAccountsUseCase:
         created_out = await self._add.execute(outgoing)
         try:
             created_in = await self._add.execute(incoming)
+            if fee > 0:
+                if self._find_or_create_category is not None:
+                    await self._find_or_create_category.execute(
+                        FEE_CATEGORY,
+                        kind=CategoryKind.EXPENSE,
+                        icon="receipt_long",
+                    )
+                fee_comment = f"{FEE_CATEGORY} · → {dest.name}"
+                if extra:
+                    fee_comment = f"{fee_comment} · {extra}"
+                await self._add.execute(
+                    make_fee_expense(
+                        account_id=source.id,
+                        currency=source.currency,
+                        amount=fee,
+                        date=when,
+                        comment=fee_comment,
+                    )
+                )
         except Exception:
             await self._delete.execute(created_out.id)
             raise

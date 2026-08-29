@@ -25,23 +25,23 @@ def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 
 def _splash_logo(icon: Image.Image) -> Image.Image:
-    logo = Image.new("RGBA", (720, 520), (0, 0, 0, 0))
-    ic = icon.resize((220, 220), Image.Resampling.LANCZOS)
-    logo.paste(ic, ((720 - 220) // 2, 20), ic)
+    logo = Image.new("RGBA", (720, 720), (0, 0, 0, 0))
+    ic = icon.resize((420, 420), Image.Resampling.LANCZOS)
+    logo.paste(ic, ((720 - 420) // 2, 40), ic)
     draw = ImageDraw.Draw(logo)
-    title_font = _font(72)
-    sub_font = _font(28)
+    title_font = _font(68)
+    sub_font = _font(26)
     title = "FinWise"
     subtitle = "Personal finance tracker"
     tw = draw.textlength(title, font=title_font)
     sw = draw.textlength(subtitle, font=sub_font)
-    draw.text(((720 - tw) / 2, 270), title, fill=WHITE, font=title_font)
+    draw.text(((720 - tw) / 2, 490), title, fill=WHITE, font=title_font)
     draw.rounded_rectangle(
-        [((720 - 160) // 2, 350), ((720 + 160) // 2, 354)],
+        [((720 - 160) // 2, 568), ((720 + 160) // 2, 572)],
         radius=2,
         fill=ACCENT,
     )
-    draw.text(((720 - sw) / 2, 360), subtitle, fill=MUTED, font=sub_font)
+    draw.text(((720 - sw) / 2, 584), subtitle, fill=MUTED, font=sub_font)
     return logo
 
 

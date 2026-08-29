@@ -27,6 +27,7 @@ from lib.presentation.utils import (
     format_money,
     load_rate_book,
     run_async,
+    safe_update,
     snack,
     tr,
 )
@@ -36,7 +37,8 @@ from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.debt_card import DebtCard
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.layout import make_v_scroll
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -61,7 +63,7 @@ class DebtsPage(ft.Column):
     def __init__(self, page: ft.Page, state: "AppState") -> None:
         self._page = page
         self._state = state
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
+        self._list = make_v_scroll(spacing=12)
         self._status_filter = "active"
         self._direction_filter = "all"
         self._sort_by = "due_date"
@@ -172,8 +174,8 @@ class DebtsPage(ft.Column):
         """Reload debts list for the current filters."""
         self._token = self._state.debts_token
         lang = self._state.language
-        self._list.controls = [loading_indicator()]
-        self._list.update()
+        fill_loading(self._list)
+        safe_update(self._list)
         self._alert_ids = pending_related_ids(
             self._state.container,
             self._state.settings,
@@ -200,7 +202,7 @@ class DebtsPage(ft.Column):
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
-            self._list.update()
+            safe_update(self._list)
             return
 
         if not debts:
@@ -211,7 +213,7 @@ class DebtsPage(ft.Column):
                     on_action=lambda _e: self._open_editor(),
                 )
             ]
-            self._list.update()
+            safe_update(self._list)
             return
 
         cards: list[ft.Control] = []
@@ -280,7 +282,7 @@ class DebtsPage(ft.Column):
                 )
             )
         self._list.controls = cards
-        self._list.update()
+        safe_update(self._list)
 
     def _confirm_delete(self, debt: Debt) -> None:
         lang = self._state.language

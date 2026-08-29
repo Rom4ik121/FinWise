@@ -32,12 +32,12 @@ def build_launch_splash(*, language: str = "ru") -> ft.Control:
     if icon_path:
         icon_control = ft.Image(
             src=icon_path,
-            width=132,
-            height=132,
+            width=220,
+            height=220,
             fit=ft.BoxFit.CONTAIN,
         )
     else:
-        icon_control = ft.Icon(ft.Icons.ACCOUNT_BALANCE_WALLET, size=96, color=_ACCENT)
+        icon_control = ft.Icon(ft.Icons.ACCOUNT_BALANCE_WALLET, size=168, color=_ACCENT)
 
     return ft.Container(
         expand=True,
@@ -50,12 +50,12 @@ def build_launch_splash(*, language: str = "ru") -> ft.Control:
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,
-            spacing=20,
+            spacing=16,
             controls=[
                 icon_control,
                 ft.Text(
                     tr("app.name", language),
-                    size=34,
+                    size=36,
                     weight=ft.FontWeight.W_700,
                     color=ft.Colors.WHITE,
                 ),

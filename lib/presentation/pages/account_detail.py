@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING
 
 import flet as ft
 
+from lib.domain.entities.exchange_connection import ExchangeConnection
+from lib.domain.exchanges import exchange_title
 from lib.infrastructure.services.localization import localize_category_name
-from lib.presentation.account_icons import account_icon_control
+from lib.presentation.account_icons import account_icon_badge, resolve_account_icon_key
 from lib.presentation.account_stats import aggregate_account_period
 from lib.presentation.analytics_period import (
     ANALYTICS_PERIOD_KEYS,
@@ -22,6 +24,7 @@ from lib.presentation.analytics_period import (
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
+    glass_layer,
     muted_text,
     page_header,
     section_title,
@@ -29,6 +32,7 @@ from lib.presentation.styles import (
 )
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
+    format_date,
     format_money,
     load_rate_book,
     run_async,
@@ -42,7 +46,8 @@ from lib.presentation.widgets.charts import (
     chart_layout,
 )
 from lib.presentation.widgets.empty_state import EmptyState
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.layout import h_chip_row, make_v_scroll
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.summary_card import SummaryCard
 from lib.presentation.widgets.transaction_tile import TransactionTile
 
@@ -57,10 +62,19 @@ class AccountDetailPage(ft.Column):
         self._page = page
         self._state = state
         self._account_id = account_id
-        self._body = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
+        self._body = make_v_scroll(spacing=12)
         self._period = DEFAULT_ANALYTICS_PERIOD
         self._token = -1
-        self._period_button = self._build_period_button(state.language)
+        self._period_row = h_chip_row()
+        self._period_chip_map: dict[str, ft.Container] = {}
+        self._syncing = False
+        self._sync_btn = ft.IconButton(
+            icon=ft.Icons.SYNC,
+            icon_color=ft.Colors.PRIMARY,
+            tooltip=tr("account.sync.now", state.language),
+            visible=False,
+            on_click=lambda _e: run_async(page, self._sync_now),
+        )
         super().__init__(
             expand=True,
             spacing=0,
@@ -72,7 +86,7 @@ class AccountDetailPage(ft.Column):
                         on_click=lambda _e: state.close_secondary(),
                     ),
                     actions=[
-                        self._period_button,
+                        self._sync_btn,
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
@@ -82,8 +96,13 @@ class AccountDetailPage(ft.Column):
                     ],
                 ),
                 ft.Container(
+                    height=42,
+                    padding=ft.Padding.only(left=12, right=12, bottom=8),
+                    content=self._period_row,
+                ),
+                ft.Container(
                     expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12),
+                    padding=ft.Padding.only(left=12, right=12, top=6),
                     content=self._body,
                 ),
             ],
@@ -96,57 +115,182 @@ class AccountDetailPage(ft.Column):
         if token != self._token:
             run_async(self._page, self.reload)
 
-    def _build_period_button(self, lang: str) -> ft.PopupMenuButton:
-        period_label = tr(f"dashboard.period.{self._period}", lang)
-
-        def on_select(key: str):
-            def handler(_e: ft.ControlEvent) -> None:
-                if self._period != key:
-                    self._period = key
-                    self._sync_period_button()
-                    run_async(self._page, self.reload)
-
-            return handler
-
-        return ft.PopupMenuButton(
-            tooltip=f"{tr('dashboard.period_filter', lang)}: {period_label}",
-            icon=ft.Icons.DATE_RANGE,
-            icon_color=ft.Colors.PRIMARY,
-            items=[
-                ft.PopupMenuItem(
-                    content=ft.Text(tr(f"dashboard.period.{key}", lang)),
-                    icon=ft.Icons.CHECK if key == self._period else None,
-                    on_click=on_select(key),
-                )
-                for key in ANALYTICS_PERIOD_KEYS
-            ],
+    def _chip(self, label: str, *, selected: bool, on_click) -> ft.Container:
+        skin = get_active_skin()
+        dark = is_dark_mode(self._page, self._state.theme_mode)
+        return ft.Container(
+            height=28,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=3),
+            border_radius=999,
+            alignment=ft.Alignment.CENTER,
+            **(
+                {
+                    "bgcolor": skin.badge_bg(dark=dark),
+                    "blur": None,
+                }
+                if selected
+                else glass_layer()
+            ),
+            border=ft.Border.all(
+                1,
+                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
+            ),
+            ink=True,
+            on_click=on_click,
+            content=ft.Text(
+                label,
+                size=11,
+                weight=ft.FontWeight.W_600,
+                no_wrap=True,
+                color=(
+                    skin.badge_fg(dark=dark)
+                    if selected
+                    else ft.Colors.ON_SURFACE_VARIANT
+                ),
+            ),
         )
 
-    def _sync_period_button(self) -> None:
-        lang = self._state.language
-        period_label = tr(f"dashboard.period.{self._period}", lang)
-
-        def on_select(key: str):
-            def handler(_e: ft.ControlEvent) -> None:
-                if self._period != key:
-                    self._period = key
-                    self._sync_period_button()
-                    run_async(self._page, self.reload)
-
-            return handler
-
-        self._period_button.tooltip = (
-            f"{tr('dashboard.period_filter', lang)}: {period_label}"
-        )
-        self._period_button.items = [
-            ft.PopupMenuItem(
-                content=ft.Text(tr(f"dashboard.period.{key}", lang)),
-                icon=ft.Icons.CHECK if key == self._period else None,
-                on_click=on_select(key),
+    def _rebuild_period_row(self, lang: str) -> None:
+        if self._period_chip_map:
+            self._tint_period_chips()
+            return
+        chips = [
+            self._chip(
+                tr(f"dashboard.period.{key}", lang),
+                selected=key == self._period,
+                on_click=lambda _e, k=key: self._set_period(k),
             )
             for key in ANALYTICS_PERIOD_KEYS
         ]
-        safe_update(self._period_button)
+        self._period_chip_map = {
+            key: chip for key, chip in zip(ANALYTICS_PERIOD_KEYS, chips)
+        }
+        self._period_row.controls = [*chips, ft.Container(width=28)]
+        safe_update(self._period_row)
+
+    def _tint_period_chips(self) -> None:
+        skin = get_active_skin()
+        dark = is_dark_mode(self._page, self._state.theme_mode)
+        for key, chip in self._period_chip_map.items():
+            selected = key == self._period
+            chip.bgcolor = skin.badge_bg(dark=dark) if selected else None
+            chip.border = ft.Border.all(
+                1,
+                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
+            )
+            label = chip.content
+            if isinstance(label, ft.Text):
+                label.color = (
+                    skin.badge_fg(dark=dark)
+                    if selected
+                    else ft.Colors.ON_SURFACE_VARIANT
+                )
+                safe_update(label)
+            safe_update(chip)
+
+    def _set_period(self, key: str) -> None:
+        if self._period == key:
+            return
+        self._period = key
+        self._tint_period_chips()
+        run_async(self._page, self.reload)
+
+    async def _sync_now(self) -> None:
+        if self._syncing:
+            return
+        lang = self._state.language
+        sync = getattr(self._state.container, "sync_exchange_account", None)
+        if sync is None:
+            snack(self._page, tr("error.exchange_unavailable", lang), error=True)
+            return
+        self._syncing = True
+        self._sync_btn.disabled = True
+        safe_update(self._sync_btn)
+        snack(self._page, tr("account.sync.working", lang))
+        try:
+            result = await sync.execute(self._account_id)
+        except Exception as exc:  # noqa: BLE001
+            snack(
+                self._page,
+                tr("error.sync_failed", lang, detail=str(exc)[:240]),
+                error=True,
+            )
+            return
+        finally:
+            self._syncing = False
+            self._sync_btn.disabled = False
+            safe_update(self._sync_btn)
+        self._state.bump_refresh("dashboard", "accounts", "transactions", "budgets")
+        snack(self._page, tr("account.sync.ok", lang, count=result.imported))
+
+    def _exchange_section(
+        self,
+        link: ExchangeConnection,
+        *,
+        currency: str,
+        lang: str,
+    ) -> ft.Control:
+        when = (
+            format_date(link.last_sync_at, with_time=True)
+            if link.last_sync_at
+            else tr("account.exchange.never_synced", lang)
+        )
+        rows: list[ft.Control] = [
+            ft.Text(
+                exchange_title(link.provider),
+                size=14,
+                weight=ft.FontWeight.W_700,
+            ),
+            muted_text(
+                tr("account.exchange.last_sync", lang, when=when),
+                size=11,
+            ),
+        ]
+        if link.last_error:
+            rows.append(
+                ft.Text(
+                    link.last_error,
+                    size=11,
+                    color=ft.Colors.ERROR,
+                    max_lines=3,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                )
+            )
+        holdings = list(link.holdings_json or [])
+        if holdings:
+            rows.append(muted_text(tr("account.holdings", lang), size=12))
+        for item in holdings[:16]:
+            asset = str(item.get("asset") or "")
+            try:
+                amount = Decimal(str(item.get("amount") or "0"))
+            except Exception:  # noqa: BLE001
+                amount = Decimal("0")
+            try:
+                value = Decimal(str(item.get("value") or "0"))
+            except Exception:  # noqa: BLE001
+                value = Decimal("0")
+            rows.append(
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Column(
+                            spacing=0,
+                            tight=True,
+                            expand=True,
+                            controls=[
+                                ft.Text(asset, size=13, weight=ft.FontWeight.W_600),
+                                muted_text(f"{amount.normalize()} {asset}", size=11),
+                            ],
+                        ),
+                        ft.Text(
+                            format_money(value, currency),
+                            size=13,
+                            weight=ft.FontWeight.W_600,
+                        ),
+                    ],
+                )
+            )
+        return card_surface(ft.Column(spacing=8, tight=True, controls=rows), padding=14)
 
     def _hero(
         self,
@@ -168,15 +312,12 @@ class AccountDetailPage(ft.Column):
                         spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            ft.Container(
-                                width=48,
-                                height=48,
-                                border_radius=14,
-                                bgcolor=color,
-                                alignment=ft.Alignment.CENTER,
-                                content=account_icon_control(
-                                    icon, size=24, color=ft.Colors.WHITE
-                                ),
+                            account_icon_badge(
+                                icon,
+                                color=color,
+                                size=48,
+                                glyph_size=24,
+                                glyph_color=ft.Colors.WHITE,
                             ),
                             ft.Column(
                                 spacing=2,
@@ -213,7 +354,8 @@ class AccountDetailPage(ft.Column):
             self._state.accounts_token + self._state.transactions_token
         )
         lang = self._state.language
-        self._body.controls = [loading_indicator(message=tr("action.refresh", lang))]
+        self._rebuild_period_row(lang)
+        fill_loading(self._body, message=tr("action.refresh", lang))
         safe_update(self._body)
 
         c = self._state.container
@@ -239,6 +381,10 @@ class AccountDetailPage(ft.Column):
                 date_from=period_cfg.date_from,
                 date_to=period_cfg.date_to,
             )
+            link = None
+            repo = getattr(c, "exchange_connection_repository", None)
+            if repo is not None:
+                link = await repo.get_by_account_id(account.id)
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
             self._body.controls = [
@@ -248,6 +394,9 @@ class AccountDetailPage(ft.Column):
             return
 
         currency = account.currency
+        self._sync_btn.visible = link is not None
+        self._sync_btn.tooltip = tr("account.sync.now", lang)
+        safe_update(self._sync_btn)
         base = self._state.base_currency
         base_line = None
         if currency.upper() != base.upper():
@@ -265,11 +414,18 @@ class AccountDetailPage(ft.Column):
                 name=account.name,
                 currency=currency,
                 color=account.color or ft.Colors.PRIMARY,
-                icon=account.icon,
+                icon=resolve_account_icon_key(
+                    account.icon, link.provider if link else ""
+                ),
                 balance=account.balance,
                 base_line=base_line,
                 lang=lang,
             ),
+        ]
+        if link is not None:
+            controls.append(self._exchange_section(link, currency=currency, lang=lang))
+        controls.extend(
+            [
             section_title(tr("dashboard.period_summary", lang, period=period_label)),
             ft.Row(
                 spacing=10,
@@ -328,7 +484,8 @@ class AccountDetailPage(ft.Column):
                 ),
                 padding=14,
             ),
-        ]
+            ]
+        )
 
         if stats.transfer_in > 0 or stats.transfer_out > 0:
             controls.append(
@@ -388,6 +545,7 @@ class AccountDetailPage(ft.Column):
             dark=dark,
             language=lang,
             show_legend=False,
+            page=self._page,
         )
         series = fill_time_series(
             stats.by_period,
@@ -406,6 +564,7 @@ class AccountDetailPage(ft.Column):
             height=chart_h,
             dark=dark,
             language=lang,
+            page=self._page,
         )
 
         palette = list(get_active_skin().chart_colors) or [
@@ -448,6 +607,8 @@ class AccountDetailPage(ft.Column):
                             size=11,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             weight=ft.FontWeight.W_600,
+                            no_wrap=True,
+                            max_lines=1,
                         ),
                     ],
                 )
@@ -483,43 +644,7 @@ class AccountDetailPage(ft.Column):
                                 size=14,
                                 weight=ft.FontWeight.W_700,
                             ),
-                            ft.Row(
-                                spacing=12,
-                                controls=[
-                                    ft.Row(
-                                        spacing=6,
-                                        tight=True,
-                                        controls=[
-                                            ft.Container(
-                                                width=10,
-                                                height=10,
-                                                border_radius=5,
-                                                bgcolor=ft.Colors.SECONDARY,
-                                            ),
-                                            ft.Text(
-                                                tr("transaction.income", lang),
-                                                size=11,
-                                            ),
-                                        ],
-                                    ),
-                                    ft.Row(
-                                        spacing=6,
-                                        tight=True,
-                                        controls=[
-                                            ft.Container(
-                                                width=10,
-                                                height=10,
-                                                border_radius=5,
-                                                bgcolor=ft.Colors.ERROR,
-                                            ),
-                                            ft.Text(
-                                                tr("transaction.expense", lang),
-                                                size=11,
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                            ),
+                            muted_text(tr("dashboard.dynamics_hint", lang), size=11),
                             line,
                         ],
                     ),

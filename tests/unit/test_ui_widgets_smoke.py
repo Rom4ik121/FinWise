@@ -37,6 +37,8 @@ def test_account_card_builds() -> None:
     )
     card = AccountCard(acc, language="en")
     assert card is not None
+    synced = AccountCard(acc, language="en", exchange_title="Binance", on_sync=lambda _a: None)
+    assert synced is not None
 
 
 def test_transaction_tile_builds() -> None:
@@ -203,3 +205,36 @@ def test_neon_glass_cards() -> None:
         assert card.blur is not None
     finally:
         set_active_skin(previous)
+
+
+def test_splash_logo_is_large() -> None:
+    from lib.presentation.widgets.splash_screen import build_launch_splash
+
+    splash = build_launch_splash(language="ru")
+    assert isinstance(splash, ft.Container)
+
+    def _walk(ctrl, acc: list) -> None:
+        acc.append(ctrl)
+        content = getattr(ctrl, "content", None)
+        if content is not None:
+            _walk(content, acc)
+        for child in getattr(ctrl, "controls", None) or []:
+            _walk(child, acc)
+
+    found: list = []
+    _walk(splash, found)
+    images = [c for c in found if isinstance(c, ft.Image)]
+    icons = [c for c in found if isinstance(c, ft.Icon)]
+    if images:
+        assert images[0].width >= 200
+    else:
+        assert icons and icons[0].size >= 140
+
+
+def test_fill_loading_keeps_existing_controls() -> None:
+    from lib.presentation.widgets.loading import fill_loading
+
+    host = ft.Column(controls=[ft.Text("keep")])
+    fill_loading(host)
+    assert len(host.controls) == 1
+    assert isinstance(host.controls[0], ft.Text)

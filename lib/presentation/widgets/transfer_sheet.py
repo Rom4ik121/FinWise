@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Optional
 import flet as ft
 
 from lib.domain.entities.account import Account
-from lib.presentation.money_input import attach_grouped_digits, make_amount_field, parse_amount
+from lib.presentation.money_input import (
+    attach_grouped_digits,
+    make_amount_field,
+    parse_amount,
+    parse_optional_amount,
+)
 from lib.presentation.utils import format_money, load_rate_book, run_async, snack, tr
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 
@@ -86,6 +91,16 @@ async def _show_form(
         expand=True,
         autofocus=True,
     )
+    fee_tf = make_amount_field(
+        lang,
+        label=tr("field.fee", lang),
+        expand=True,
+    )
+    fee_hint = ft.Text(
+        tr("field.fee_hint", lang),
+        size=11,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+    )
     convert_hint = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
     comment_tf = ft.TextField(label=tr("field.comment", lang), expand=True)
 
@@ -97,11 +112,12 @@ async def _show_form(
         dest = _account(to_dd.value)
         try:
             amount = parse_amount(amount_tf.value)
+            fee = parse_optional_amount(fee_tf.value)
         except (InvalidOperation, ValueError):
             convert_hint.value = ""
             convert_hint.update()
             return
-        if amount <= 0:
+        if amount <= 0 or fee < 0:
             convert_hint.value = ""
             convert_hint.update()
             return
@@ -110,42 +126,49 @@ async def _show_form(
             convert_hint.color = ft.Colors.ERROR
             convert_hint.update()
             return
-        if source.currency.upper() == dest.currency.upper():
-            convert_hint.value = tr(
+        credit = amount
+        if source.currency.upper() != dest.currency.upper():
+            converted = book.convert(amount, source.currency, dest.currency)
+            if converted is None:
+                convert_hint.value = tr(
+                    "transfer.no_rate",
+                    lang,
+                    default="Нет курса для этой пары валют",
+                )
+                convert_hint.color = ft.Colors.ERROR
+                convert_hint.update()
+                return
+            credit = converted
+        lines = [
+            tr(
                 "transfer.will_credit",
                 lang,
-                amount=format_money(amount, dest.currency),
+                amount=format_money(credit, dest.currency),
                 account=dest.name,
             )
-            convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
-            convert_hint.update()
-            return
-        converted = book.convert(amount, source.currency, dest.currency)
-        if converted is None:
-            convert_hint.value = tr(
-                "transfer.no_rate",
-                lang,
-                default="Нет курса для этой пары валют",
+        ]
+        if fee > 0:
+            lines.append(
+                tr(
+                    "transfer.will_debit",
+                    lang,
+                    total=format_money(amount + fee, source.currency),
+                )
             )
-            convert_hint.color = ft.Colors.ERROR
-        else:
-            convert_hint.value = tr(
-                "transfer.will_credit",
-                lang,
-                amount=format_money(converted, dest.currency),
-                account=dest.name,
-            )
-            convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
+        convert_hint.value = "\n".join(lines)
+        convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
         convert_hint.update()
 
     attach_grouped_digits(amount_tf, lang, extra_on_change=_refresh_hint)
+    attach_grouped_digits(fee_tf, lang, extra_on_change=_refresh_hint)
     from_dd.on_select = _refresh_hint
     to_dd.on_select = _refresh_hint
 
     async def _save() -> None:
         try:
             amount = parse_amount(amount_tf.value)
-            if amount <= 0:
+            fee = parse_optional_amount(fee_tf.value)
+            if amount <= 0 or fee < 0:
                 raise InvalidOperation
         except (InvalidOperation, ValueError):
             snack(page, tr("invalid_amount", lang), error=True)
@@ -161,6 +184,7 @@ async def _show_form(
                 to_account_id=dest.id,
                 amount=amount,
                 comment=comment_tf.value or "",
+                fee=fee,
             )
         except Exception as exc:  # noqa: BLE001
             key = _DOMAIN_ERROR_KEYS.get(str(exc))
@@ -177,6 +201,6 @@ async def _show_form(
         title=tr("transfers.title", lang),
         lang=lang,
         overlay_key="transfer_editor",
-        body=[from_dd, to_dd, amount_tf, convert_hint, comment_tf],
+        body=[from_dd, to_dd, amount_tf, fee_tf, fee_hint, convert_hint, comment_tf],
         on_save=_save,
     )

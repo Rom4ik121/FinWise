@@ -45,3 +45,19 @@ def test_materialize_saved_file_none_is_cancel() -> None:
 
     assert materialize_saved_file(Path("x.db"), None) is None
     assert materialize_saved_file(Path("x.db"), "  ") is None
+
+
+def test_restricted_icloud_downloads_path() -> None:
+    from lib.presentation.file_transfer import is_restricted_save_path, materialize_saved_file
+    from pathlib import Path
+
+    icloud = (
+        "/private/var/mobile/Library/Mobile Documents/"
+        "com~apple~CloudDocs/Downloads"
+    )
+    assert is_restricted_save_path(icloud) is True
+    try:
+        materialize_saved_file(Path("finanse.db"), icloud)
+        raise AssertionError("expected PermissionError")
+    except PermissionError:
+        pass

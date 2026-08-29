@@ -66,6 +66,133 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Recent activity",
         "uz": "So‘nggi operatsiyalar",
     },
+    "account.type.manual": {
+        "ru": "Обычный счёт",
+        "en": "Manual account",
+        "uz": "Oddiy hisob",
+    },
+    "account.type.exchange": {
+        "ru": "Биржа / крипто",
+        "en": "Exchange / crypto",
+        "uz": "Birja / kriptovalyuta",
+    },
+    "account.sync.now": {
+        "ru": "Синхронизировать",
+        "en": "Sync now",
+        "uz": "Sinxronlash",
+    },
+    "account.sync.ok": {
+        "ru": "Синхронизировано, импортировано операций: {count}",
+        "en": "Synced, imported {count} transactions",
+        "uz": "Sinxronlandi, {count} ta amaliyot import qilindi",
+    },
+    "account.sync.working": {
+        "ru": "Синхронизация…",
+        "en": "Syncing…",
+        "uz": "Sinxronlanmoqda…",
+    },
+    "account.holdings": {
+        "ru": "Активы на бирже",
+        "en": "Exchange holdings",
+        "uz": "Birjadagi aktivlar",
+    },
+    "account.exchange.hint": {
+        "ru": "Название и валюта подтянутся с биржи. Нужен ключ только для чтения.",
+        "en": "Name and currency come from the exchange. Use a read-only API key.",
+        "uz": "Nomi va valyuta birjadan olinadi. Faqat o‘qish uchun kalit kerak.",
+    },
+    "account.exchange.connecting": {
+        "ru": "Подключаем биржу и загружаем баланс…",
+        "en": "Connecting the exchange and loading balances…",
+        "uz": "Birja ulanmoqda, balans yuklanmoqda…",
+    },
+    "account.exchange.keys_hint": {
+        "ru": "Нужен ключ только для чтения. При изменении оставьте поля пустыми, чтобы сохранить текущие ключи.",
+        "en": "Use a read-only API key. Leave fields empty when editing to keep the stored keys.",
+        "uz": "Faqat o‘qish uchun kalit kerak. Tahrirlashda joriy kalitlarni saqlash uchun maydonlarni bo‘sh qoldiring.",
+    },
+    "account.exchange.last_sync": {
+        "ru": "Последняя синхронизация: {when}",
+        "en": "Last sync: {when}",
+        "uz": "Oxirgi sinxronlash: {when}",
+    },
+    "account.exchange.never_synced": {
+        "ru": "Ещё не синхронизировано",
+        "en": "Not synced yet",
+        "uz": "Hali sinxronlanmagan",
+    },
+    "field.exchange": {
+        "ru": "Биржа",
+        "en": "Exchange",
+        "uz": "Birja",
+    },
+    "field.api_key": {
+        "ru": "API ключ",
+        "en": "API key",
+        "uz": "API kalit",
+    },
+    "field.api_secret": {
+        "ru": "API секрет",
+        "en": "API secret",
+        "uz": "API maxfiy kalit",
+    },
+    "field.api_passphrase": {
+        "ru": "Passphrase",
+        "en": "Passphrase",
+        "uz": "Passphrase",
+    },
+    "field.wallet_address": {
+        "ru": "Адрес кошелька",
+        "en": "Wallet address",
+        "uz": "Hamyon manzili",
+    },
+    "field.private_key": {
+        "ru": "Приватный ключ",
+        "en": "Private key",
+        "uz": "Maxfiy kalit",
+    },
+    "error.sync_failed": {
+        "ru": "Не удалось синхронизировать: {detail}",
+        "en": "Sync failed: {detail}",
+        "uz": "Sinxronlash muvaffaqiyatsiz: {detail}",
+    },
+    "error.exchange_unavailable": {
+        "ru": "Подключение бирж недоступно в этой сборке",
+        "en": "Exchange connections are not available in this build",
+        "uz": "Bu versiyada birjalarni ulash mumkin emas",
+    },
+    "exchange.binance": {"ru": "Binance", "en": "Binance", "uz": "Binance"},
+    "exchange.coinbase": {"ru": "Coinbase", "en": "Coinbase", "uz": "Coinbase"},
+    "exchange.okx": {"ru": "OKX", "en": "OKX", "uz": "OKX"},
+    "exchange.bybit": {"ru": "Bybit", "en": "Bybit", "uz": "Bybit"},
+    "exchange.kraken": {"ru": "Kraken", "en": "Kraken", "uz": "Kraken"},
+    "exchange.kucoin": {"ru": "KuCoin", "en": "KuCoin", "uz": "KuCoin"},
+    "exchange.gateio": {"ru": "Gate.io", "en": "Gate.io", "uz": "Gate.io"},
+    "exchange.bitget": {"ru": "Bitget", "en": "Bitget", "uz": "Bitget"},
+    "exchange.mexc": {"ru": "MEXC", "en": "MEXC", "uz": "MEXC"},
+    "exchange.bitmart": {"ru": "BitMart", "en": "BitMart", "uz": "BitMart"},
+    "exchange.htx": {"ru": "HTX", "en": "HTX", "uz": "HTX"},
+    "exchange.hyperliquid": {
+        "ru": "Hyperliquid",
+        "en": "Hyperliquid",
+        "uz": "Hyperliquid",
+    },
+    "exchange.bitmex": {"ru": "BitMEX", "en": "BitMEX", "uz": "BitMEX"},
+    "exchange.woo": {"ru": "WOO X", "en": "WOO X", "uz": "WOO X"},
+    "exchange.cryptocom": {
+        "ru": "Crypto.com",
+        "en": "Crypto.com",
+        "uz": "Crypto.com",
+    },
+    "exchange.bitfinex": {"ru": "Bitfinex", "en": "Bitfinex", "uz": "Bitfinex"},
+    "exchange.bitstamp": {"ru": "Bitstamp", "en": "Bitstamp", "uz": "Bitstamp"},
+    "exchange.bingx": {"ru": "BingX", "en": "BingX", "uz": "BingX"},
+    "exchange.hashkey": {
+        "ru": "HashKey Global",
+        "en": "HashKey Global",
+        "uz": "HashKey Global",
+    },
+    "exchange.cex": {"ru": "CEX.IO", "en": "CEX.IO", "uz": "CEX.IO"},
     "action.add": {
         "ru": "Добавить",
         "en": "Add",
@@ -161,6 +288,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Listen and save",
         "uz": "Tinglash va saqlash",
     },
+    "voice.grant_permissions": {
+        "ru": "Разрешения и настройки",
+        "en": "Permissions and settings",
+        "uz": "Ruxsatlar va sozlamalar",
+    },
+    "voice.permission_ok": {
+        "ru": "Микрофон и распознавание речи разрешены",
+        "en": "Microphone and speech recognition are allowed",
+        "uz": "Mikrofon va nutq ruxsat etilgan",
+    },
+    "voice.permission_denied": {
+        "ru": "Нужен доступ к микрофону и речи. Включите их в настройках FinWise.",
+        "en": "Microphone and speech access are required. Enable them in FinWise settings.",
+        "uz": "Mikrofon va nutq ruxsati kerak. Ularni FinWise sozlamalarida yoqing.",
+    },
     "voice.shortcut_title": {
         "ru": "Голосовой ввод с кнопки телефона",
         "en": "Voice input from a phone button",
@@ -200,6 +342,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Сохранить",
         "en": "Save",
         "uz": "Saqlash",
+    },
+    "action.saving": {
+        "ru": "Сохранение…",
+        "en": "Saving…",
+        "uz": "Saqlanmoqda…",
     },
     "action.select": {
         "ru": "Выбрать",
@@ -261,6 +408,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Trend appears after transactions",
         "uz": "Dinamika amaliyotlardan keyin paydo bo‘ladi",
     },
+    "chart.net_up": {
+        "ru": "Приход",
+        "en": "In",
+        "uz": "Kirim",
+    },
+    "chart.net_down": {
+        "ru": "Расход",
+        "en": "Out",
+        "uz": "Chiqim",
+    },
     "chart.no_data": {
         "ru": "Нет данных",
         "en": "No data",
@@ -285,6 +442,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Сейчас",
         "en": "Latest",
         "uz": "Hozir",
+    },
+    "chart.point": {
+        "ru": "{period} · +{income} · −{expense} · {net}",
+        "en": "{period} · +{income} · −{expense} · {net}",
+        "uz": "{period} · +{income} · −{expense} · {net}",
+    },
+    "chart.slice": {
+        "ru": "{label} · {amount} · {share}%",
+        "en": "{label} · {amount} · {share}%",
+        "uz": "{label} · {amount} · {share}%",
     },
     "chart.avg_band": {
         "ru": "Средний уровень",
@@ -382,19 +549,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Davr dinamikasi",
     },
     "dashboard.dynamics_hint": {
-        "ru": "Зелёный — доходы, красный — расходы по дням",
-        "en": "Green — income, red — expenses by day",
-        "uz": "Yashil — daromad, qizil — kunlik xarajatlar",
+        "ru": "Одна линия: приход поднимает, расход опускает",
+        "en": "One line: income lifts it, expense drops it",
+        "uz": "Bitta chiziq: kirim ko‘taradi, chiqim tushiradi",
     },
     "dashboard.dynamics_hint_month": {
-        "ru": "Зелёный — доходы, красный — расходы по месяцам",
-        "en": "Green — income, red — expenses by month",
-        "uz": "Yashil — daromad, qizil — oylik xarajatlar",
+        "ru": "Одна линия: приход поднимает, расход опускает",
+        "en": "One line: income lifts it, expense drops it",
+        "uz": "Bitta chiziq: kirim ko‘taradi, chiqim tushiradi",
     },
     "dashboard.dynamics_hint_week": {
-        "ru": "Зелёный — доходы, красный — расходы по неделям",
-        "en": "Green — income, red — expenses by week",
-        "uz": "Yashil — daromad, qizil — haftalik xarajatlar",
+        "ru": "Одна линия: приход поднимает, расход опускает",
+        "en": "One line: income lifts it, expense drops it",
+        "uz": "Bitta chiziq: kirim ko‘taradi, chiqim tushiradi",
     },
     "dashboard.expense_hint": {
         "ru": "Доли категорий в расходах за {period}",
@@ -781,6 +948,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Active",
         "uz": "Faol",
     },
+    "field.fee": {
+        "ru": "Комиссия",
+        "en": "Fee",
+        "uz": "Komissiya",
+    },
+    "field.fee_hint": {
+        "ru": "Необязательно. Учитывается отдельным расходом.",
+        "en": "Optional. Recorded as a separate expense.",
+        "uz": "Ixtiyoriy. Alohida xarajat sifatida hisobga olinadi.",
+    },
     "field.amount": {
         "ru": "Сумма",
         "en": "Amount",
@@ -1135,6 +1312,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Криптовалюты",
         "en": "Cryptocurrencies",
         "uz": "Kriptovalyutalar",
+    },
+    "icon_group.exchanges": {
+        "ru": "Биржи",
+        "en": "Exchanges",
+        "uz": "Birjalar",
     },
     "icon_group.entertainment": {
         "ru": "Развлечения",
@@ -1663,6 +1845,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Biometrics confirmed",
         "uz": "Biometriya tasdiqlandi",
     },
+    "push.ready": {
+        "ru": "Уведомления включены. Напоминание придёт даже при закрытом приложении.",
+        "en": "Notifications are on. Reminders will arrive even when the app is closed.",
+        "uz": "Bildirishnomalar yoqildi. Eslatma ilova yopiq bo‘lsa ham keladi.",
+    },
     "settings.clear_pin": {
         "ru": "Сбросить PIN",
         "en": "Clear PIN",
@@ -1758,10 +1945,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "{kind} saved. File: {path}",
         "uz": "{kind} saqlandi. Fayl: {path}",
     },
+    "settings.file_shared": {
+        "ru": "{kind} готов. Сохраните через «Поделиться»: Файлы, Диск или мессенджер.",
+        "en": "{kind} is ready. Save it via Share: Files, Drive, or a messenger.",
+        "uz": "{kind} tayyor. «Ulashish» orqali saqlang: Fayllar, Disk yoki messenjer.",
+    },
+    "settings.file_denied": {
+        "ru": "Нельзя писать в системные Загрузки. Сохраните файл через «Поделиться».",
+        "en": "The system Downloads folder is not writable. Save the file via Share.",
+        "uz": "Tizim Yuklamalar jildiga yozib bo‘lmaydi. Faylni «Ulashish» orqali saqlang.",
+    },
     "settings.file_cancelled": {
-        "ru": "Сохранение отменено — файл в выбранную папку не записан",
-        "en": "Save cancelled — the file was not written to the chosen folder",
-        "uz": "Saqlash bekor qilindi — fayl tanlangan jildga yozilmadi",
+        "ru": "Сохранение отменено",
+        "en": "Save cancelled",
+        "uz": "Saqlash bekor qilindi",
     },
     "settings.restore_need_db": {
         "ru": "Для восстановления выберите файл резервной копии (.db), а не JSON-экспорт",
@@ -2243,6 +2440,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "{amount} will be credited to “{account}”",
         "uz": "«{account}» hisobiga {amount} tushadi",
     },
+    "transfer.will_debit": {
+        "ru": "Со счёта спишется {total}",
+        "en": "{total} will leave the source account",
+        "uz": "Manba hisobidan {total} yechiladi",
+    },
     "transfer.edit_hint": {
         "ru": "Сумму и счета перевода менять нельзя — только комментарий. Удаление снимает обе стороны.",
         "en": "Transfer amount and accounts cannot be changed — only the comment. Deleting removes both legs.",
@@ -2320,6 +2522,10 @@ _CATEGORY_NAME_I18N: dict[str, dict[str, str]] = {
     "Прочее": {"en": "Other", "uz": "Boshqa"},
     "Долг": {"en": "Debt", "uz": "Qarz"},
     "Перевод": {"en": "Transfer", "uz": "O‘tkazma"},
+    "Торговля": {"en": "Trading", "uz": "Savdo"},
+    "Комиссия": {"en": "Fee", "uz": "Komissiya"},
+    "Депозит": {"en": "Deposit", "uz": "Depozit"},
+    "Вывод": {"en": "Withdrawal", "uz": "Yechib olish"},
 }
 
 

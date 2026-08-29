@@ -35,7 +35,8 @@ from lib.presentation.utils import (
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.widgets.dual_add_button import dual_add_button
 from lib.presentation.widgets.empty_state import EmptyState
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.layout import make_v_scroll
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.quick_add_sheet import open_quick_add
 from lib.presentation.widgets.summary_card import SummaryCard
 
@@ -49,7 +50,7 @@ class DashboardPage(ft.Column):
     def __init__(self, page: ft.Page, state: "AppState") -> None:
         self._page = page
         self._state = state
-        self._body = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
+        self._body = make_v_scroll(spacing=12)
         self._token = -1
         super().__init__(
             expand=True,
@@ -152,8 +153,7 @@ class DashboardPage(ft.Column):
         """Reload dashboard data from use cases."""
         self._token = self._state.dashboard_token
         lang = self._state.language
-        self._body.controls = [loading_indicator(message=tr("action.refresh", lang))]
-        safe_update(self._body)
+        fill_loading(self._body, message=tr("action.refresh", lang))
         c = self._state.container
         try:
             accounts = await c.list_accounts.execute(active_only=True)

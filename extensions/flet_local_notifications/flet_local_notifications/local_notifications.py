@@ -59,7 +59,13 @@ class FinanseLocalNotifications(ft.Service):
             )
         )
 
+    async def haptic(self, kind: str = "light") -> bool:
+        return bool(await self._invoke_method("haptic", {"kind": kind or "light"}))
+
     async def cancel_notification(self, notification_id: int) -> bool:
         return bool(
             await self._invoke_method("cancel_notification", {"id": int(notification_id)})
         )
+
+    async def cancel_all(self) -> bool:
+        return bool(await self._invoke_method("cancel_all"))

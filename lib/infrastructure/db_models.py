@@ -62,6 +62,12 @@ class AccountModel(Base):
         back_populates="account",
         cascade="all, delete-orphan",
     )
+    exchange_connection: Mapped[Optional["ExchangeConnectionModel"]] = relationship(
+        back_populates="account",
+        cascade="all, delete-orphan",
+        uselist=False,
+        passive_deletes=True,
+    )
 
 
 class TransactionModel(Base):
@@ -349,3 +355,30 @@ class BudgetModel(Base):
         default=_utc_now,
         onupdate=_utc_now,
     )
+
+
+class ExchangeConnectionModel(Base):
+    """API link from a FinWise account to a crypto exchange."""
+
+    __tablename__ = "exchange_connections"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    account_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    credentials_encrypted: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    holdings_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+    account: Mapped["AccountModel"] = relationship(back_populates="exchange_connection")

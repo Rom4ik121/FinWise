@@ -18,12 +18,20 @@ from lib.presentation.notification_badges import (
 )
 from lib.presentation.styles import card_surface, muted_text, page_header, summary_strip
 from lib.presentation.money_input import make_amount_field, parse_amount
-from lib.presentation.utils import category_icon, format_money_compact, run_async, snack, tr
+from lib.presentation.utils import (
+    category_icon,
+    format_money_compact,
+    run_async,
+    safe_update,
+    snack,
+    tr,
+)
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
-from lib.presentation.widgets.loading import loading_indicator
+from lib.presentation.layout import make_v_scroll
+from lib.presentation.widgets.loading import fill_loading, loading_indicator
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -46,7 +54,7 @@ class BudgetsPage(ft.Column):
         now = datetime.now(timezone.utc)
         self._month = now.month
         self._year = now.year
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
+        self._list = make_v_scroll(spacing=12)
         self._token = -1
         self._categories_by_name: dict[str, object] = {}
         super().__init__(
@@ -135,8 +143,8 @@ class BudgetsPage(ft.Column):
         """Reload budgets for the selected month."""
         self._token = self._state.budgets_token
         lang = self._state.language
-        self._list.controls = [loading_indicator()]
-        self._list.update()
+        fill_loading(self._list)
+        safe_update(self._list)
         alert_ids = pending_related_ids(
             self._state.container,
             self._state.settings,
@@ -157,7 +165,7 @@ class BudgetsPage(ft.Column):
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
-            self._list.update()
+            safe_update(self._list)
             return
         currency = self._state.base_currency
         total_limit = sum((item.limit for item in items), Decimal("0"))
@@ -203,7 +211,7 @@ class BudgetsPage(ft.Column):
             for progress in items:
                 controls.append(self._card(progress, lang))
         self._list.controls = controls
-        self._list.update()
+        safe_update(self._list)
 
     def _card(self, progress: BudgetProgress, lang: str) -> ft.Control:
         budget = progress.budget

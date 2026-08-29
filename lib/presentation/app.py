@@ -133,6 +133,16 @@ class FinanseApp:
         self._build_navigation_bar()
         self.state.subscribe(self._on_state_changed)
 
+        from lib.infrastructure.services.biometric import register_local_auth_service
+        from lib.infrastructure.services.push_notifier import register_android_notifications
+        from lib.infrastructure.services.speech import register_speech_service
+
+        # Platform is reliable after the first frame; retry native plugins.
+        register_local_auth_service(page)
+        register_android_notifications(page)
+        register_speech_service(page)
+
+        page.controls.clear()
         page.add(self._stage)
         self._render(force=True)
         self._flush_notifications()
@@ -411,6 +421,11 @@ class FinanseApp:
 
         self._nav_host.visible = route is None
         self._build_navigation_bar()
+
+        if self._rendered_tab is not None or self._rendered_secondary is not None:
+            from lib.presentation.haptics import haptic
+
+            haptic("medium")
 
         self._content.content = ft.Container(
             expand=True,

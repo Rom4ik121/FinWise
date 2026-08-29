@@ -1,5 +1,6 @@
 import 'package:flet/flet.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
@@ -23,11 +24,17 @@ class FinanseLocalNotificationsService extends FletService {
       return;
     }
     tzdata.initializeTimeZones();
+    tz.setLocalLocation(tz.UTC);
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const darwin = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
+      defaultPresentAlert: true,
+      defaultPresentSound: true,
+      defaultPresentBadge: true,
+      defaultPresentBanner: true,
+      defaultPresentList: true,
     );
     await _plugin.initialize(
       const InitializationSettings(
@@ -36,11 +43,28 @@ class FinanseLocalNotificationsService extends FletService {
         macOS: darwin,
       ),
     );
+    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin != null) {
+      await androidPlugin.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'finwise_reminders',
+          'FinWise reminders',
+          description: 'Debt, subscription, and goal alerts',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+      );
+    }
     _ready = true;
   }
 
   Future<dynamic> _invokeMethod(String name, dynamic args) async {
     debugPrint("FinanseLocalNotifications.$name($args)");
+    if (name == "haptic") {
+      return _haptic(args);
+    }
     await _ensureInit();
     switch (name) {
       case "request_permissions":
@@ -54,16 +78,44 @@ class FinanseLocalNotificationsService extends FletService {
       case "cancel_notification":
         await _plugin.cancel((args?["id"] as num?)?.toInt() ?? 0);
         return true;
+      case "cancel_all":
+        await _plugin.cancelAll();
+        return true;
       default:
         throw Exception("Unknown FinanseLocalNotifications method: $name");
     }
   }
 
+  Future<bool> _haptic(dynamic args) async {
+    final kind = (args is Map ? args["kind"] as String? : null) ?? "light";
+    switch (kind) {
+      case "medium":
+        await HapticFeedback.mediumImpact();
+        break;
+      case "heavy":
+        await HapticFeedback.heavyImpact();
+        break;
+      case "selection":
+        await HapticFeedback.selectionClick();
+        break;
+      case "success":
+        await HapticFeedback.mediumImpact();
+        break;
+      default:
+        await HapticFeedback.lightImpact();
+    }
+    return true;
+  }
+
   Future<bool> _requestPermissions() async {
+    var granted = true;
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (android != null) {
-      await android.requestNotificationsPermission();
+      final ok = await android.requestNotificationsPermission();
+      if (ok == false) {
+        granted = false;
+      }
       try {
         await android.requestExactAlarmsPermission();
       } catch (_) {}
@@ -71,14 +123,28 @@ class FinanseLocalNotificationsService extends FletService {
     final ios = _plugin.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
     if (ios != null) {
-      await ios.requestPermissions(alert: true, badge: true, sound: true);
+      final ok = await ios.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (ok == false) {
+        granted = false;
+      }
     }
     final macos = _plugin.resolvePlatformSpecificImplementation<
         MacOSFlutterLocalNotificationsPlugin>();
     if (macos != null) {
-      await macos.requestPermissions(alert: true, badge: true, sound: true);
+      final ok = await macos.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (ok == false) {
+        granted = false;
+      }
     }
-    return true;
+    return granted;
   }
 
   Future<bool> _areEnabled() async {
@@ -108,6 +174,8 @@ class FinanseLocalNotificationsService extends FletService {
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
+        presentBanner: true,
+        presentList: true,
       ),
     );
   }
@@ -150,17 +218,41 @@ class FinanseLocalNotificationsService extends FletService {
       return _show(args);
     }
     final id = (args?["id"] as num?)?.toInt() ?? 1;
-    await _plugin.zonedSchedule(
-      id,
-      (args?["title"] as String?) ?? "FinWise",
-      (args?["body"] as String?) ?? "",
-      _toTz(when),
-      _details(args),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-    );
-    return true;
+    final title = (args?["title"] as String?) ?? "FinWise";
+    final body = (args?["body"] as String?) ?? "";
+    final details = _details(args);
+    final at = _toTz(when);
+    try {
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        at,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      return true;
+    } catch (err) {
+      debugPrint("exact schedule failed: $err");
+    }
+    try {
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        at,
+        details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      return true;
+    } catch (err) {
+      debugPrint("inexact schedule failed: $err");
+      return _show(args);
+    }
   }
 
   @override

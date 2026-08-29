@@ -11,6 +11,7 @@ from lib.presentation.analytics_period import (
     fill_time_series,
     format_chart_period_label,
     resolve_analytics_period,
+    cumulative_net,
 )
 
 
@@ -56,3 +57,16 @@ def test_fill_time_series_inserts_zeros() -> None:
     assert filled[0] == ("2026-07-31", Decimal("0.00"), Decimal("0.00"))
     assert filled[1][1] == Decimal("10.00")
     assert filled[2][2] == Decimal("0.00")
+
+
+def test_cumulative_net_income_lifts_expense_drops() -> None:
+    series = cumulative_net(
+        [
+            ("d1", Decimal("100000"), Decimal("0")),
+            ("d2", Decimal("0"), Decimal("50000")),
+            ("d3", Decimal("25000"), Decimal("0")),
+        ]
+    )
+    assert series[0] == Decimal("100000")
+    assert series[1] == Decimal("50000")
+    assert series[2] == Decimal("75000")

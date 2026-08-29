@@ -41,6 +41,16 @@ def install_voice_shortcut(page: ft.Page, state: "AppState") -> None:
         busy["on"] = True
         lang = state.language
         try:
+            from lib.infrastructure.services.speech import (
+                open_os_app_settings,
+                prepare_speech_permissions,
+            )
+
+            granted = await prepare_speech_permissions()
+            if not granted.get("ok"):
+                snack(page, tr("voice.permission_denied", lang), error=True)
+                await open_os_app_settings(page)
+                return
             snack(page, tr("voice.listening", lang))
             spoken = await listen_speech(language=lang, seconds=10)
             if not spoken:

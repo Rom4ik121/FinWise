@@ -8,7 +8,10 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.domain.entities.account import Account
-from lib.presentation.account_icons import account_icon_control
+from lib.presentation.account_icons import (
+    account_icon_badge,
+    resolve_account_icon_key,
+)
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.utils import format_money
@@ -24,9 +27,12 @@ class AccountCard(ft.Container):
         base_currency: str = "RUB",
         base_balance: Optional[Decimal] = None,
         language: str = "ru",
+        exchange_title: str = "",
+        exchange_id: str = "",
         on_click: Optional[Callable[[Account], None]] = None,
         on_edit: Optional[Callable[[Account], None]] = None,
         on_delete: Optional[Callable[[Account], None]] = None,
+        on_sync: Optional[Callable[[Account], None]] = None,
     ) -> None:
         from lib.presentation.utils import tr
 
@@ -41,10 +47,17 @@ class AccountCard(ft.Container):
                 muted_text(f"≈ {format_money(base_balance, base_currency)}")
             )
 
-        menu = ft.PopupMenuButton(
-            icon=ft.Icons.MORE_VERT,
-            icon_color=ft.Colors.ON_SURFACE_VARIANT,
-            items=[
+        menu_items: list[ft.PopupMenuItem] = []
+        if on_sync is not None:
+            menu_items.append(
+                ft.PopupMenuItem(
+                    content=ft.Text(tr("account.sync.now", language)),
+                    icon=ft.Icons.SYNC,
+                    on_click=lambda _e: on_sync(account),
+                )
+            )
+        menu_items.extend(
+            [
                 ft.PopupMenuItem(
                     content=ft.Text(tr("action.edit", language)),
                     icon=ft.Icons.EDIT_OUTLINED,
@@ -55,8 +68,20 @@ class AccountCard(ft.Container):
                     icon=ft.Icons.DELETE_OUTLINE,
                     on_click=lambda _e: on_delete(account) if on_delete else None,
                 ),
-            ],
+            ]
         )
+        menu = ft.PopupMenuButton(
+            icon=ft.Icons.MORE_VERT,
+            icon_color=ft.Colors.ON_SURFACE_VARIANT,
+            items=menu_items,
+        )
+
+        subtitle = (
+            f"{exchange_title} · {account.currency}"
+            if exchange_title
+            else account.currency
+        )
+        icon_key = resolve_account_icon_key(account.icon, exchange_id)
 
         body = ft.Column(
             spacing=12,
@@ -69,17 +94,12 @@ class AccountCard(ft.Container):
                             spacing=12,
                             expand=True,
                             controls=[
-                                ft.Container(
-                                    width=46,
-                                    height=46,
-                                    border_radius=14,
-                                    bgcolor=accent,
-                                    alignment=ft.Alignment.CENTER,
-                                    content=account_icon_control(
-                                        account.icon,
-                                        size=24,
-                                        color=ft.Colors.WHITE,
-                                    ),
+                                account_icon_badge(
+                                    icon_key,
+                                    color=accent,
+                                    size=46,
+                                    glyph_size=24,
+                                    glyph_color=ft.Colors.WHITE,
                                 ),
                                 ft.Column(
                                     spacing=2,
@@ -93,7 +113,7 @@ class AccountCard(ft.Container):
                                             max_lines=2,
                                             overflow=ft.TextOverflow.ELLIPSIS,
                                         ),
-                                        muted_text(account.currency),
+                                        muted_text(subtitle),
                                     ],
                                 ),
                             ],

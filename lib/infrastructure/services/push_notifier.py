@@ -124,9 +124,11 @@ def reminder_fire_at(
         tzinfo=local.tzinfo,
     )
     fire_utc = fire_local.astimezone(timezone.utc)
-    if fire_utc <= moment:
-        return None
-    return fire_utc
+    if fire_utc > moment:
+        return fire_utc
+    if due_aware > moment:
+        return moment + timedelta(seconds=20)
+    return None
 
 
 def _icon_path() -> str:
@@ -172,6 +174,18 @@ async def request_push_permissions() -> bool:
     except Exception:  # noqa: BLE001
         logger.exception("Android notification permission request failed")
         return False
+
+
+async def notify_push_ready(language: str = "ru") -> bool:
+    """Show an immediate confirmation banner so the user knows OS push works."""
+    from lib.infrastructure.services.localization import t
+
+    return await show_os_notification(
+        t("app.name", language),
+        t("push.ready", language),
+        kind="push_ready",
+        related_id="startup",
+    )
 
 
 async def show_os_notification(
@@ -313,6 +327,12 @@ def register_android_notifications(page: Any) -> bool:
         from lib.infrastructure.services.biometric import is_mobile_platform
         from lib.infrastructure.services.flet_services import attach_page_service
 
+        logger.info(
+            "Push register: platform=%s web=%s mobile=%s",
+            getattr(page, "platform", None),
+            getattr(page, "web", None),
+            is_mobile_platform(page),
+        )
         if not is_mobile_platform(page):
             return False
     except Exception:  # noqa: BLE001

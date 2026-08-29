@@ -38,6 +38,7 @@ class Container:
     category_repository: Any = None
     settings_repository: Any = None
     budget_repository: Any = None
+    exchange_connection_repository: Any = None
 
     # Optional infrastructure services
     exchange_rate_provider: Any = None
@@ -60,6 +61,8 @@ class Container:
     delete_account: Any = None
     list_accounts: Any = None
     recalculate_account_balance: Any = None
+    connect_exchange_account: Any = None
+    sync_exchange_account: Any = None
 
     # Use cases — goals
     create_goal: Any = None
@@ -141,6 +144,7 @@ class Container:
             "category_repository",
             "settings_repository",
             "budget_repository",
+            "exchange_connection_repository",
         ):
             repo = getattr(self, attr, None)
             if repo is not None and hasattr(repo, "_session_factory"):
@@ -269,6 +273,11 @@ def build_container(
             "budget_repository",
             "lib.infrastructure.repositories.budget_repository",
             "SqlAlchemyBudgetRepository",
+        ),
+        (
+            "exchange_connection_repository",
+            "lib.infrastructure.repositories.exchange_connection_repository",
+            "SqlAlchemyExchangeConnectionRepository",
         ),
     ]
     for attr, module_path, class_name in repo_specs:
@@ -446,6 +455,34 @@ def build_container(
         "account_repository",
         "transaction_repository",
     )
+    if (
+        container.account_repository is not None
+        and container.exchange_connection_repository is not None
+    ):
+        from lib.domain.use_cases.exchange_sync import (
+            ConnectExchangeAccountUseCase,
+            SyncExchangeAccountUseCase,
+        )
+
+        try:
+            container.connect_exchange_account = ConnectExchangeAccountUseCase(
+                container.account_repository,
+                container.exchange_connection_repository,
+                config=cfg,
+            )
+            if container.transaction_repository is not None:
+                container.sync_exchange_account = SyncExchangeAccountUseCase(
+                    container.account_repository,
+                    container.transaction_repository,
+                    container.exchange_connection_repository,
+                    config=cfg,
+                )
+        except Exception as exc:  # pragma: no cover
+            container.missing.append("connect_exchange_account")
+            container.errors["connect_exchange_account"] = f"construct failed: {exc}"
+    else:
+        container.missing.append("connect_exchange_account")
+        container.errors["connect_exchange_account"] = "missing exchange dependencies"
 
     _wire("create_goal", CreateGoalUseCase, "goal_repository")
     _wire("update_goal", UpdateGoalUseCase, "goal_repository")

@@ -12,6 +12,7 @@ from lib.core.config import ACCOUNT_ICON_GROUPS, ACCOUNT_ICONS
 from lib.presentation.icon_registry import resolve_icon
 
 CURRENCY_ICON_PREFIX = "ccy_"
+EXCHANGE_ICON_PREFIX = "exch_"
 
 
 def currency_icon_key(code: str) -> str:
@@ -25,6 +26,118 @@ def parse_currency_icon_key(key: str | None) -> str | None:
         return None
     code = key[len(CURRENCY_ICON_PREFIX) :].strip().upper()
     return code or None
+
+
+def exchange_icon_key(exchange_id: str) -> str:
+    """Stored icon key for a catalog exchange."""
+    return f"{EXCHANGE_ICON_PREFIX}{(exchange_id or '').strip().lower()}"
+
+
+def parse_exchange_icon_key(key: str | None) -> str | None:
+    """Return exchange id when ``key`` is an exchange logo key."""
+    if not key or not key.startswith(EXCHANGE_ICON_PREFIX):
+        return None
+    exchange_id = key[len(EXCHANGE_ICON_PREFIX) :].strip().lower()
+    return exchange_id or None
+
+
+def _exchange_icon_file(exchange_id: str) -> Path | None:
+    name = f"{(exchange_id or '').strip().lower()}.png"
+    bundled = Path(__file__).resolve().parents[2] / "assets" / "icons" / "exchanges" / name
+    if bundled.is_file():
+        return bundled
+    rel = Path("assets") / "icons" / "exchanges" / name
+    if rel.is_file():
+        return rel.resolve()
+    return None
+
+
+def exchange_icon_src(exchange_id: str) -> str | None:
+    """Filesystem path for a vendored web3icons PNG, if present."""
+    path = _exchange_icon_file(exchange_id)
+    return str(path) if path is not None else None
+
+
+def _crypto_icons_dir() -> Path:
+    bundled = Path(__file__).resolve().parents[2] / "assets" / "icons" / "crypto"
+    if bundled.is_dir():
+        return bundled
+    rel = Path("assets") / "icons" / "crypto"
+    return rel.resolve() if rel.is_dir() else bundled
+
+
+def _crypto_icon_file(code: str) -> Path | None:
+    name = f"{(code or '').strip().upper()}.png"
+    path = _crypto_icons_dir() / name
+    return path if path.is_file() else None
+
+
+def crypto_icon_src(code: str) -> str | None:
+    """Filesystem path for a vendored token PNG, if present."""
+    path = _crypto_icon_file(code)
+    return str(path) if path is not None else None
+
+
+def exchange_logo_fills_badge(exchange_id: str) -> bool:
+    """True when the PNG is a full-bleed colored badge."""
+    from lib.domain.exchanges import WEB3_ICONS
+
+    source = WEB3_ICONS.get((exchange_id or "").strip().lower())
+    return bool(source and source[2] == "background")
+
+
+def exchange_icon_keys() -> tuple[str, ...]:
+    from lib.domain.exchanges import EXCHANGES
+
+    return tuple(exchange_icon_key(spec.id) for spec in EXCHANGES)
+
+
+def resolve_account_icon_key(icon: str | None, exchange_id: str = "") -> str:
+    """Prefer a vendored exchange logo when the account is linked to a venue."""
+    current = (icon or "").strip()
+    if parse_exchange_icon_key(current):
+        return current
+    provider = (exchange_id or "").strip().lower()
+    if provider:
+        key = exchange_icon_key(provider)
+        if is_valid_account_icon(key):
+            return key
+    return current or "wallet"
+
+
+def account_icon_badge(
+    key: str | None,
+    *,
+    color: str,
+    size: float = 46,
+    glyph_size: float = 24,
+    glyph_color: str | None = None,
+) -> ft.Container:
+    """Rounded badge: full-bleed exchange/token PNG or tinted Material/currency glyph."""
+    exchange_id = parse_exchange_icon_key(key)
+    token_code = parse_currency_icon_key(key)
+    fills = (
+        exchange_id is not None
+        and exchange_icon_src(exchange_id) is not None
+        and exchange_logo_fills_badge(exchange_id)
+    ) or (token_code is not None and crypto_icon_src(token_code) is not None)
+    clip = getattr(ft, "ClipBehavior", None)
+    kwargs: dict = {}
+    if clip is not None:
+        kwargs["clip_behavior"] = clip.ANTI_ALIAS
+    return ft.Container(
+        width=size,
+        height=size,
+        border_radius=14 if size >= 40 else 12,
+        alignment=ft.Alignment.CENTER,
+        bgcolor=None if fills else color,
+        content=account_icon_control(
+            key,
+            size=size if fills else glyph_size,
+            color=glyph_color,
+        ),
+        **kwargs,
+    )
 
 
 def _currencies_json_path() -> Path:
@@ -139,7 +252,10 @@ def account_icon_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
     if fiat_keys:
         extra.append(("icon_group.fiat", tuple(fiat_keys)))
     if crypto_keys:
-        extra.append(("icon_group.crypto", tuple(crypto_keys)))
+        extra.append(
+            ("icon_group.crypto", tuple(crypto_keys) + extra_crypto_icon_keys())
+        )
+    extra.append(("icon_group.exchanges", exchange_icon_keys()))
     return ACCOUNT_ICON_GROUPS + tuple(extra)
 
 
@@ -149,6 +265,22 @@ def all_account_icon_keys() -> tuple[str, ...]:
     for _label, group in account_icon_groups():
         keys.extend(group)
     return tuple(dict.fromkeys(keys))
+
+
+def extra_crypto_icon_keys() -> tuple[str, ...]:
+    """Token logos on disk that are not already in the currency catalog."""
+    folder = _crypto_icons_dir()
+    if not folder.is_dir():
+        return ()
+    known = {
+        row["code"] for row in _currency_catalog() if row["is_crypto"] == "1"
+    }
+    extras: list[str] = []
+    for path in sorted(folder.glob("*.png")):
+        code = path.stem.strip().upper()
+        if code and code not in known:
+            extras.append(currency_icon_key(code))
+    return tuple(extras)
 
 
 def crypto_icon_keys() -> tuple[str, ...]:
@@ -165,7 +297,11 @@ def is_valid_account_icon(key: str | None) -> bool:
         return False
     if key in ACCOUNT_ICONS:
         return True
-    return parse_currency_icon_key(key) is not None
+    if parse_currency_icon_key(key) is not None:
+        return True
+    from lib.domain.exchanges import get_exchange
+
+    return get_exchange(parse_exchange_icon_key(key) or "") is not None
 
 
 def account_icon_control(
@@ -174,9 +310,32 @@ def account_icon_control(
     size: float = 20,
     color: str | None = None,
 ) -> ft.Control:
-    """Build an Icon or currency-symbol Text for a stored account icon key."""
+    """Build an Icon, currency glyph, or exchange logo for a stored icon key."""
+    exchange_id = parse_exchange_icon_key(key)
+    if exchange_id is not None:
+        src = exchange_icon_src(exchange_id)
+        if src:
+            return ft.Image(
+                src=src,
+                width=size,
+                height=size,
+                fit=ft.BoxFit.COVER,
+            )
+        return ft.Icon(
+            resolve_icon("token", default="token"),
+            size=size,
+            color=color,
+        )
     code = parse_currency_icon_key(key)
     if code is not None:
+        src = crypto_icon_src(code)
+        if src:
+            return ft.Image(
+                src=src,
+                width=size,
+                height=size,
+                fit=ft.BoxFit.COVER,
+            )
         label = currency_glyph_label(code)
         # Compact codes (USDT, MATIC) need a smaller type size.
         if len(label) >= 4:

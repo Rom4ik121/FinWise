@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Awaitable, Callable, Optional
@@ -21,6 +22,28 @@ def tr(key: str, lang: str = "ru", *, default: str | None = None, **kwargs: Any)
         except (KeyError, ValueError):
             return text
     return text
+
+
+def dropdown_select_kwargs(handler: Callable[..., Any]) -> dict[str, Any]:
+    """Return the Flet ``Dropdown`` event kwarg for this installed version.
+
+    Flet 0.86+ uses ``on_select``; 0.83–0.85 used ``on_change``.
+    """
+    try:
+        params = inspect.signature(ft.Dropdown.__init__).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "on_select" in params:
+        return {"on_select": handler}
+    return {"on_change": handler}
+
+
+def bind_dropdown_select(dropdown: Any, handler: Callable[..., Any]) -> None:
+    """Attach a selection handler using the event name this Flet build supports."""
+    if hasattr(dropdown, "on_select"):
+        dropdown.on_select = handler
+        return
+    dropdown.on_change = handler
 
 
 def format_money(
@@ -108,11 +131,26 @@ def run_async(
     asyncio.create_task(handler(*args, **kwargs))
 
 
+def control_page(control: Any) -> Optional[Any]:
+    """Page a control is mounted on, or None if it is not on a page yet.
+
+    Flet 0.86+ raises ``RuntimeError`` on ``control.page`` when unmounted,
+    so ``getattr(control, "page", None)`` is not safe.
+    """
+    try:
+        return control.page
+    except (RuntimeError, AttributeError):
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def safe_update(control: ft.Control) -> None:
     """Call ``control.update()`` only when the control is mounted."""
+    if control_page(control) is None:
+        return
     try:
-        if getattr(control, "page", None) is not None:
-            control.update()
+        control.update()
     except Exception:  # noqa: BLE001
         pass
 
@@ -124,6 +162,13 @@ def snack(
     error: bool = False,
 ) -> None:
     """Show a short SnackBar message."""
+    if not error:
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("light")
+        except Exception:  # noqa: BLE001
+            pass
     page.show_dialog(
         ft.SnackBar(
             content=ft.Text(

@@ -140,3 +140,15 @@ def fill_time_series(
         (key, lookup[key][0], lookup[key][1]) if key in lookup else (key, zero, zero)
         for key in keys
     ]
+
+
+def cumulative_net(
+    series: Sequence[tuple[str, Decimal, Decimal]],
+) -> list[Decimal]:
+    """Running net for the period: income lifts the line, expense drops it."""
+    running = Decimal("0")
+    out: list[Decimal] = []
+    for _key, income, expense in series:
+        running += Decimal(str(income)) - Decimal(str(expense))
+        out.append(running)
+    return out

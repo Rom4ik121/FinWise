@@ -47,6 +47,23 @@ def test_save_spoken_transaction_persists_expense() -> None:
     asyncio.run(_run())
 
 
+def test_prepare_speech_permissions_without_service() -> None:
+    from lib.infrastructure.services import speech as speech_mod
+
+    previous = speech_mod.get_speech_service()
+    speech_mod.set_speech_service(None)
+    try:
+
+        async def _run() -> None:
+            result = await speech_mod.prepare_speech_permissions()
+            assert result["ok"] is False
+            assert result["error"] == "unavailable"
+
+        asyncio.run(_run())
+    finally:
+        speech_mod.set_speech_service(previous)
+
+
 def test_save_spoken_requires_amount() -> None:
     container = MagicMock()
 

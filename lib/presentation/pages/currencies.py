@@ -11,7 +11,14 @@ from lib.domain.entities.currency import Currency, ExchangeRate
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.styles import card_surface, muted_text, page_header
-from lib.presentation.utils import format_money, run_async, safe_convert, snack, tr
+from lib.presentation.utils import (
+    format_money,
+    run_async,
+    safe_convert,
+    safe_update,
+    snack,
+    tr,
+)
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.loading import loading_indicator
@@ -402,7 +409,7 @@ class CurrenciesPage(ft.Column):
         self._rates_list.controls = rows
         try:
             self._base_caption.update()
-            self._rates_list.update()
+            safe_update(self._rates_list)
         except Exception:  # noqa: BLE001
             pass
 
@@ -428,7 +435,7 @@ class CurrenciesPage(ft.Column):
         lang = self._state.language
         self._rates_list.controls = [loading_indicator()]
         try:
-            self._rates_list.update()
+            safe_update(self._rates_list)
         except Exception:  # noqa: BLE001
             pass
 
@@ -454,7 +461,7 @@ class CurrenciesPage(ft.Column):
             snack(self._page, str(exc), error=True)
             self._rates_list.controls = [EmptyState(tr("error.generic", lang))]
             try:
-                self._rates_list.update()
+                safe_update(self._rates_list)
             except Exception:  # noqa: BLE001
                 pass
             return

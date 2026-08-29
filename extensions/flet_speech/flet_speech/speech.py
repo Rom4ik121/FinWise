@@ -20,6 +20,19 @@ class FinanseSpeech(ft.Service):
     async def is_available(self) -> bool:
         return bool(await self._invoke_method("is_available"))
 
+    async def request_permissions(self) -> dict[str, Any]:
+        result = await self._invoke_method("request_permissions")
+        if isinstance(result, dict):
+            return {
+                "ok": bool(result.get("ok")),
+                "ready": bool(result.get("ready", result.get("ok"))),
+                "error": result.get("error"),
+            }
+        return {"ok": bool(result), "ready": bool(result), "error": None}
+
+    async def open_settings(self) -> bool:
+        return bool(await self._invoke_method("open_settings"))
+
     async def take_pending_voice(self) -> bool:
         """True when the OS launched FinWise via the voice shortcut."""
         return bool(await self._invoke_method("take_pending_voice"))
