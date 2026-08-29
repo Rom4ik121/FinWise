@@ -1,0 +1,18 @@
+name: flet_speech
+description: FinWise on-device speech recognition
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.2.3 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  speech_to_text: ^6.6.2
+  flet:
+    path: ../../../../../../../packages/flet
+
+dev_dependencies:
+  flutter_lints: ^4.0.0

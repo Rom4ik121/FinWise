@@ -6,14 +6,11 @@ from typing import Optional
 
 import flet as ft
 
+from lib.presentation.skins import get_active_skin
+
 
 class SummaryCard(ft.Container):
-    """Compact KPI card that stretches to available width.
-
-    Non-hero cards use a fixed height so pairs in a Row stay equal.
-    """
-
-    KPI_HEIGHT = 96
+    """Compact KPI card that stretches to available width."""
 
     def __init__(
         self,
@@ -26,8 +23,12 @@ class SummaryCard(ft.Container):
         hero: bool = False,
         width: Optional[int] = None,
         on_click: Optional[ft.ControlEventHandler] = None,
+        dark: bool = True,
     ) -> None:
-        color = accent or ft.Colors.PRIMARY
+        skin = get_active_skin()
+        color = accent or skin.text_hex(dark=dark)
+        badge_bg = skin.badge_bg(dark=dark)
+        badge_fg = skin.badge_fg(dark=dark)
         body = ft.Column(
             spacing=8,
             tight=False,
@@ -42,12 +43,12 @@ class SummaryCard(ft.Container):
                             width=30,
                             height=30,
                             border_radius=9,
-                            bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                            bgcolor=badge_bg,
                             alignment=ft.Alignment.CENTER,
                             content=ft.Icon(
                                 icon,
                                 size=16,
-                                color=ft.Colors.ON_PRIMARY_CONTAINER,
+                                color=badge_fg,
                             ),
                         ),
                         ft.Text(
@@ -63,25 +64,24 @@ class SummaryCard(ft.Container):
                 ),
                 ft.Text(
                     value,
-                    size=16 if hero else 13,
+                    size=15 if hero else 13,
                     weight=ft.FontWeight.W_700,
                     color=color,
                     overflow=ft.TextOverflow.ELLIPSIS,
-                    max_lines=1 if not hero else 2,
+                    max_lines=2,
                 ),
             ],
         )
         kwargs: dict = {
             "expand": expand,
             "width": width,
-            "height": None if hero else self.KPI_HEIGHT,
             "padding": 14 if hero else 12,
-            "border_radius": 16 if hero else 14,
+            "border_radius": skin.hero_radius if hero else skin.card_radius,
             "border": ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             "shadow": ft.BoxShadow(
                 spread_radius=0,
                 blur_radius=12,
-                color="#00000022",
+                color=skin.glow,
                 offset=ft.Offset(0, 3),
             ),
             "ink": on_click is not None,
@@ -89,14 +89,7 @@ class SummaryCard(ft.Container):
             "content": body,
         }
         if hero:
-            kwargs["gradient"] = ft.LinearGradient(
-                begin=ft.Alignment.TOP_LEFT,
-                end=ft.Alignment.BOTTOM_RIGHT,
-                colors=[
-                    ft.Colors.PRIMARY_CONTAINER,
-                    ft.Colors.SURFACE_CONTAINER_HIGH,
-                ],
-            )
+            kwargs["gradient"] = skin.hero_gradient(dark=dark)
         else:
             kwargs["bgcolor"] = ft.Colors.SURFACE_CONTAINER
         super().__init__(**kwargs)

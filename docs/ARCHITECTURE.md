@@ -2,219 +2,137 @@
 
 ## 1. Обзор
 
-**FinWise** — кроссплатформенное приложение для учёта личных финансов
-(доходы, расходы, счета, цели, долги, подписки, бюджеты, мультивалютность).
-Реализовано на **Python + Flet** (UI-фреймворк поверх Flutter), работает на
-Windows, Android и iOS (через `flet run --android/--ios/--web`).
-
-Код организован по принципам **чистой архитектуры** (Clean Architecture):
+FinWise считает доходы и расходы, счета, цели, долги, подписки, бюджеты и
+курсы валют. UI — Flet поверх Flutter. Код — чистая архитектура:
 
 ```
-main.py                     — точка входа (запускает lib.main.run)
-lib/
-├── core/                   — конфигурация, БД, DI-контейнер, логирование, палитра
-├── domain/                 — бизнес-логика (сущности, репозитории, use cases)
-├── infrastructure/         — SQLAlchemy, HTTP-клиенты, сервисы (push, биометрия, экспорт)
-└── presentation/           — Flet UI (страницы, виджеты, состояние, темы, i18n)
+main.py                     → lib.main.run()
+lib/core                    — config, SQLite engine, DI, логи
+lib/domain                  — сущности, порты репозиториев, use cases
+lib/infrastructure          — SQLAlchemy, HTTP, бэкап, биометрия, push, речь
+lib/presentation            — страницы Flet, скины, файлы, голосовой ярлык
+extensions/                 — Dart-сервисы: local_auth, notifications, speech
 ```
 
-Зависимости направлены **внутрь**: `presentation` → `domain` → (интерфейсы),
-`infrastructure` реализует интерфейсы `domain.repositories` и подключается
-через DI-контейнер (`lib/core/dependencies.py`).
+Зависимости внутрь: presentation и infrastructure зависят от domain.
+Реализации портов собирает `build_container()` в `lib/core/dependencies.py`.
 
-## 2. Слои и их ответственность
+## 2. Слои
 
-### 2.1 `lib/core` — ядро приложения
+### 2.1 `lib/core`
 
 | Файл | Назначение |
 |---|---|
-| `config.py` | Константы (валюта по умолчанию, категории, иконки, палитра), класс `AppConfig` (пути к данным, БД, бэкапам, экспорту, логам) |
-| `database.py` | SQLAlchemy engine/session factory, `Base`, `init_db()`, `reset_engine()`, патчи колонок для SQLite |
-| `dependencies.py` | DI-контейнер `Container` и фабрика `build_container()` |
-| `logging_config.py` | `setup_logging()` — консоль + файл, тихие сторонние логгеры |
-| `color_palette.py` | Генерация палитры цветов (HSL→HEX) для счетов и категорий |
+| `config.py` | Валюта/язык/скин по умолчанию, иконки, `AppConfig`. Пути: Windows — platformdirs; iOS — `~/Library/Application Support/finanse`; Android — `~/finanse` (не `~/.local/share`, иначе PermissionError при старте) |
+| `database.py` | Engine, `init_db()`, WAL, `foreign_keys`, патчи колонок SQLite |
+| `dependencies.py` | `Container` + `build_container()` |
+| `logging_config.py` | Консоль и файл |
+| `color_palette.py` | Палитра HEX для счетов и категорий |
 
-### 2.2 `lib/domain` — бизнес-логика
+### 2.2 `lib/domain`
 
-- **`entities/`** — Pydantic-модели:
-  - `Account` — счёт (баланс, валюта, иконка, цвет)
-  - `Transaction` — операция (доход/расход/перевод, теги, связи с целью/долгом/подпиской)
-  - `Category`, `CategoryKind` — категории (income/expense/both)
-  - `Currency`, `ExchangeRate` — валюты и курсы
-  - `Goal` — цель накопления (с прогрессом и проекцией)
-  - `Debt` — долг/заём (направление, проценты, статус)
-  - `Subscription` — подписка (периодичность, автоплатежи)
-  - `Budget`, `BudgetProgress` — месячный лимит по категории
-  - `AppSettings` — настройки (тема, язык, валюта, напоминания, PIN/биометрия)
-  - `Money` — хелперы квантования (`quantize_money`, `quantize_rate`)
-  - `currency_codes.py` — нормализация кодов валют (алиасы: ₽→RUB, $→USD и т.д.)
+Сущности (Pydantic): Account, Transaction, Category, Currency, ExchangeRate,
+Goal, Debt, Subscription, Budget, AppSettings, Money helpers, `currency_codes`.
 
-- **`repositories/`** — абстрактные порты (ABC) для персистентности:
-  `AccountRepository`, `TransactionRepository`, `GoalRepository`,
-  `DebtRepository`, `SubscriptionRepository`, `CurrencyRepository`,
-  `CategoryRepository`, `SettingsRepository`, `BudgetRepository`, `Repository<T, ID>`.
+Порты: `*Repository` ABC.
 
-- **`use_cases/`** — сценарии приложения (все асинхронные):
-  - `transactions.py` — добавление/обновление/удаление операций, статистика, переводы между счетами
-  - `accounts.py` — CRUD счетов, пересчёт баланса
-  - `goals.py` — CRUD целей, взносы, проекция (прогноз), дублирование, архивация
-  - `debts.py` — CRUD долгов, погашение, расчёт процентов, проекция
-  - `subscriptions.py` — CRUD подписок, обработка наступивших платежей, аналитика
-  - `currencies.py` — обновление курсов, конвертация, список валют
-  - `budgets.py` — установка лимитов, прогресс, пересчёт потраченного, алерты
-  - `categories.py` — CRUD категорий, `find_or_create`
-  - `settings.py` — чтение/сохранение настроек
-  - `export_data.py` — экспорт всех данных в JSON
-  - `align_currencies.py` — выравнивание валюты единственного счёта под базовую
+Use cases — все `async execute(...)`: транзакции (включая переводы), счета,
+цели, долги, подписки, валюты, бюджеты, категории, настройки, JSON-экспорт,
+выравнивание валюты единственного счёта.
 
-- **`services/rate_book.py`** — in-memory книга курсов (`RateBook`) с кэшем
-  и конвертацией через прямые/обратные/промежуточные пары.
+`domain/services/rate_book.py` — in-memory конвертация по прямым, обратным и
+USD-пивот курсам.
 
-### 2.3 `lib/infrastructure` — реализация портов
+### 2.3 `lib/infrastructure`
 
-- **`db_models.py`** — SQLAlchemy 2.0 ORM-модели (таблицы: `accounts`,
-  `transactions`, `goals`, `debts`, `subscriptions`, `currencies`,
-  `exchange_rates`, `categories`, `settings`, `budgets`).
-- **`repositories/`** — SQLAlchemy-реализации репозиториев
-  (`SqlAlchemy*Repository`), работают через `asyncio.to_thread` + `session_scope`.
-- **`services/`**:
-  - `backup_service.py` — бэкап/восстановление SQLite (с WAL-сайдкарами)
-  - `export_service.py` — экспорт CSV и PDF-отчёта (reportlab)
-  - `encryption_service.py` — хэширование PIN (PBKDF2), биометрия
-  - `biometric.py` — провайдер биометрии (Windows Hello / local_auth / env-оверрайд)
-  - `notification_service.py` — in-app уведомления (очередь сообщений)
-  - `push_notifier.py` — OS push (Android через `flet_android_notifications`)
-  - `reminder_scheduler.py` — планировщик напоминаний (долги, подписки, цели)
-  - `exchange_rate_provider.py` — агрегатор курсов (fiat + crypto)
-  - `localization.py` — словарь переводов ru/en/uz + `t()`/`tr()`
-  - `data_reset_service.py` — полная очистка таблиц
-- **`api/`**:
-  - `exchange_rate_client.py` — fiat-курсы (open.er-api.com)
-  - `crypto_rate_client.py` — крипто-курсы (CoinGecko)
-  - `binance_rate_client.py` — крипто-курсы (Binance ticker)
+ORM (`db_models.py`), SQLAlchemy-репозитории (`asyncio.to_thread` +
+`session_scope`), HTTP-клиенты курсов, сервисы: бэкап, CSV/PDF, PIN,
+биометрия, in-app очередь, OS push, планировщик напоминаний, локализация
+(ru/en/uz), сброс данных, распознавание речи и сохранение голосовой операции.
 
-### 2.4 `lib/presentation` — UI (Flet)
+### 2.4 `lib/presentation`
 
-- **`app.py`** — корневой контроллер `FinanseApp`: плавающая навигация,
-  кэш страниц, PIN-гейт (LockScreen), переключение primary/secondary.
-- **`state/app_state.py`** — `AppState`: Observer-паттерн, токены обновления
-  страниц, настройки, маршруты.
-- **`pages/`** — страницы: `dashboard`, `transactions`, `accounts`,
-  `account_detail`, `analytics`, `goals`, `debts`, `subscriptions`,
-  `currencies`, `budgets`, `settings`.
-- **`widgets/`** — переиспользуемые виджеты: `AccountCard`, `TransactionTile`,
-  `GoalProgress`, `DebtCard`, `SubscriptionCard`, `SummaryCard`, `EmptyState`,
-  `Loading`, `ConfirmDialog`, `FullscreenForm`, `QuickAddSheet`,
-  `TransferSheet`, `CategoryPicker`, `CurrencyTickerPicker`, `DateTimeField`,
-  `AppearancePicker`, `LockScreen`, `SplashScreen`, `PullToRefresh`, `Charts`.
-- **`theme.py` / `styles.py`** — темы (light/dark), карточки, кнопки, бейджи.
-- **`utils.py`** — `format_money`, `format_date`, `run_async`, `snack`, `tr`,
-  `load_rate_book`, `safe_update`.
-- **`icon_registry.py` / `account_icons.py`** — маппинг ключей иконок → Flet Icons,
-  глифы валют/крипто.
-- **`money_input.py`** — поле ввода денег с группировкой разрядов и парсером.
-- **`analytics_period.py` / `account_stats.py`** — пресеты периодов и агрегация.
-- **`notification_badges.py`** — бейджи уведомлений на дашборде.
+`FinanseApp` — плавающие 4 вкладки, PIN-гейт, secondary-маршруты.
+Скины `classic` и `neon` (`presentation/skins/`). Аналитика — один поток
+доход+расход (пончики и линия). Экспорт/бэкап на ПК и телефоне —
+`file_transfer.py` (обязательно `src_bytes` + копия в выбранный путь).
 
-## 3. Поток запуска
+## 3. Запуск (`lib/main.py`)
 
-1. `main.py` → `lib.main.run()`.
-2. `run()` настраивает логирование, нормализует `FLET_*` env, вызывает
-   `ft.run(_flet_main, ...)` (desktop/web/mobile/hidden).
-3. `_flet_main(page)`:
-   - показывает сплэш-экран;
-   - регистрирует биометрию (`register_local_auth_service`) и Android-push;
-   - `get_default_config()` → `setup_logging()` → `init_db()` → `build_container()`;
-   - `_seed_if_needed()` — сид валют, настроек, дефолтного счёта;
-   - запускает фоновые задачи: `_exchange_rate_loop` (курсы) и `_reminder_loop`
-     (ежедневные напоминания);
-   - обрабатывает наступившие подписки и планирует напоминания;
-   - монтирует `FinanseApp`.
+Порядок важен для телефонов:
 
-## 4. DI-контейнер
+1. Сплэш (только визуальные контролы).
+2. Config, логи, `init_db`, DI, сид валют/настроек/счета «Наличные».
+3. Фоновые циклы: курсы (`_exchange_rate_loop`), напоминания (`_reminder_loop`).
+4. Обработка наступивших подписок.
+5. Снять сплэш (`page.controls.clear`).
+6. Зарегистрировать **сервисы** на `page.services` (не `page.add`):
+   биометрия, локальные уведомления, речь.
+7. Запросить разрешение на пуши, поставить OS-напоминания, `FinanseApp.start()`.
+8. Ярлык голоса: `install_voice_shortcut` (deep link `finwise://voice`).
 
-`Container` (dataclass) хранит репозитории, сервисы и use cases.
-`build_container()` импортирует реализации инфраструктуры и собирает граф
-зависимостей. Если модуль недоступен — слот остаётся `None`, имя попадает в
-`container.missing`, ошибка — в `container.errors`. Это позволяет частичную
-сборку при инкрементальной разработке.
+`page.web is True` (`flet run --android/--web`) — кастомные Dart-сервисы
+не вешаются: иначе красный баннер `Unknown control` и вечный сплэш.
+Встроенные FilePicker/Share вешаются с `native_extension=False`.
 
-`container.require(name)` бросает `RuntimeError`, если зависимость не собрана.
-`container.rebind_session_factory(factory)` перенаправляет все репозитории на
-новую фабрику сессий (используется после восстановления БД).
+## 4. DI
 
-## 5. База данных
+`Container` держит репозитории, сервисы и use cases. Несобранный слот —
+`None`, имя в `missing`. `require(name)` бросает, если слота нет.
+После restore БД: `rebind_session_factory`.
 
-- SQLite (путь из `AppConfig.db_path`), WAL-режим, `PRAGMA foreign_keys=ON`.
-- `init_db()` создаёт таблицы через `Base.metadata.create_all` и применяет
-  патчи колонок для существующих БД (`_apply_sqlite_column_patches`).
-- Миграции Alembic (9 версий) — см. `migrations/`; `env.py` резолвит URL из
-  конфигурации приложения.
-- Репозитории используют `session_scope` (commit/rollback/close) и
-  `asyncio.to_thread` для неблокирующего доступа.
+## 5. Данные
 
-## 6. Мультивалютность и курсы
+SQLite, WAL, FK. `init_db()` = `create_all` + патчи колонок. Alembic —
+10 ревизий (см. DATABASE.md).
 
-- Базовая валюта — из настроек (`default_currency`).
-- Курсы: fiat (open.er-api.com) + крипто (CoinGecko, Binance), агрегируются
-  в `HttpExchangeRateProvider`, сохраняются в `exchange_rates`.
-- Конвертация: `RateBook` (in-memory кэш) или `ConvertCurrencyUseCase`
-  (прямые пары → обратные → через USD-пивот).
-- Слабая валюта (UZS) не округляется в 0: курсы хранятся с 12 знаками,
-  квантование `quantize_rate` — 8 знаков.
+## 6. Валюты
 
-## 7. Уведомления и напоминания
+База — `settings.default_currency`. Fiat: open.er-api.com. Крипто: CoinGecko и
+Binance. Курсы Numeric(24,12), `quantize_rate` не обнуляет UZS.
 
-- `NotificationService` — in-app очередь сообщений (title/body/kind/related_id).
-- `PushNotifier` — OS-уведомления (Android через `flet_android_notifications`,
-  Windows — winotify; отключаются env `FINANCE_DISABLE_PUSH=1`).
-- `ReminderScheduler` — напоминания о долгах, подписках, целях (off-track).
-- Фоновый цикл `_reminder_loop` срабатывает в `reminder_time` (HH:MM) раз в день.
-- Бейджи на дашборде считаются через `notification_badges.py`.
+Перевод между счетами в разных валютах конвертирует сумму через RateBook.
+Выравнивание единственного счёта при смене валюты отображения **не**
+пересчитывает суммы — только код валюты.
+
+## 7. Уведомления
+
+- In-app: `NotificationService.push` (и сразу OS dispatch, если можно).
+- OS: Windows — winotify; Android/iOS — `FinanseLocalNotifications`
+  (`flutter_local_notifications`), запасной путь Android —
+  `flet_android_notifications`.
+- `schedule_reminders` ставит in-app события и **zonedSchedule** на 30 дней
+  вперёд (срабатывает при закрытом приложении после сборки IPA/APK).
+- Цикл Python срабатывает в `reminder_time`, пока процесс жив.
+- Тесты: `FINANCE_DISABLE_PUSH=1` (autouse в conftest).
 
 ## 8. Безопасность
 
-- PIN: `EncryptionService.hash_pin()` (PBKDF2 + соль), хранится в `settings`
-  (`pin_hash`, `pin_salt`).
-- Биометрия: Windows Hello (winrt), мобильный `local_auth` (расширение
-  `extensions/flet_local_auth`), env-оверрайд `FINANCE_BIOMETRIC_OK=1` для тестов.
-- LockScreen показывается при старте, если задан PIN.
+PIN: PBKDF2, поля `pin_hash` / `pin_salt`. Биометрия только вместе с PIN.
+Включение в настройках сразу показывает системный prompt. LockScreen сам
+открывает Face ID / отпечаток. Windows Hello через winrt. Тесты:
+`FINANCE_BIOMETRIC_OK=1`.
 
-## 9. Экспорт и бэкап
+## 9. Файлы
 
-- JSON: `ExportDataUseCase` (все сущности + курсы + настройки).
-- CSV: `ExportService.export_transactions_csv`.
-- PDF: `ExportService.export_summary_pdf` (reportlab).
-- Бэкап: `BackupService` — копия `.db` + `-wal`/`-shm` в `backup_dir`,
-  восстановление с опциональной safety-копией.
+JSON (`ExportDataUseCase`), CSV/PDF (`ExportService`), `.db` (`BackupService`
+вместе с WAL/SHM). На desktop `FilePicker.save_file` **обязан** получить
+`src_bytes`; затем файл копируется в выбранный путь. Отмена диалога не
+маскируется внутренним путём. На телефоне — save/share; restore — выбор
+`.db` из файлов.
 
-## 10. Тестирование
+## 10. Голос
 
-- `pytest` (конфиг в `pytest.ini`, `testpaths=tests`).
-- `tests/conftest.py` — фикстуры: изолированный `container` (SQLite в tmp),
-  `run_async`, отключение OS-push.
-- `tests/factories.py` — фабрики сущностей.
-- `tests/unit/` — юнит-тесты (money, budget, биометрия, шифрование,
-  локализация, бэкап, виджеты и др.).
-- `tests/integration/` — интеграционные тесты (счета, операции, переводы,
-  цели, долги, подписки, бюджеты, валюты, экспорт).
+Парсер `voice_parse.parse_voice_expense` (тип, сумма, категория).
+Сохранение: `voice_capture.save_spoken_transaction` на первый активный счёт.
+Ввод: кнопка в быстром добавлении; hands-free — URL `finwise://voice`
+(настройки телефона / Back Tap / Action Button / Routines). Кнопка блокировки
+iPhone — Siri, её нельзя отдать приложению. Пока FinWise открыт, зажатие
+громкости вниз тоже запускает запись (после сборки с `flet_speech`).
 
-## 11. Скрипты
+## 11. Скрипты и CI
 
-| Скрипт | Назначение |
-|---|---|
-| `scripts/migrate.py` | Инициализация БД + сид валют/настроек/счёта |
-| `scripts/seed_demo_data.py` | Генерация демо-данных (--wipe, --scale, --currency) |
-| `scripts/build_apk.ps1` | Сборка Android APK |
-| `scripts/build_ipa.sh` | Сборка iOS IPA |
-| `scripts/launch_finwise.bat/.ps1` | Запуск приложения |
-| `scripts/create_desktop_shortcut.ps1` | Ярлык на рабочем столе |
-| `scripts/generate_branding_assets.py` | Генерация иконок/сплэшей |
-| `scripts/push_github.ps1` | Публикация в GitHub |
-| `scripts/patch_android_desugar.py` | Патч desugar для Android |
-
-## 12. CI/CD
-
-- `codemagic.yaml` — сборка iOS/Android в Codemagic.
-- `.github/workflows/build-ios.yml` — GitHub Actions для iOS.
-- `flet.toml` — конфигурация Flet (разрешения Android, splash, iOS Info.plist).
+`scripts/migrate.py`, `seed_demo_data.py`, `build_apk.ps1`, `build_ipa.sh`,
+ярлыки, branding. Codemagic и GitHub Actions — см. CODEMAGIC.md.
+`flet.toml` / `pyproject.toml`: permissions, splash, iOS usage strings,
+deep_linking `finwise` / `voice`.

@@ -287,6 +287,7 @@ class SettingsModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default="default")
     default_currency: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
     theme: Mapped[str] = mapped_column(String(32), nullable=False, default="dark")
+    ui_style: Mapped[str] = mapped_column(String(32), nullable=False, default="classic")
     language: Mapped[str] = mapped_column(String(8), nullable=False, default="ru")
     exchange_update_interval_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=60

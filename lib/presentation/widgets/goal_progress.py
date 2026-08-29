@@ -7,8 +7,9 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.domain.entities.goal import Goal, GoalStatus
+from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
-from lib.presentation.utils import format_date, format_money, tr
+from lib.presentation.utils import format_date, format_money_compact, tr
 
 
 class GoalProgress(ft.Container):
@@ -79,8 +80,8 @@ class GoalProgress(ft.Container):
         elif can_contribute:
             action_btn = ft.IconButton(
                 icon=ft.Icons.ADD,
-                icon_color=ft.Colors.ON_PRIMARY,
-                bgcolor=ft.Colors.PRIMARY,
+                icon_color=get_active_skin().on_primary_hex(dark=True),
+                bgcolor=get_active_skin().primary_hex(dark=True),
                 tooltip=tr("goal.contribute", language),
                 on_click=lambda _e: on_contribute(goal) if on_contribute else None,
                 style=ft.ButtonStyle(
@@ -137,23 +138,25 @@ class GoalProgress(ft.Container):
                     vertical_alignment=ft.CrossAxisAlignment.END,
                     controls=[
                         ft.Text(
-                            f"{format_money(goal.current_amount, currency)} / "
-                            f"{format_money(goal.target_amount, currency)}",
-                            size=13,
+                            f"{format_money_compact(goal.current_amount, currency)} / "
+                            f"{format_money_compact(goal.target_amount, currency)}",
+                            size=12,
                             weight=ft.FontWeight.W_600,
                             expand=True,
+                            max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                         ft.Text(
                             f"{pct}%",
                             size=18,
                             weight=ft.FontWeight.W_800,
-                            color=ft.Colors.PRIMARY,
+                            color=get_active_skin().primary_hex(dark=True),
                         ),
                     ],
                 ),
                 ft.ProgressBar(
                     value=ratio,
-                    color=ft.Colors.PRIMARY,
+                    color=get_active_skin().primary_hex(dark=True),
                     bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
                     bar_height=8,
                     border_radius=999,

@@ -10,6 +10,8 @@ greenlet>=3.1.0
 platformdirs>=4.0.0
 alembic>=1.14.0
 -e ./extensions/flet_local_auth
+-e ./extensions/flet_local_notifications
+-e ./extensions/flet_speech
 flet-android-notifications>=0.10.0
 pytest>=8.0.0
 winrt-runtime>=3.0.0; sys_platform == "win32"

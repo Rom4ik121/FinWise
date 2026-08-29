@@ -8,8 +8,9 @@ import flet as ft
 
 from lib.domain.entities.category import Category
 from lib.domain.entities.transaction import Transaction, TransactionType
-from lib.presentation.styles import muted_text
-from lib.presentation.utils import category_icon, format_date, format_money
+from lib.presentation.skins import get_active_skin
+from lib.presentation.styles import amount_color, muted_text
+from lib.presentation.utils import category_icon, format_date, format_money_compact
 from lib.infrastructure.services.localization import localize_category_name
 
 
@@ -28,21 +29,20 @@ class TransactionTile(ft.Container):
     ) -> None:
         from lib.presentation.utils import tr
 
-        _ = dark
         is_transfer = transaction.is_transfer
         is_income = transaction.type == TransactionType.INCOME
-        amount_color = (
-            ft.Colors.PRIMARY
+        amount_color_value = (
+            get_active_skin().primary_hex(dark=dark)
             if is_transfer
-            else (ft.Colors.SECONDARY if is_income else ft.Colors.ERROR)
+            else amount_color(is_income, dark=dark)
         )
-        signed = format_money(
+        signed = format_money_compact(
             transaction.amount,
             transaction.currency,
             signed=True,
         )
         if not is_income and not signed.startswith("−"):
-            signed = f"−{format_money(transaction.amount, transaction.currency)}"
+            signed = f"−{format_money_compact(transaction.amount, transaction.currency)}"
 
         tags = ", ".join(f"#{tag}" for tag in (transaction.tags or [])[:3])
         subtitle_parts = [format_date(transaction.date, with_time=True)]
@@ -75,9 +75,9 @@ class TransactionTile(ft.Container):
                 category.color
                 if category is not None
                 else (
-                    ft.Colors.PRIMARY_CONTAINER
+                    get_active_skin().badge_bg(dark=dark)
                     if is_income
-                    else ft.Colors.ERROR_CONTAINER
+                    else get_active_skin().expense_hex(dark=dark)
                 )
             )
         )
@@ -97,9 +97,9 @@ class TransactionTile(ft.Container):
                 "#FFFFFF"
                 if category is not None
                 else (
-                    ft.Colors.ON_PRIMARY_CONTAINER
+                    get_active_skin().badge_fg(dark=dark)
                     if is_income
-                    else ft.Colors.ON_ERROR_CONTAINER
+                    else "#FFFFFF"
                 )
             )
         )
@@ -134,10 +134,12 @@ class TransactionTile(ft.Container):
                 ),
                 ft.Text(
                     signed,
-                    color=amount_color,
+                    color=amount_color_value,
                     weight=ft.FontWeight.W_700,
                     size=12,
                     text_align=ft.TextAlign.RIGHT,
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 trailing_menu,
             ],

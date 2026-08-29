@@ -116,6 +116,71 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Quick income / expense",
         "uz": "Tezkor daromad / xarajat",
     },
+    "voice.button": {
+        "ru": "Голосовой ввод",
+        "en": "Voice input",
+        "uz": "Ovozli kiritish",
+    },
+    "voice.listening": {
+        "ru": "Слушаю… скажите расход, название и сумму",
+        "en": "Listening… say expense, name and amount",
+        "uz": "Tinglanmoqda… xarajat, nom va summani ayting",
+    },
+    "voice.empty": {
+        "ru": "Не удалось распознать речь",
+        "en": "Could not recognize speech",
+        "uz": "Nutq tanilmadi",
+    },
+    "voice.filled": {
+        "ru": "Проверьте сумму и категорию, затем сохраните",
+        "en": "Check amount and category, then save",
+        "uz": "Summa va toifani tekshiring, keyin saqlang",
+    },
+    "voice.unavailable": {
+        "ru": "Голосовой ввод доступен после сборки приложения на телефон",
+        "en": "Voice input is available in the installed phone app",
+        "uz": "Ovozli kiritish telefon ilovasida ishlaydi",
+    },
+    "voice.saved": {
+        "ru": "Сохранено: {category} · {amount}",
+        "en": "Saved: {category} · {amount}",
+        "uz": "Saqlandi: {category} · {amount}",
+    },
+    "voice.need_amount": {
+        "ru": "Скажите сумму, например: расход такси 500",
+        "en": "Say an amount, for example: expense taxi 500",
+        "uz": "Summani ayting, masalan: xarajat taksi 500",
+    },
+    "voice.need_category": {
+        "ru": "Скажите категорию, например: расход такси 500",
+        "en": "Say a category, for example: expense taxi 500",
+        "uz": "Toifani ayting, masalan: xarajat taksi 500",
+    },
+    "voice.listen_now": {
+        "ru": "Слушать и сохранить",
+        "en": "Listen and save",
+        "uz": "Tinglash va saqlash",
+    },
+    "voice.shortcut_title": {
+        "ru": "Голосовой ввод с кнопки телефона",
+        "en": "Voice input from a phone button",
+        "uz": "Telefon tugmasi orqali ovoz",
+    },
+    "voice.shortcut_how": {
+        "ru": "Скажите «расход такси 500» или «доход зарплата 2 млн» — операция сохранится сразу.",
+        "en": "Say “expense taxi 500” or “income salary 2 million” — it is saved immediately.",
+        "uz": "«xarajat taksi 500» yoki «daromad oylik 2 mln» deng — darhol saqlanadi.",
+    },
+    "voice.shortcut_android": {
+        "ru": "Android: Настройки → кнопки / боковая клавиша / режимы → ярлык или «открыть URL» → finwise://voice. После зажатия кнопки откроется FinWise и начнётся запись. Пока приложение открыто, можно зажать кнопку громкости вниз.",
+        "en": "Android: Settings → buttons / side key / Routines → shortcut or Open URL → finwise://voice. A long-press opens FinWise and starts listening. While the app is open you can also long-press volume down.",
+        "uz": "Android: Sozlamalar → tugmalar / yon tugma → finwise://voice. Tugmani bosib tursangiz FinWise ochiladi va yozuv boshlanadi. Ilova ochiq bo‘lsa, ovozni pasaytirish tugmasini bosib turishingiz mumkin.",
+    },
+    "voice.shortcut_ios": {
+        "ru": "iPhone: кнопку блокировки отдать другому приложению нельзя (это Siri). Назначьте ярлык: Настройки → Универсальный доступ → Касание → Касание задней панели — или кнопка Действие — команда «Открыть URL» finwise://voice.",
+        "en": "iPhone: the lock button cannot be given to another app (it is Siri). Bind a shortcut instead: Settings → Accessibility → Touch → Back Tap, or the Action button → Open URL finwise://voice.",
+        "uz": "iPhone: bloklash tugmasini boshqa ilovaga berib bo‘lmaydi (bu Siri). O‘rniga: Sozlamalar → Foydalanish imkoniyati → Teginish → Orqa panel yoki Action tugmasi → URL: finwise://voice.",
+    },
     "action.refresh": {
         "ru": "Обновить",
         "en": "Refresh",
@@ -206,10 +271,25 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "No expenses",
         "uz": "Xarajatlar yo‘q",
     },
+    "chart.no_income": {
+        "ru": "Нет доходов",
+        "en": "No income",
+        "uz": "Daromad yo‘q",
+    },
     "chart.total": {
         "ru": "Всего",
         "en": "Total",
         "uz": "Jami",
+    },
+    "chart.last": {
+        "ru": "Сейчас",
+        "en": "Latest",
+        "uz": "Hozir",
+    },
+    "chart.avg_band": {
+        "ru": "Средний уровень",
+        "en": "Average range",
+        "uz": "O‘rtacha daraja",
     },
     "currencies.crypto": {
         "ru": "Криптовалюты",
@@ -1578,6 +1658,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Biometrics are not available on this platform",
         "uz": "Bu platformada biometriya mavjud emas",
     },
+    "settings.biometric_confirmed": {
+        "ru": "Биометрия подтверждена",
+        "en": "Biometrics confirmed",
+        "uz": "Biometriya tasdiqlandi",
+    },
     "settings.clear_pin": {
         "ru": "Сбросить PIN",
         "en": "Clear PIN",
@@ -1667,6 +1752,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Нет резервных копий",
         "en": "No backups found",
         "uz": "Zaxira nusxalar topilmadi",
+    },
+    "settings.file_ready": {
+        "ru": "{kind} сохранён. Файл: {path}",
+        "en": "{kind} saved. File: {path}",
+        "uz": "{kind} saqlandi. Fayl: {path}",
+    },
+    "settings.file_cancelled": {
+        "ru": "Сохранение отменено — файл в выбранную папку не записан",
+        "en": "Save cancelled — the file was not written to the chosen folder",
+        "uz": "Saqlash bekor qilindi — fayl tanlangan jildga yozilmadi",
+    },
+    "settings.restore_need_db": {
+        "ru": "Для восстановления выберите файл резервной копии (.db), а не JSON-экспорт",
+        "en": "To restore, pick a backup file (.db), not a JSON export",
+        "uz": "Tiklash uchun JSON emas, zaxira (.db) faylini tanlang",
+    },
+    "settings.restore_bad_file": {
+        "ru": "Этот файл нельзя восстановить",
+        "en": "This file cannot be restored",
+        "uz": "Bu faylni tiklab bo‘lmaydi",
     },
     "settings.restore_confirm": {
         "ru": "Текущие данные будут заменены последней резервной копией. Продолжить?",
@@ -1762,6 +1867,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Системная",
         "en": "System",
         "uz": "Tizim",
+    },
+    "settings.style": {
+        "ru": "Стиль интерфейса",
+        "en": "Interface style",
+        "uz": "Interfeys uslubi",
+    },
+    "settings.style.hint": {
+        "ru": "Цвета и формы всего приложения. Светлую или тёмную тему выбирайте отдельно ниже.",
+        "en": "Colors and shapes for the whole app. Light or dark is chosen separately below.",
+        "uz": "Butun ilova ranglari. Yorug‘ yoki qorong‘u mavzuni alohida tanlang.",
+    },
+    "settings.style.classic": {
+        "ru": "Классика",
+        "en": "Classic",
+        "uz": "Klassik",
+    },
+    "settings.style.neon": {
+        "ru": "Неон",
+        "en": "Neon",
+        "uz": "Neon",
     },
     "subscription.monthly": {
         "ru": "Ежемесячно",
@@ -1908,6 +2033,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Spending",
         "uz": "Xarajat",
     },
+    "analytics.tab.flow": {
+        "ru": "Доходы и расходы",
+        "en": "Income & spend",
+        "uz": "Daromad va xarajat",
+    },
     "analytics.tab.trend": {
         "ru": "График",
         "en": "Trend",
@@ -1917,6 +2047,66 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Ещё",
         "en": "More",
         "uz": "Yana",
+    },
+    "analytics.tab.income": {
+        "ru": "Доходы",
+        "en": "Income",
+        "uz": "Daromad",
+    },
+    "analytics.tab.goals": {
+        "ru": "Цели",
+        "en": "Goals",
+        "uz": "Maqsadlar",
+    },
+    "analytics.tab.debts": {
+        "ru": "Долги",
+        "en": "Debts",
+        "uz": "Qarzlar",
+    },
+    "analytics.tab.subscriptions": {
+        "ru": "Подписки",
+        "en": "Subscriptions",
+        "uz": "Obunalar",
+    },
+    "analytics.tab.budget": {
+        "ru": "Бюджет",
+        "en": "Budget",
+        "uz": "Byudjet",
+    },
+    "analytics.tap_hint": {
+        "ru": "Нажмите на сумму, чтобы увидеть её полностью",
+        "en": "Tap an amount to see the full figure",
+        "uz": "To‘liq summani ko‘rish uchun bosing",
+    },
+    "analytics.full_amount": {
+        "ru": "Полная сумма",
+        "en": "Full amount",
+        "uz": "To‘liq summa",
+    },
+    "analytics.budget_month_hint": {
+        "ru": "Лимиты за текущий календарный месяц",
+        "en": "Limits for the current calendar month",
+        "uz": "Joriy kalendar oyi limitlari",
+    },
+    "analytics.i_owe": {
+        "ru": "Я должен",
+        "en": "I owe",
+        "uz": "Men qarzdorman",
+    },
+    "analytics.owed_to_me": {
+        "ru": "Мне должны",
+        "en": "Owed to me",
+        "uz": "Menga qarzdor",
+    },
+    "analytics.avg_income_day": {
+        "ru": "В день",
+        "en": "Per day",
+        "uz": "Kuniga",
+    },
+    "action.close": {
+        "ru": "Закрыть",
+        "en": "Close",
+        "uz": "Yopish",
     },
     "analytics.income": {
         "ru": "Доход",
@@ -1947,6 +2137,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "В день",
         "en": "Per day",
         "uz": "Kuniga",
+    },
+    "analytics.spend_cats": {
+        "ru": "Расходы по категориям",
+        "en": "Spending by category",
+        "uz": "Xarajatlar toifalar bo‘yicha",
+    },
+    "analytics.income_cats": {
+        "ru": "Доходы по категориям",
+        "en": "Income by category",
+        "uz": "Daromad toifalar bo‘yicha",
     },
     "analytics.ops": {
         "ru": "Операций",

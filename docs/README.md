@@ -1,96 +1,80 @@
-# FinWise — Полная документация
+# FinWise — документация
 
-> Кроссплатформенное приложение для учёта личных финансов (Python + Flet).
-> Windows · Android · iOS
+Кроссплатформенный учёт личных финансов: **Python 3.11+**, **Flet 0.83–0.86**, SQLite.
+Платформы: Windows (desktop), Android и iOS (упакованный IPA/APK).
 
-## Документация
+## Разделы
 
-| Раздел | Файл | Содержание |
-|---|---|---|
-| Архитектура | [ARCHITECTURE.md](ARCHITECTURE.md) | Обзор, слои, поток запуска, DI, БД, мультивалютность, уведомления, безопасность, экспорт, CI/CD |
-| Сущности | [ENTITIES.md](ENTITIES.md) | Account, Transaction, Category, Currency, Goal, Debt, Subscription, Budget, AppSettings, Money |
-| Use Cases | [USE_CASES.md](USE_CASES.md) | Все сценарии: транзакции, счета, цели, долги, подписки, валюты, бюджеты, категории, настройки, экспорт |
-| Инфраструктура | [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | SQLAlchemy-репозитории, API-клиенты, сервисы (бэкап, экспорт, шифрование, биометрия, push, напоминания), ORM-модели |
-| Презентация | [PRESENTATION.md](PRESENTATION.md) | Навигация, состояние, страницы, виджеты, утилиты, темы, иконки, локализация |
-| База данных | [DATABASE.md](DATABASE.md) | SQLite, все таблицы с колонками, миграции Alembic (9 версий) |
-| Тестирование | [TESTING.md](TESTING.md) | Запуск, фикстуры, фабрики, список юнит/интеграционных тестов |
+| Файл | Содержание |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Слои, запуск, DI, данные, валюты, уведомления, безопасность, мобильные плагины |
+| [ENTITIES.md](ENTITIES.md) | Доменные модели |
+| [USE_CASES.md](USE_CASES.md) | Сценарии (транзакции, счета, цели, долги, подписки, бюджеты, экспорт) |
+| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, API курсов, бэкап, push, биометрия, речь |
+| [PRESENTATION.md](PRESENTATION.md) | UI, навигация, скины, голосовой ввод, файлы |
+| [DATABASE.md](DATABASE.md) | SQLite, таблицы, миграции Alembic |
+| [TESTING.md](TESTING.md) | pytest, фикстуры, покрытие |
+| [CODEMAGIC.md](CODEMAGIC.md) | Сборка подписанного IPA |
 
-## Быстрый старт
+## Быстрый старт (Windows)
 
-### Установка зависимостей
-
-```bash
-pip install -r requirements.txt
-pip install -e ./extensions/flet_local_auth
-```
-
-### Запуск (desktop)
-
-```bash
-python main.py
-# или
-flet run main.py
-```
-
-### Запуск (Android/iOS/Web)
-
-```bash
-flet run --android main.py
-flet run --ios main.py
-flet run --web --host 0.0.0.0 --port 8550 main.py
-```
-
-### Миграция БД + сид
-
-```bash
+```powershell
+python -m pip install -r requirements.txt
 python scripts/migrate.py
+python main.py
 ```
 
-### Демо-данные
+Первый запуск создаёт каталог данных, БД, настройки и счёт «Наличные».
+Windows: `%LOCALAPPDATA%\finanse\finanse\`.
 
-```bash
+Демо-данные:
+
+```powershell
 python scripts/seed_demo_data.py --wipe --scale medium --currency UZS
 ```
 
-### Тесты
+Тесты:
 
-```bash
-pytest
+```powershell
+python -m pytest -q
 ```
 
-## Технологии
+## Телефоны (IPA / APK)
 
-- **Python 3.12+**, **Flet ≥0.83** (UI)
-- **SQLAlchemy 2.0** (ORM), **SQLite** (БД), **Alembic** (миграции)
-- **Pydantic v2** (сущности)
-- **httpx** (HTTP-клиенты), **matplotlib** (графики), **reportlab** (PDF)
-- **platformdirs** (пути), **winrt** (Windows Hello), **winotify** (Windows push)
-- **flet_android_notifications** (Android push)
-- **pytest** (тесты)
+Нативные функции (биометрия, пуши, микрофон, ярлык `finwise://voice`) есть
+только в **собранном** приложении. `flet run --android` открывает web-клиент
+без Dart-расширений — так и задумано.
 
-## Структура проекта
+После изменения Python/Flutter-плагинов нужна **новая сборка** IPA и APK.
+Не добавляйте кастомные Flet Service в `page.add()`: клиент рисует
+`Unknown control` на сплэше и приложение не открывается. Сервисы вешаются
+на `page.services`.
+
+Разрешения и deep link задаются в `pyproject.toml` / `flet.toml`.
+IPA: [CODEMAGIC.md](CODEMAGIC.md). APK: `.\scripts\build_apk.ps1`.
+
+## Стек
+
+- UI: Flet (Flutter)
+- Данные: SQLAlchemy 2.0 + SQLite (WAL), Alembic
+- Модели: Pydantic v2
+- Курсы: httpx (open.er-api, CoinGecko, Binance)
+- Отчёты: matplotlib, reportlab
+- Плагины: `extensions/flet_local_auth`, `flet_local_notifications`, `flet_speech`
+
+## Структура репозитория
 
 ```
 finanse/
-├── main.py                          — точка входа
-├── pyproject.toml / requirements.txt — зависимости
-├── flet.toml                        — конфигурация Flet
-├── alembic.ini                      — конфигурация Alembic
-├── pytest.ini                       — конфигурация pytest
-├── assets/                          — иконки, сплэши, currencies.json
-├── docs/                            — документация (этот каталог)
-├── extensions/flet_local_auth/      — расширение биометрии
-├── lib/
-│   ├── main.py                      — bootstrap (логирование, БД, DI, фон)
-│   ├── core/                        — config, database, dependencies, logging
-│   ├── domain/                      — entities, repositories (ABC), use_cases, services
-│   ├── infrastructure/              — db_models, repositories (SQLAlchemy), services, api
-│   └── presentation/                — app, state, pages, widgets, theme, styles, utils, i18n
-├── migrations/                      — Alembic (env.py + 9 версий)
-├── scripts/                         — migrate, seed_demo, build_apk/ipa, launch
-└── tests/                           — conftest, factories, unit/, integration/
+├── main.py / lib/main.py     — вход и bootstrap
+├── lib/core                  — config, БД, DI
+├── lib/domain                — сущности, порты, use cases
+├── lib/infrastructure        — SQLAlchemy, HTTP, OS-сервисы
+├── lib/presentation          — Flet UI
+├── extensions/               — Flutter-мосты (биометрия, пуши, речь)
+├── migrations/               — Alembic (10 ревизий)
+├── assets/                   — иконки, currencies.json
+├── scripts/                  — migrate, seed, APK/IPA
+├── tests/                    — unit + integration
+└── docs/                     — эта документация
 ```
-
-## Лицензия
-
-Проект FinWise.

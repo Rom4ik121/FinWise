@@ -116,6 +116,7 @@ def build_icon_catalog(
                 padding=0,
                 height=rows * cell,
                 controls=tiles,
+                scroll=ft.ScrollMode.HIDDEN,
             )
         )
         controls.append(ft.Container(height=16))
@@ -184,6 +185,7 @@ def open_icon_picker(
                         content=ft.ListView(
                             expand=True,
                             spacing=4,
+                            scroll=ft.ScrollMode.HIDDEN,
                             controls=[*group_controls, ft.Container(height=8)],
                         ),
                     ),
@@ -299,6 +301,7 @@ def open_color_picker(
                             child_aspect_ratio=1,
                             spacing=8,
                             run_spacing=8,
+                            scroll=ft.ScrollMode.HIDDEN,
                             controls=tiles,
                         ),
                     ),

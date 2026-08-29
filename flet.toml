@@ -7,8 +7,14 @@ version = "0.1.0"
 [app]
 module = "main"
 
+[tool.flet.deep_linking]
+scheme = "finwise"
+host = "voice"
+
 [tool.flet.dev_packages]
 flet-local-auth = "./extensions/flet_local_auth"
+flet-local-notifications = "./extensions/flet_local_notifications"
+flet-speech = "./extensions/flet_speech"
 
 [tool.flet.android.permission]
 "android.permission.USE_BIOMETRIC" = true
@@ -19,14 +25,26 @@ flet-local-auth = "./extensions/flet_local_auth"
 "android.permission.SCHEDULE_EXACT_ALARM" = true
 "android.permission.USE_EXACT_ALARM" = true
 "android.permission.WAKE_LOCK" = true
+"android.permission.RECORD_AUDIO" = true
+"android.permission.READ_EXTERNAL_STORAGE" = true
+"android.permission.WRITE_EXTERNAL_STORAGE" = true
+"android.permission.READ_MEDIA_IMAGES" = true
 
 [flutter.pubspec.dependencies]
 local_auth = "^2.3.0"
 local_auth_android = "^1.0.46"
 local_auth_darwin = "^1.4.1"
+flutter_local_notifications = "^17.2.4"
+timezone = "^0.9.4"
+speech_to_text = "^6.6.2"
 
 [tool.flet.splash]
 color = "#000000"
 dark_color = "#000000"
 icon_bgcolor = "#000000"
 icon_dark_bgcolor = "#000000"
+
+[tool.flet.ios.info]
+NSFaceIDUsageDescription = "Unlock FinWise with Face ID"
+NSMicrophoneUsageDescription = "Record a spoken expense or income"
+NSSpeechRecognitionUsageDescription = "Turn speech into an expense or income"

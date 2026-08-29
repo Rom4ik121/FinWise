@@ -96,11 +96,101 @@ async def schedule_reminders(
             )
     except Exception:  # noqa: BLE001
         logger.exception("Failed to schedule reminders")
-        return created
 
     if created:
         logger.info("Scheduled %s reminder(s)", len(created))
+    try:
+        await _schedule_os_upcoming(container, settings, language=language)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to schedule OS notifications")
     return created
+
+
+async def _schedule_os_upcoming(
+    container: Any,
+    settings: "AppSettings",
+    *,
+    language: str,
+) -> None:
+    """Ask the OS to fire reminders even if the app is closed."""
+    from lib.infrastructure.services.push_notifier import (
+        reminder_fire_at,
+        schedule_os_notification,
+    )
+
+    lead_days = int(getattr(settings, "reminder_days", 3) or 3)
+    reminder_time = str(getattr(settings, "reminder_time", "09:00") or "09:00")
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(days=30)
+
+    async def _arm(
+        *,
+        title: str,
+        body: str,
+        kind: NotificationKind,
+        related_id: str,
+        due: datetime | None,
+    ) -> None:
+        if due is None:
+            return
+        try:
+            stamp = due if due.tzinfo else due.replace(tzinfo=timezone.utc)
+            if stamp > horizon:
+                return
+            when = reminder_fire_at(
+                stamp,
+                reminder_time=reminder_time,
+                lead_days=lead_days,
+                now=now,
+            )
+            if when is None:
+                return
+            await schedule_os_notification(
+                title,
+                body,
+                when=when,
+                kind=kind.value,
+                related_id=related_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to arm OS reminder for %s", related_id)
+
+    if settings.debt_reminders and container.list_debts is not None:
+        try:
+            debts = await container.list_debts.execute(status=DebtStatus.ACTIVE)
+        except Exception:  # noqa: BLE001
+            debts = []
+        for debt in debts:
+            due = getattr(debt, "due_date", None)
+            await _arm(
+                title=t("notify.debt_due", language),
+                body=(
+                    f"{debt.counterparty}: {debt.remaining_amount} {debt.currency}"
+                ),
+                kind=NotificationKind.DEBT_REMINDER,
+                related_id=debt.id,
+                due=due,
+            )
+
+    if settings.subscription_reminders and container.list_subscriptions is not None:
+        try:
+            subs = await container.list_subscriptions.execute(active_only=True)
+        except Exception:  # noqa: BLE001
+            subs = []
+        for sub in subs:
+            await _arm(
+                title=t("notify.subscription_due", language),
+                body=t("notify.subscription_due_body", language).format(
+                    name=sub.name,
+                    amount=sub.amount,
+                    currency=sub.currency,
+                    account=getattr(sub, "account_id", ""),
+                    days=lead_days,
+                ),
+                kind=NotificationKind.SUBSCRIPTION_REMINDER,
+                related_id=sub.id,
+                due=getattr(sub, "next_billing_date", None),
+            )
 
 
 async def _schedule_debt_alerts(

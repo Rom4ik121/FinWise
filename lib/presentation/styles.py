@@ -6,7 +6,7 @@ from typing import Optional, Sequence
 
 import flet as ft
 
-from lib.presentation.theme import DARK_EXPENSE, DARK_INCOME, LIGHT_EXPENSE, LIGHT_INCOME
+from lib.presentation.skins import get_active_skin
 
 
 CARD_RADIUS = 18
@@ -19,6 +19,22 @@ ICON_CATALOG_BADGE_SELECTED = "#6B8A7A"
 ICON_CATALOG_GLYPH = "#FFFFFF"
 
 
+def glass_layer(*, elevated: bool = False, opacity: float | None = None) -> dict:
+    """Background + backdrop blur for cards, chips, and the nav pill."""
+    skin = get_active_skin()
+    token = (
+        ft.Colors.SURFACE_CONTAINER_HIGH if elevated else ft.Colors.SURFACE_CONTAINER
+    )
+    if not skin.glass:
+        return {"bgcolor": token, "blur": None}
+    fill_opacity = opacity if opacity is not None else (0.40 if elevated else 0.32)
+    return {
+        "bgcolor": skin.glass_fill(token, opacity=fill_opacity),
+        "blur": skin.backdrop_blur(),
+        "clip_behavior": ft.ClipBehavior.ANTI_ALIAS,
+    }
+
+
 def card_surface(
     content: ft.Control,
     *,
@@ -29,22 +45,28 @@ def card_surface(
     expand: Optional[bool] = None,
 ) -> ft.Container:
     """Elevated card with readable border in both themes."""
+    skin = get_active_skin()
+    border_color = accent or (
+        ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE)
+        if skin.glass
+        else ft.Colors.OUTLINE_VARIANT
+    )
     return ft.Container(
         content=content,
         padding=padding,
-        border_radius=CARD_RADIUS,
-        bgcolor=ft.Colors.SURFACE_CONTAINER,
-        border=ft.Border.all(1, accent or ft.Colors.OUTLINE_VARIANT),
+        border_radius=skin.card_radius,
+        border=ft.Border.all(1, border_color),
         shadow=ft.BoxShadow(
             spread_radius=0,
-            blur_radius=18,
-            color="#00000022",
+            blur_radius=skin.card_blur,
+            color=skin.glow,
             offset=ft.Offset(0, 6),
         ),
         ink=ink,
         on_click=on_click,
         expand=expand,
         animate=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+        **glass_layer(),
     )
 
 
@@ -55,26 +77,23 @@ def hero_card(
     expand: bool = True,
 ) -> ft.Container:
     """Primary gradient hero surface (balance / lock / KPI)."""
+    skin = get_active_skin()
+    extra = glass_layer(elevated=True, opacity=0.22) if skin.glass else {}
+    extra.pop("bgcolor", None)
     return ft.Container(
         content=content,
         padding=padding,
         expand=expand,
-        border_radius=22,
-        gradient=ft.LinearGradient(
-            begin=ft.Alignment.TOP_LEFT,
-            end=ft.Alignment.BOTTOM_RIGHT,
-            colors=[
-                ft.Colors.PRIMARY_CONTAINER,
-                ft.Colors.SURFACE_CONTAINER_HIGH,
-            ],
-        ),
+        border_radius=skin.hero_radius,
+        gradient=skin.hero_gradient(dark=True),
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         shadow=ft.BoxShadow(
             spread_radius=0,
             blur_radius=24,
-            color="#00000033",
+            color=skin.glow,
             offset=ft.Offset(0, 8),
         ),
+        **extra,
     )
 
 
@@ -104,19 +123,24 @@ def summary_strip(
         controls.append(
             ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+                spacing=8,
                 controls=[
                     ft.Text(
                         label,
                         size=12,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                         expand=True,
+                        max_lines=2,
                     ),
                     ft.Text(
                         value,
-                        size=14,
+                        size=13,
                         weight=ft.FontWeight.W_700,
                         color=accent or ft.Colors.ON_SURFACE,
+                        text_align=ft.TextAlign.END,
+                        max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                 ],
             )
@@ -180,6 +204,11 @@ def notice_banner(title: str, body: str) -> ft.Container:
         border_radius=14,
         bgcolor=ft.Colors.TERTIARY_CONTAINER,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+        **(
+            {"blur": get_active_skin().backdrop_blur()}
+            if get_active_skin().glass
+            else {}
+        ),
         content=ft.Row(
             spacing=10,
             controls=[
@@ -221,9 +250,9 @@ def shortcut_chip(
         width=34,
         height=34,
         border_radius=11,
-        bgcolor=ft.Colors.PRIMARY_CONTAINER,
+        bgcolor=get_active_skin().badge_bg(dark=True),
         alignment=ft.Alignment.CENTER,
-        content=ft.Icon(icon, color=ft.Colors.ON_PRIMARY_CONTAINER, size=18),
+        content=ft.Icon(icon, color=get_active_skin().badge_fg(dark=True), size=18),
     )
     if badge > 0:
         label_count = "9+" if badge > 9 else str(badge)
@@ -259,9 +288,9 @@ def shortcut_chip(
         width=width,
         expand=expand,
         padding=ft.Padding.symmetric(horizontal=8, vertical=10),
-        border_radius=CHIP_RADIUS,
-        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+        border_radius=get_active_skin().chip_radius,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+        **glass_layer(elevated=True),
         ink=True,
         on_click=on_click,
         content=ft.Column(
@@ -309,10 +338,17 @@ def alert_corner(
 
 
 def amount_color(is_income: bool, *, dark: bool = True) -> str:
-    """Income / expense color tuned for theme contrast."""
+    """Income / expense color tuned for the active style."""
+    skin = get_active_skin()
     if is_income:
-        return DARK_INCOME if dark else LIGHT_INCOME
-    return DARK_EXPENSE if dark else LIGHT_EXPENSE
+        return skin.income_hex(dark=dark)
+    return skin.expense_hex(dark=dark)
+
+
+def badge_colors(*, dark: bool = True) -> tuple[str, str]:
+    """Icon badge fill and glyph colors for the active style."""
+    skin = get_active_skin()
+    return skin.badge_bg(dark=dark), skin.badge_fg(dark=dark)
 
 
 def icon_badge(
@@ -323,15 +359,43 @@ def icon_badge(
     size: int = 40,
 ) -> ft.Container:
     """Circular / rounded icon badge."""
+    bg, fg = badge_colors()
     return ft.Container(
         width=size,
         height=size,
         border_radius=size // 3,
-        bgcolor=bgcolor or ft.Colors.PRIMARY_CONTAINER,
+        bgcolor=bgcolor or bg,
         alignment=ft.Alignment.CENTER,
         content=ft.Icon(
             icon,
-            color=color or ft.Colors.ON_PRIMARY_CONTAINER,
+            color=color or fg,
             size=int(size * 0.48),
         ),
+    )
+
+
+def labeled_switch(label: str, switch: ft.Switch) -> ft.Control:
+    """Switch with wrapping label — avoids clipping long Russian strings."""
+    switch.label = ""
+    return ft.Row(
+        spacing=10,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Text(label, size=13, expand=True, max_lines=3),
+            switch,
+        ],
+    )
+
+
+def labeled_field(label: str, field: ft.TextField) -> ft.Control:
+    """Put the caption above the field so Material labels never overlap values."""
+    field.label = None
+    field.dense = True
+    return ft.Column(
+        spacing=6,
+        tight=True,
+        controls=[
+            ft.Text(label, size=12, color=ft.Colors.ON_SURFACE_VARIANT, max_lines=3),
+            field,
+        ],
     )

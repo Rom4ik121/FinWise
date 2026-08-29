@@ -140,6 +140,7 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("reminder_days", "INTEGER NOT NULL DEFAULT 3"),
             ("check_balance_before_subscription", "BOOLEAN NOT NULL DEFAULT 1"),
             ("budget_alerts", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("ui_style", "VARCHAR(32) NOT NULL DEFAULT 'classic'"),
         ],
         "budgets": [
             ("last_alert_level", "INTEGER NOT NULL DEFAULT 0"),

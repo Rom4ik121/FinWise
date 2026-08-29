@@ -7,8 +7,9 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.domain.entities.subscription import Periodicity, Subscription, SubscriptionStatus
+from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import alert_corner, card_surface, muted_text
-from lib.presentation.utils import format_date, format_money
+from lib.presentation.utils import format_date, format_money_compact
 
 
 _STATUS_COLOR = {
@@ -86,11 +87,12 @@ class SubscriptionCard(ft.Container):
                             overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                         ft.Text(
-                            format_money(subscription.amount, subscription.currency),
+                            format_money_compact(subscription.amount, subscription.currency),
                             weight=ft.FontWeight.W_700,
-                            color=ft.Colors.PRIMARY,
-                            size=16,
-                            no_wrap=True,
+                            color=get_active_skin().primary_hex(dark=True),
+                            size=14,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                             text_align=ft.TextAlign.RIGHT,
                         ),
                         ft.PopupMenuButton(

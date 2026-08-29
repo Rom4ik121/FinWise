@@ -64,7 +64,7 @@ class SubscriptionsPage(ft.Column):
         self._state = state
         self._accounts: list = []
         self._calendar = ft.Column(spacing=6)
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=12)
+        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
         self._alert_ids: set[str] = set()
         self._token = -1
         super().__init__(
@@ -246,7 +246,7 @@ class SubscriptionsPage(ft.Column):
 
     def _open_detail(self, sub: Subscription) -> None:
         lang = self._state.language
-        body = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
+        body = ft.Column(spacing=12, scroll=ft.ScrollMode.HIDDEN, expand=True)
         close_holder: dict[str, object] = {}
 
         def _close_detail() -> None:
@@ -755,7 +755,7 @@ class SubscriptionsPage(ft.Column):
         body = ft.Column(
             tight=True,
             spacing=10,
-            scroll=ft.ScrollMode.AUTO,
+            scroll=ft.ScrollMode.HIDDEN,
             controls=[
                 name_tf,
                 amount_tf,

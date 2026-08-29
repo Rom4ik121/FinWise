@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Sequence
 
-from lib.domain.use_cases.transactions import StatsPeriod
+from lib.domain.use_cases.transactions import GetTransactionStatsUseCase, StatsPeriod
 
 ANALYTICS_PERIOD_KEYS = ("7d", "30d", "90d", "180d", "365d", "all")
 DEFAULT_ANALYTICS_PERIOD = "30d"
@@ -83,3 +85,58 @@ def format_chart_period_label(period: str, group_by: StatsPeriod) -> str:
             return f"W{period.split('-W', 1)[1]}"
         return period[-3:]
     return period[5:7] if len(period) >= 7 else period
+
+
+def _parse_period_key(key: str, group_by: StatsPeriod) -> datetime | None:
+    try:
+        if group_by == StatsPeriod.DAY:
+            parsed = datetime.strptime(key, "%Y-%m-%d")
+        elif group_by == StatsPeriod.WEEK:
+            year_s, week_s = key.split("-W", 1)
+            parsed = datetime.fromisocalendar(int(year_s), int(week_s), 1)
+        else:
+            parsed = datetime.strptime(key, "%Y-%m")
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def enumerate_period_keys(
+    cfg: AnalyticsPeriodConfig,
+    *,
+    existing: Sequence[str] = (),
+) -> list[str]:
+    """Every bucket in the selected range, including empty days/weeks/months."""
+    start = cfg.date_from
+    end = cfg.date_to
+    if start is None:
+        parsed = [_parse_period_key(key, cfg.group_by) for key in existing]
+        known = [item for item in parsed if item is not None]
+        if not known:
+            return list(existing)
+        start = min(known)
+    keys: list[str] = []
+    cursor = start
+    guard = 0
+    while cursor <= end and guard < 4000:
+        key = GetTransactionStatsUseCase._period_key(cursor, cfg.group_by)
+        if not keys or keys[-1] != key:
+            keys.append(key)
+        cursor = cursor + timedelta(days=1)
+        guard += 1
+    return keys
+
+
+def fill_time_series(
+    by_period: Sequence[tuple[str, Decimal, Decimal]],
+    keys: Sequence[str],
+) -> list[tuple[str, Decimal, Decimal]]:
+    """Insert zero income/expense for buckets that had no operations."""
+    zero = Decimal("0.00")
+    lookup = {key: (income, expense) for key, income, expense in by_period}
+    return [
+        (key, lookup[key][0], lookup[key][1]) if key in lookup else (key, zero, zero)
+        for key in keys
+    ]

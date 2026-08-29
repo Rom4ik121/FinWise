@@ -1,95 +1,74 @@
-# Инфраструктурный слой
+# Инфраструктура
 
-## Репозитории (SQLAlchemy)
+## Репозитории
 
-Все `SqlAlchemy*Repository` реализуют абстрактные порты из `lib/domain/repositories/`
-и работают через `asyncio.to_thread` + `session_scope` (commit/rollback/close).
+Все `SqlAlchemy*Repository` реализуют порты domain и ходят в SQLite через
+`asyncio.to_thread` + `session_scope`.
 
-| Репозиторий | Таблица | Особенности |
+| Класс | Таблица | Заметки |
 |---|---|---|
-| `SqlAlchemyAccountRepository` | accounts | CRUD, list(active_only) |
-| `SqlAlchemyTransactionRepository` | transactions | CRUD, list() с фильтрами, теги фильтруются в Python |
-| `SqlAlchemyGoalRepository` | goals | CRUD, list(status/currency/min_priority), сортировка (priority/deadline/progress/created_at) |
-| `SqlAlchemyDebtRepository` | debts | CRUD, list(status/direction/currency), сортировка (due_date/remaining/amount/interest/created_at/counterparty/status) |
-| `SqlAlchemySubscriptionRepository` | subscriptions | CRUD, list(active_only/account_id/status), list_due(as_of) |
-| `SqlAlchemyCurrencyRepository` | currencies + exchange_rates | upsert, list, seed_from_json |
-| `SqlAlchemyCategoryRepository` | categories | CRUD, find_or_create, get_by_name (case-insensitive для кириллицы) |
-| `SqlAlchemySettingsRepository` | settings | get/update, PIN-credentials |
-| `SqlAlchemyBudgetRepository` | budgets | save, delete, update_spent, delete_for_category, reassign_category |
+| Account | accounts | CRUD, `active_only` |
+| Transaction | transactions | Фильтры; теги дофильтровываются в Python |
+| Goal | goals | status/currency/priority, сортировки |
+| Debt | debts | status/direction, сортировки |
+| Subscription | subscriptions | `list_due(as_of)` |
+| Currency | currencies, exchange_rates | upsert, `seed_from_json` |
+| Category | categories | `find_or_create`, имя без учёта регистра |
+| Settings | settings | get/update, PIN |
+| Budget | budgets | spent, delete/reassign категории |
 
-## API-клиенты
+## HTTP
 
-| Клиент | Источник | Метод | Описание |
-|---|---|---|---|
-| `ExchangeRateClient` | open.er-api.com | `fetch_latest(base)` | Fiat-курсы относительно base |
-| `CryptoRateClient` | CoinGecko | `fetch_prices(symbols)` | Крипто-цены в USD |
-| `BinanceRateClient` | Binance | `fetch_prices(symbols)` | Крипто-цены в USDT≈USD |
+| Клиент | Источник |
+|---|---|
+| `ExchangeRateClient` | open.er-api.com, fiat от base |
+| `CryptoRateClient` | CoinGecko |
+| `BinanceRateClient` | Binance ticker, USDT≈USD |
 
-Все клиенты — асинхронные, с таймаутами и обработкой ошибок. Поддерживают
-внедрение собственного `httpx.AsyncClient` (для тестов) и `aclose()`.
+Таймауты, свой `httpx.AsyncClient` для тестов, `aclose()`.
 
 ## Сервисы
 
-### BackupService
-- `backup(label?)` — копия `.db` + `-wal`/`-shm` в `backup_dir` с таймстампом.
-- `restore(path, make_safety_copy=True)` — восстановление (с опциональной safety-копией).
-- `list_backups()`, `delete_backup(path)`.
-- Ошибки → `BackupServiceError`.
+**BackupService** — копия `.db` + `-wal`/`-shm`, restore с safety-копией,
+`list_backups` / `delete_backup`.
 
-### ExportService
-- `export_transactions_csv(txs)` — CSV всех операций.
-- `export_summary_pdf(accounts, transactions, goals, debts, subscriptions, title)` —
-  PDF-отчёт (reportlab) с разделами: счета, операции, цели, долги, подписки.
+**ExportService** — CSV операций, PDF-сводка (счета, операции, цели, долги, подписки).
 
-### EncryptionService
-- `hash_pin(pin)` → `PinCredentials(pin_hash, pin_salt)` (PBKDF2).
-- `verify_pin(pin, pin_hash, pin_salt)` → bool.
-- Биометрия: `refresh_biometric_status()`, `biometric_available()`,
-  `authenticate_biometric(message)`.
+**EncryptionService** — PBKDF2 PIN; делегирует биометрию в `biometric.py`.
 
-### Biometric
-- `probe_biometric_status()` → `BiometricStatus` (AVAILABLE, NOT_CONFIGURED,
-  DEVICE_NOT_PRESENT, UNSUPPORTED, DISABLED_BY_POLICY, DEVICE_BUSY).
-- `request_biometric_verification(message)` → `BiometricResult`.
-- `register_local_auth_service(page)` — подключает расширение `flet_local_auth`.
-- env-оверрайд `FINANCE_BIOMETRIC_OK=1` — принудительно AVAILABLE/VERIFIED (тесты).
-- Windows: winrt `UserConsentVerifier` (Windows Hello). Мобильные: local_auth.
+**biometric.py** — Windows Hello (winrt) или `FinanseLocalAuth`. Регистрация
+только через `attach_page_service` (`flet_services.py`). Никогда `page.add(service)`.
 
-### NotificationService
-- In-app очередь сообщений: `push(title, body, kind, related_id)`, `list_all`,
-  `list_pending`, `mark_read`, `list_due`.
-- `NotificationKind`: BUDGET_ALERT, DEBT_REMINDER, SUBSCRIPTION_REMINDER,
-  GOAL_OFF_TRACK, GOAL_MILESTONE и др.
+**flet_services.attach_page_service** — `page.services`. Кастомные расширения
+пропускаются, если `page.web` (preview с ПК). FilePicker/Share: `native_extension=False`.
 
-### PushNotifier
-- `request_push_permissions()` — запрос разрешений.
-- `register_android_notifications(page)` — Android push через `flet_android_notifications`.
-- Windows: winotify. Отключение: env `FINANCE_DISABLE_PUSH=1`.
+**NotificationService** — очередь; `push` зовёт `dispatch_push`.
 
-### ReminderScheduler
-- `schedule_reminders(container, settings, language)` — создаёт напоминания о
-  долгах (за `reminder_days` до due), подписках (за `reminder_days`),
-  целях off-track.
+**push_notifier.py** — `FinanseLocalNotifications` (iOS+Android, show/schedule),
+fallback `FletAndroidNotifications`, Windows toast. `reminder_fire_at` —
+UTC-момент для OS schedule. Env `FINANCE_DISABLE_PUSH`.
 
-### ExchangeRateProvider
-- `HttpExchangeRateProvider` — агрегирует fiat (open.er-api) + crypto
-  (CoinGecko/Binance), строит пары base→quote и обратные, сохраняет в БД.
+**reminder_scheduler.py** — in-app долги/подписки/цели + OS schedule на 30 дней.
 
-### DataResetService
-- `wipe_all(session_factory)` — удаляет все строки из всех таблиц (в обратном
-  порядке FK).
+**speech.py / voice_parse.py / voice_capture.py** — listen → разбор фразы →
+транзакция.
 
-## ORM-модели (`db_models.py`)
+**localization.py** — ключи ru/en/uz, каждая запись обязана иметь все три языка
+(тест `test_every_key_has_all_langs`).
 
-| Таблица | Ключевые поля |
-|---|---|
-| `accounts` | name, currency, balance, initial_balance, icon, color, is_active |
-| `transactions` | account_id(FK), amount, category, tags(JSON), date, type, currency, goal_id, debt_id, subscription_id, transfer_id, goal/debt_credit_amount |
-| `goals` | name, target/current_amount, currency, deadline, priority, category_link, status, is_completed, cached_projection |
-| `debts` | counterparty, amount, remaining_amount, currency, direction, status, interest_rate, due_date, started_at |
-| `subscriptions` | name, amount, currency, account_id(FK), category, periodicity, custom_interval_days, start/end_date, max_payments, payments_made, next_billing_date, status, auto_charge |
-| `currencies` | code(PK), name, name_ru, name_en, symbol, is_crypto |
-| `exchange_rates` | base, quote, rate(Numeric(24,12)), updated_at; UNIQUE(base,quote) |
-| `categories` | name(UNIQUE), icon, color, kind, is_system, is_active |
-| `settings` | id="default", default_currency, theme, language, интервалы, флаги уведомлений, reminder_time/days, pin_hash, pin_salt, biometric_enabled, budget_alerts |
-| `budgets` | category_id(FK→categories.name), month, year, amount_limit, spent, last_alert_level; UNIQUE(category_id,month,year) |
+**data_reset_service.py** — wipe таблиц с учётом FK.
+
+**HttpExchangeRateProvider** — склейка fiat+crypto в пары и запись в БД.
+
+## Flutter-расширения (`extensions/`)
+
+Ставятся `-e` из `requirements.txt`. В IPA/APK попадают только после
+`flet build`.
+
+| Пакет | Control | Роль |
+|---|---|---|
+| flet_local_auth | FinanseLocalAuth | Face ID / отпечаток |
+| flet_local_notifications | FinanseLocalNotifications | show + zonedSchedule |
+| flet_speech | FinanseSpeech | STT, событие `voice_request`, `take_pending_voice` |
+
+На web-клиенте эти типы неизвестны — их нельзя класть в дерево виджетов.

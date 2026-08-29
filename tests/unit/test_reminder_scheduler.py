@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from lib.domain.entities.debt import Debt, DebtDirection, DebtStatus
 from lib.domain.entities.settings import AppSettings
@@ -17,8 +16,7 @@ from lib.infrastructure.services.notification_service import (
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 
 
-@pytest.mark.asyncio
-async def test_schedule_reminders_respects_master_switch() -> None:
+def test_schedule_reminders_respects_master_switch() -> None:
     svc = NotificationService(default_lead_days=3)
     svc.push("stale", "body", kind=NotificationKind.DEBT_REMINDER)
     container = MagicMock()
@@ -29,13 +27,16 @@ async def test_schedule_reminders_respects_master_switch() -> None:
     container.list_goals = None
 
     settings = AppSettings(notifications_enabled=False, debt_reminders=True)
-    assert await schedule_reminders(container, settings) == []
+
+    async def _run() -> None:
+        assert await schedule_reminders(container, settings) == []
+
+    asyncio.run(_run())
     container.list_debts.execute.assert_not_called()
     assert svc.list_all() == []
 
 
-@pytest.mark.asyncio
-async def test_schedule_reminders_creates_debt_and_subscription() -> None:
+def test_schedule_reminders_creates_debt_and_subscription() -> None:
     svc = NotificationService(default_lead_days=3)
     due = datetime.now(timezone.utc) + timedelta(days=1)
     debt = Debt(
@@ -80,15 +81,18 @@ async def test_schedule_reminders_creates_debt_and_subscription() -> None:
         subscription_reminders=True,
         language="ru",
     )
-    created = await schedule_reminders(container, settings, language="ru")
-    assert len(created) == 2
+
+    async def _run() -> None:
+        created = await schedule_reminders(container, settings, language="ru")
+        assert len(created) == 2
+
+    asyncio.run(_run())
     kinds = {item.kind for item in svc.list_pending()}
     assert NotificationKind.DEBT_REMINDER in kinds
     assert NotificationKind.SUBSCRIPTION_REMINDER in kinds
 
 
-@pytest.mark.asyncio
-async def test_schedule_goal_off_track_reminder() -> None:
+def test_schedule_goal_off_track_reminder() -> None:
     from decimal import Decimal
 
     from lib.domain.entities.goal import Goal, GoalStatus
@@ -128,7 +132,11 @@ async def test_schedule_goal_off_track_reminder() -> None:
         subscription_reminders=False,
         goal_milestones=True,
     )
-    created = await schedule_reminders(container, settings, language="ru")
-    assert len(created) == 1
-    assert created[0].kind is NotificationKind.GOAL_OFF_TRACK
-    assert "Trip" in created[0].body
+
+    async def _run() -> None:
+        created = await schedule_reminders(container, settings, language="ru")
+        assert len(created) == 1
+        assert created[0].kind is NotificationKind.GOAL_OFF_TRACK
+        assert "Trip" in created[0].body
+
+    asyncio.run(_run())

@@ -20,15 +20,17 @@ from lib.presentation.pages.goals import GoalsPage
 from lib.presentation.pages.settings import SettingsPage
 from lib.presentation.pages.subscriptions import SubscriptionsPage
 from lib.presentation.pages.transactions import TransactionsPage
+from lib.presentation.skins import get_active_skin
 from lib.presentation.state.app_state import AppState
-from lib.presentation.theme import apply_theme
+from lib.presentation.styles import glass_layer
+from lib.presentation.theme import apply_theme_from_settings, is_dark_mode
 from lib.presentation.utils import snack, tr
 from lib.presentation.widgets.lock_screen import LockScreen
 
 logger = logging.getLogger("finanse.presentation.app")
 
-_NAV_RADIUS = 28
-_NAV_MARGIN = ft.Margin.only(left=12, right=12, bottom=8, top=4)
+_NAV_RADIUS = 22
+_NAV_MARGIN = ft.Margin.only(left=10, right=10, bottom=6, top=4)
 
 
 class FinanseApp:
@@ -40,15 +42,17 @@ class FinanseApp:
         self._content = ft.AnimatedSwitcher(
             content=ft.Container(expand=True),
             transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=280,
-            reverse_duration=180,
-            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            duration=420,
+            reverse_duration=260,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT_CUBIC,
             switch_out_curve=ft.AnimationCurve.EASE_IN,
             expand=True,
         )
-        self._nav = ft.NavigationBar(
-            destinations=[],
-            on_change=self._on_nav_change,
+        self._nav = ft.Row(
+            spacing=0,
+            alignment=ft.MainAxisAlignment.SPACE_EVENLY,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[],
         )
         self._nav_host = ft.Container(
             margin=_NAV_MARGIN,
@@ -56,13 +60,17 @@ class FinanseApp:
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             bgcolor=ft.Colors.SURFACE_CONTAINER,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            animate=ft.Animation(280, ft.AnimationCurve.EASE_OUT),
             shadow=ft.BoxShadow(
                 spread_radius=0,
                 blur_radius=22,
                 color="#00000033",
                 offset=ft.Offset(0, 6),
             ),
-            content=self._nav,
+            content=ft.Container(
+                padding=ft.Padding.only(top=4, bottom=4),
+                content=self._nav,
+            ),
         )
         self._shell = ft.SafeArea(
             expand=True,
@@ -78,6 +86,10 @@ class FinanseApp:
                 controls=[self._content, self._nav_host],
             ),
         )
+        self._stage = ft.Container(expand=True, content=self._shell)
+        self._nav_pills: list[ft.Container] = []
+        self._nav_icons: list[ft.Icon] = []
+        self._nav_labels: list[ft.Text] = []
         self._rendered_tab: Optional[int] = None
         self._rendered_secondary: Optional[str] = None
         self._rendered_lang: Optional[str] = None
@@ -116,14 +128,25 @@ class FinanseApp:
         except Exception:  # noqa: BLE001
             logger.exception("Failed to load settings; using defaults")
 
-        apply_theme(page, self.state.theme_mode)
+        apply_theme_from_settings(page, self.state.settings)
         await self._load_pin_gate()
         self._build_navigation_bar()
         self.state.subscribe(self._on_state_changed)
 
-        page.add(self._shell)
+        page.add(self._stage)
         self._render(force=True)
         self._flush_notifications()
+
+        from lib.presentation.voice_shortcut import install_voice_shortcut
+
+        install_voice_shortcut(page, self.state)
+        if self.state.pending_voice_capture and self.state.is_unlocked:
+            capture = getattr(self.state, "voice_capture", None)
+            if capture is not None:
+                from lib.presentation.utils import run_async
+
+                self.state.pending_voice_capture = False
+                run_async(page, capture)
 
     async def _load_pin_gate(self) -> None:
         """Decide whether the session starts locked."""
@@ -145,43 +168,126 @@ class FinanseApp:
         else:
             self.state.set_unlocked(True, notify=False)
 
+    def _nav_specs(self) -> tuple[tuple[int, ft.IconData, ft.IconData, str], ...]:
+        lang = self.state.language
+        return (
+            (
+                AppState.TAB_HOME,
+                ft.Icons.HOME_OUTLINED,
+                ft.Icons.HOME,
+                tr("nav.home", lang),
+            ),
+            (
+                AppState.TAB_TRANSACTIONS,
+                ft.Icons.RECEIPT_LONG_OUTLINED,
+                ft.Icons.RECEIPT_LONG,
+                tr("nav.transactions", lang),
+            ),
+            (
+                AppState.TAB_ACCOUNTS,
+                ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
+                ft.Icons.ACCOUNT_BALANCE_WALLET,
+                tr("nav.accounts", lang),
+            ),
+            (
+                AppState.TAB_SETTINGS,
+                ft.Icons.SETTINGS_OUTLINED,
+                ft.Icons.SETTINGS,
+                tr("nav.settings", lang),
+            ),
+        )
+
+    def _ensure_nav_items(self) -> None:
+        if self._nav.controls:
+            return
+        skin = get_active_skin()
+        for index, icon, selected_icon, label in self._nav_specs():
+            glyph = ft.Icon(icon, size=22, color=ft.Colors.ON_SURFACE_VARIANT)
+            pill = ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+                border_radius=skin.chip_radius,
+                scale=1,
+                animate=ft.Animation(280, ft.AnimationCurve.EASE_OUT_CUBIC),
+                animate_scale=ft.Animation(320, ft.AnimationCurve.EASE_OUT_BACK),
+                content=glyph,
+            )
+            caption = ft.Text(
+                label,
+                size=10,
+                weight=ft.FontWeight.W_500,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                text_align=ft.TextAlign.CENTER,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+                no_wrap=True,
+                animate_opacity=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+            )
+            item = ft.Container(
+                expand=True,
+                ink=True,
+                on_click=lambda _e, i=index: self.state.set_tab(i),
+                padding=ft.Padding.symmetric(horizontal=2, vertical=4),
+                content=ft.Column(
+                    spacing=2,
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[pill, caption],
+                ),
+            )
+            self._nav.controls.append(item)
+            self._nav_pills.append(pill)
+            self._nav_icons.append(glyph)
+            self._nav_labels.append(caption)
+
+    def _sync_chrome(self) -> None:
+        skin = get_active_skin()
+        dark = is_dark_mode(self.page, self.state.theme_mode)
+        self._stage.gradient = skin.page_gradient(dark=dark)
+        self._stage.bgcolor = skin.dark_bg if dark else skin.light_bg
+        layer = glass_layer(opacity=0.38)
+        self._nav_host.bgcolor = layer.get("bgcolor")
+        self._nav_host.blur = layer.get("blur")
+        self._nav_host.border = ft.Border.all(
+            1,
+            ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE)
+            if skin.glass
+            else ft.Colors.OUTLINE_VARIANT,
+        )
+        self._nav_host.border_radius = skin.card_radius
+        self._nav_host.shadow = ft.BoxShadow(
+            spread_radius=0,
+            blur_radius=22,
+            color=skin.glow,
+            offset=ft.Offset(0, 6),
+        )
+
     def _build_navigation_bar(self) -> None:
         lang = self.state.language
-        self._nav.selected_index = self.state.selected_tab
-        self._nav.bgcolor = ft.Colors.TRANSPARENT
-        self._nav.indicator_color = ft.Colors.PRIMARY_CONTAINER
-        self._nav.elevation = 0
-        self._nav.shadow_color = ft.Colors.TRANSPARENT
-        self._nav.label_behavior = ft.NavigationBarLabelBehavior.ALWAYS_SHOW
-        self._nav.destinations = [
-            ft.NavigationBarDestination(
-                icon=ft.Icons.HOME_OUTLINED,
-                selected_icon=ft.Icons.HOME,
-                label=tr("nav.home", lang),
-            ),
-            ft.NavigationBarDestination(
-                icon=ft.Icons.RECEIPT_LONG_OUTLINED,
-                selected_icon=ft.Icons.RECEIPT_LONG,
-                label=tr("nav.transactions", lang),
-            ),
-            ft.NavigationBarDestination(
-                icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
-                selected_icon=ft.Icons.ACCOUNT_BALANCE_WALLET,
-                label=tr("nav.accounts", lang),
-            ),
-            ft.NavigationBarDestination(
-                icon=ft.Icons.SETTINGS_OUTLINED,
-                selected_icon=ft.Icons.SETTINGS,
-                label=tr("nav.settings", lang),
-            ),
-        ]
-        self._nav_host.bgcolor = ft.Colors.SURFACE_CONTAINER
-        self._nav_host.border = ft.Border.all(1, ft.Colors.OUTLINE_VARIANT)
+        self._ensure_nav_items()
+        self._sync_chrome()
+        skin = get_active_skin()
+        dark = is_dark_mode(self.page, self.state.theme_mode)
+        specs = self._nav_specs()
+        for i, (index, icon, selected_icon, label) in enumerate(specs):
+            selected = self.state.selected_tab == index
+            pill = self._nav_pills[i]
+            glyph = self._nav_icons[i]
+            caption = self._nav_labels[i]
+            pill.border_radius = skin.chip_radius
+            pill.bgcolor = skin.nav_selected_bg(dark=dark) if selected else None
+            pill.scale = 1.12 if selected else 1.0
+            glyph.icon = selected_icon if selected else icon
+            glyph.color = (
+                skin.nav_selected_fg(dark=dark)
+                if selected
+                else ft.Colors.ON_SURFACE_VARIANT
+            )
+            caption.value = label
+            caption.weight = ft.FontWeight.W_700 if selected else ft.FontWeight.W_500
+            caption.color = (
+                ft.Colors.ON_SURFACE if selected else ft.Colors.ON_SURFACE_VARIANT
+            )
         self._rendered_lang = lang
-
-    def _on_nav_change(self, e: ft.ControlEvent) -> None:
-        index = int(getattr(e.control, "selected_index", 0) or 0)
-        self.state.set_tab(index)
 
     def _on_state_changed(self, _state: AppState) -> None:
         if self._rendered_rebuild_token != self.state.view_rebuild_token:
@@ -255,23 +361,34 @@ class FinanseApp:
 
     async def _unlock(self) -> None:
         self.state.set_unlocked(True)
+        if self.state.pending_voice_capture:
+            capture = getattr(self.state, "voice_capture", None)
+            if capture is not None:
+                self.state.pending_voice_capture = False
+                from lib.presentation.utils import run_async
+
+                run_async(self.page, capture)
 
     def _render(self, *, force: bool = False) -> None:
         """Swap primary / secondary content based on AppState."""
         if not self.state.is_unlocked and self._pin_hash and self._pin_salt:
             self._nav_host.visible = False
-            self._content.content = LockScreen(
-                self.page,
-                language=self.state.language,
-                pin_hash=self._pin_hash,
-                pin_salt=self._pin_salt,
-                biometric_enabled=bool(self.state.settings.biometric_enabled),
-                on_unlocked=self._unlock,
-                encryption=self.state.container.encryption_service
-                or EncryptionService(),
-                # Windows Hello is local to the PC; skip auto-prompt for remote web/mobile sessions.
-                auto_biometric=os.environ.get("FLET_FORCE_WEB_SERVER", "").lower()
-                not in {"1", "true", "yes"},
+            self._content.content = ft.Container(
+                expand=True,
+                key="lock",
+                content=LockScreen(
+                    self.page,
+                    language=self.state.language,
+                    pin_hash=self._pin_hash,
+                    pin_salt=self._pin_salt,
+                    biometric_enabled=bool(self.state.settings.biometric_enabled),
+                    on_unlocked=self._unlock,
+                    encryption=self.state.container.encryption_service
+                    or EncryptionService(),
+                    # Windows Hello is local to the PC; skip auto-prompt for remote web/mobile sessions.
+                    auto_biometric=os.environ.get("FLET_FORCE_WEB_SERVER", "").lower()
+                    not in {"1", "true", "yes"},
+                ),
             )
             self._rendered_unlocked = False
             self.page.update()
@@ -293,9 +410,13 @@ class FinanseApp:
             view = self._primary_page(tab)
 
         self._nav_host.visible = route is None
-        self._nav.selected_index = tab
+        self._build_navigation_bar()
 
-        self._content.content = view
+        self._content.content = ft.Container(
+            expand=True,
+            key=route or f"tab-{tab}",
+            content=view,
+        )
         self._rendered_tab = tab
         self._rendered_secondary = route
         self._rendered_unlocked = True

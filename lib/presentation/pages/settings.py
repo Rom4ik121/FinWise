@@ -10,15 +10,16 @@ from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.settings import AppSettings
 from lib.domain.use_cases.align_currencies import align_sole_account_currency
 from lib.infrastructure.services.backup_service import BackupService
-from lib.infrastructure.services.biometric import BiometricStatus
+from lib.infrastructure.services.biometric import BiometricResult, BiometricStatus
 from lib.infrastructure.services.data_reset_service import DataResetService
 from lib.infrastructure.services.encryption_service import EncryptionService
 from lib.infrastructure.services.export_service import ExportService
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 from lib.infrastructure.services.localization import normalize_lang
 from lib.infrastructure.services.push_notifier import request_push_permissions
-from lib.presentation.styles import card_surface, page_header, section_title
-from lib.presentation.theme import apply_theme
+from lib.presentation.styles import card_surface, labeled_field, labeled_switch, page_header, section_title
+from lib.presentation.theme import apply_theme_from_settings
+from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
 from lib.presentation.utils import run_async, snack, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -77,12 +78,12 @@ def _settings_section(
                     width=34,
                     height=34,
                     border_radius=10,
-                    bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                    bgcolor=get_active_skin().badge_bg(dark=True),
                     alignment=ft.Alignment.CENTER,
                     content=ft.Icon(
                         icon,
                         size=18,
-                        color=ft.Colors.ON_PRIMARY_CONTAINER,
+                        color=get_active_skin().badge_fg(dark=True),
                     ),
                 ),
                 ft.Container(expand=True, content=section_title(title)),
@@ -155,6 +156,15 @@ class SettingsPage(ft.Column):
             expand=True,
             dense=True,
         )
+        self._ui_style = normalize_skin_id(getattr(s, "ui_style", None))
+        self._style_host = ft.Row(
+            wrap=True,
+            spacing=10,
+            run_spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            controls=[],
+        )
+        self._rebuild_style_cards(lang)
         self._language = ft.Dropdown(
             label=tr("settings.language", lang),
             value=normalize_lang(s.language),
@@ -167,7 +177,6 @@ class SettingsPage(ft.Column):
             dense=True,
         )
         self._interval = ft.TextField(
-            label=tr("settings.exchange_interval", lang),
             value=str(s.exchange_update_interval_minutes),
             keyboard_type=ft.KeyboardType.NUMBER,
             expand=True,
@@ -177,7 +186,6 @@ class SettingsPage(ft.Column):
             bgcolor=ft.Colors.SURFACE,
         )
         self._reminder_time = ft.TextField(
-            label=tr("settings.reminder_time", lang),
             value=s.reminder_time or "09:00",
             hint_text="09:00",
             expand=True,
@@ -187,7 +195,6 @@ class SettingsPage(ft.Column):
             bgcolor=ft.Colors.SURFACE,
         )
         self._reminder_days = ft.TextField(
-            label=tr("settings.reminder_days", lang),
             value=str(getattr(s, "reminder_days", 3) or 3),
             keyboard_type=ft.KeyboardType.NUMBER,
             expand=True,
@@ -197,32 +204,25 @@ class SettingsPage(ft.Column):
             bgcolor=ft.Colors.SURFACE,
         )
         self._notifications = ft.Switch(
-            label=tr("settings.notifications", lang),
             value=s.notifications_enabled,
             on_change=lambda e: self._on_notifications_toggle(e),
         )
         self._debt_reminders = ft.Switch(
-            label=tr("settings.debt_reminders", lang),
             value=s.debt_reminders,
         )
         self._sub_reminders = ft.Switch(
-            label=tr("settings.subscription_reminders", lang),
             value=s.subscription_reminders,
         )
         self._check_balance_sub = ft.Switch(
-            label=tr("settings.check_balance_before_subscription", lang),
             value=bool(getattr(s, "check_balance_before_subscription", True)),
         )
         self._goal_milestones = ft.Switch(
-            label=tr("settings.goal_milestones", lang),
             value=s.goal_milestones,
         )
         self._budget_alerts = ft.Switch(
-            label=tr("settings.budget_alerts", lang),
             value=bool(getattr(s, "budget_alerts", True)),
         )
         self._biometric = ft.Switch(
-            label=tr("settings.biometric", lang),
             value=s.biometric_enabled,
             on_change=lambda e: run_async(page, self._on_biometric_toggle, e),
         )
@@ -232,7 +232,6 @@ class SettingsPage(ft.Column):
             color=ft.Colors.ON_SURFACE_VARIANT,
         )
         self._pin_tf = ft.TextField(
-            label=tr("settings.pin", lang),
             password=True,
             can_reveal_password=True,
             expand=True,
@@ -251,13 +250,25 @@ class SettingsPage(ft.Column):
 
         scroll_body = ft.Column(
             expand=True,
-            scroll=ft.ScrollMode.AUTO,
+            scroll=ft.ScrollMode.HIDDEN,
             spacing=14,
             controls=[
                 section(
                     tr("settings.appearance", lang),
                     ft.Icons.PALETTE_OUTLINED,
                     [
+                        ft.Text(
+                            tr("settings.style", lang),
+                            size=13,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
+                        self._style_host,
+                        ft.Text(
+                            tr("settings.style.hint", lang),
+                            size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
                         self._theme,
                         self._language,
                         self._currency,
@@ -272,29 +283,47 @@ class SettingsPage(ft.Column):
                 section(
                     tr("settings.rates", lang),
                     ft.Icons.CURRENCY_EXCHANGE,
-                    [self._interval],
+                    [labeled_field(tr("settings.exchange_interval", lang), self._interval)],
                 ),
                 section(
                     tr("settings.notifications", lang),
                     ft.Icons.NOTIFICATIONS_OUTLINED,
                     [
-                        self._notifications,
-                        self._debt_reminders,
-                        self._sub_reminders,
-                        self._check_balance_sub,
-                        self._goal_milestones,
-                        self._budget_alerts,
-                        self._reminder_time,
-                        self._reminder_days,
+                        labeled_switch(
+                            tr("settings.notifications", lang), self._notifications
+                        ),
+                        labeled_switch(
+                            tr("settings.debt_reminders", lang), self._debt_reminders
+                        ),
+                        labeled_switch(
+                            tr("settings.subscription_reminders", lang),
+                            self._sub_reminders,
+                        ),
+                        labeled_switch(
+                            tr("settings.check_balance_before_subscription", lang),
+                            self._check_balance_sub,
+                        ),
+                        labeled_switch(
+                            tr("settings.goal_milestones", lang), self._goal_milestones
+                        ),
+                        labeled_switch(
+                            tr("settings.budget_alerts", lang), self._budget_alerts
+                        ),
+                        labeled_field(
+                            tr("settings.reminder_time", lang), self._reminder_time
+                        ),
+                        labeled_field(
+                            tr("settings.reminder_days", lang), self._reminder_days
+                        ),
                     ],
                 ),
                 section(
                     tr("settings.security", lang),
                     ft.Icons.SECURITY,
                     [
-                        self._biometric,
+                        labeled_switch(tr("settings.biometric", lang), self._biometric),
                         self._biometric_hint,
-                        self._pin_tf,
+                        labeled_field(tr("settings.pin", lang), self._pin_tf),
                         ft.Row(
                             spacing=8,
                             wrap=True,
@@ -313,6 +342,33 @@ class SettingsPage(ft.Column):
                                     ),
                                 ),
                             ],
+                        ),
+                    ],
+                ),
+                section(
+                    tr("voice.shortcut_title", lang),
+                    ft.Icons.MIC_NONE,
+                    [
+                        ft.Text(
+                            tr("voice.shortcut_how", lang),
+                            size=12,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.Text(
+                            tr("voice.shortcut_android", lang),
+                            size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.Text(
+                            tr("voice.shortcut_ios", lang),
+                            size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.FilledTonalButton(
+                            tr("voice.listen_now", lang),
+                            icon=ft.Icons.MIC,
+                            style=btn_style,
+                            on_click=lambda _e: self._listen_voice_now(),
                         ),
                     ],
                 ),
@@ -460,7 +516,7 @@ class SettingsPage(ft.Column):
                     ],
                 ),
                 # Space so the last section is not hidden under the floating save bar.
-                ft.Container(height=88),
+                ft.Container(height=110),
             ],
         )
 
@@ -519,6 +575,85 @@ class SettingsPage(ft.Column):
         self._sync_notification_controls()
         run_async(page, self._refresh_biometric_hint)
 
+    def _rebuild_style_cards(self, lang: str) -> None:
+        """Refresh style preview tiles after a selection change."""
+        self._style_host.controls = [
+            self._style_preview_card(skin, skin.id == self._ui_style, lang)
+            for skin in list_skins()
+        ]
+
+    def _style_preview_card(self, skin, selected: bool, lang: str) -> ft.Container:
+        """Compact adaptive preview of one look (wraps on narrow screens)."""
+
+        def _select(_e: ft.ControlEvent, skin_id: str = skin.id) -> None:
+            self._ui_style = skin_id
+            self._rebuild_style_cards(self._state.language)
+            try:
+                self._style_host.update()
+            except Exception:  # noqa: BLE001
+                pass
+
+        return ft.Container(
+            width=156,
+            padding=12,
+            border_radius=skin.card_radius,
+            bgcolor=skin.dark_surface,
+            border=ft.Border.all(
+                2,
+                skin.dark_primary if selected else skin.dark_border,
+            ),
+            ink=True,
+            on_click=_select,
+            shadow=ft.BoxShadow(
+                spread_radius=0,
+                blur_radius=18,
+                color=skin.glow if selected else "#00000000",
+                offset=ft.Offset(0, 4),
+            ),
+            content=ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[
+                    ft.Row(
+                        spacing=6,
+                        controls=[
+                            ft.Container(
+                                width=22,
+                                height=22,
+                                border_radius=6,
+                                bgcolor=skin.dark_primary,
+                            ),
+                            ft.Container(
+                                width=22,
+                                height=22,
+                                border_radius=6,
+                                bgcolor=skin.dark_expense,
+                            ),
+                            ft.Container(
+                                width=22,
+                                height=22,
+                                border_radius=6,
+                                bgcolor=skin.dark_surface_3,
+                            ),
+                        ],
+                    ),
+                    ft.Text(
+                        tr(f"settings.style.{skin.id}", lang),
+                        size=13,
+                        weight=ft.FontWeight.W_700,
+                        color=skin.dark_text,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                    ft.Container(
+                        height=6,
+                        border_radius=3,
+                        bgcolor=skin.dark_primary,
+                    ),
+                ],
+            ),
+        )
+
     def _notification_sub_controls(self) -> list[ft.Control]:
         return [
             self._debt_reminders,
@@ -539,6 +674,13 @@ class SettingsPage(ft.Column):
                 ctrl.update()
             except Exception:  # noqa: BLE001
                 pass
+
+    def _listen_voice_now(self) -> None:
+        capture = getattr(self._state, "voice_capture", None)
+        if capture is None:
+            snack(self._page, tr("voice.unavailable", self._state.language), error=True)
+            return
+        run_async(self._page, capture)
 
     def _on_notifications_toggle(self, e: ft.ControlEvent) -> None:
         if bool(getattr(e.control, "value", False)):
@@ -615,6 +757,22 @@ class SettingsPage(ft.Column):
             except Exception:  # noqa: BLE001
                 pass
             snack(self._page, self._hint_for_status(status), error=True)
+            return
+        result = await crypto.authenticate_biometric(
+            message=tr("lock.biometric_prompt", lang),
+        )
+        if result is not BiometricResult.VERIFIED:
+            self._biometric.value = False
+            try:
+                self._biometric.update()
+            except Exception:  # noqa: BLE001
+                pass
+            if result is BiometricResult.CANCELED:
+                snack(self._page, tr("lock.biometric_canceled", lang), error=True)
+            else:
+                snack(self._page, tr("lock.biometric_failed", lang), error=True)
+            return
+        snack(self._page, tr("settings.biometric_confirmed", lang))
 
     async def save(self) -> None:
         """Persist settings via use case and apply theme/language."""
@@ -629,6 +787,7 @@ class SettingsPage(ft.Column):
         )
         previous_language = normalize_lang(self._state.settings.language)
         previous_theme = self._state.theme_mode
+        previous_style = normalize_skin_id(getattr(self._state.settings, "ui_style", None))
         try:
             reminder_days = int(self._reminder_days.value or 3)
         except ValueError:
@@ -638,6 +797,7 @@ class SettingsPage(ft.Column):
                 id=self._state.settings.id,
                 default_currency=new_currency,
                 theme=self._theme.value or "system",
+                ui_style=self._ui_style,
                 language=normalize_lang(self._language.value or "ru"),
                 exchange_update_interval_minutes=max(5, interval),
                 notifications_enabled=bool(self._notifications.value),
@@ -699,7 +859,7 @@ class SettingsPage(ft.Column):
                     pass
 
         self._state.set_settings(saved)
-        apply_theme(self._page, saved.theme)
+        apply_theme_from_settings(self._page, saved)
         if saved.notifications_enabled:
             try:
                 await request_push_permissions()
@@ -713,7 +873,11 @@ class SettingsPage(ft.Column):
         if created:
             # OS push is emitted from NotificationService.push; refresh home banners.
             self._state.bump_refresh("dashboard")
-        if previous_theme != saved.theme or previous_language != saved.language:
+        if (
+            previous_theme != saved.theme
+            or previous_language != saved.language
+            or previous_style != saved.ui_style
+        ):
             self._state.request_view_rebuild()
         self._state.bump_refresh()
         self._page.update()
@@ -750,7 +914,7 @@ class SettingsPage(ft.Column):
             result = await self._state.container.export_data.execute(
                 self._state.container.config.export_dir
             )
-            snack(self._page, f"JSON: {result.path}")
+            await self._offer_file(result.path, kind="JSON")
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
 
@@ -759,7 +923,7 @@ class SettingsPage(ft.Column):
             c = self._state.container
             txs = await c.list_transactions.execute()
             path = ExportService(c.config).export_transactions_csv(txs)
-            snack(self._page, f"CSV: {path}")
+            await self._offer_file(path, kind="CSV")
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
 
@@ -779,20 +943,80 @@ class SettingsPage(ft.Column):
                 subscriptions=subs,
                 title="FinWise",
             )
-            snack(self._page, f"PDF: {path}")
+            await self._offer_file(path, kind="PDF")
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
 
     async def backup(self) -> None:
         try:
             path = BackupService(self._state.container.config).backup()
-            snack(self._page, f"Backup: {path}")
+            await self._offer_file(path, kind="Backup")
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
 
+    async def _offer_file(self, path, *, kind: str) -> None:
+        from lib.presentation.file_transfer import offer_saved_file
+
+        location = await offer_saved_file(
+            self._page, path, title=f"FinWise {kind}"
+        )
+        lang = self._state.language
+        if not location:
+            snack(self._page, tr("settings.file_cancelled", lang), error=True)
+            return
+        snack(self._page, tr("settings.file_ready", lang).format(kind=kind, path=location))
+
     async def restore_latest(self) -> None:
         lang = self._state.language
+        from lib.infrastructure.services.biometric import is_mobile_platform
+        from lib.presentation.file_transfer import pick_restore_bytes
+
         service = BackupService(self._state.container.config)
+        if is_mobile_platform(self._page):
+            from lib.presentation.file_transfer import classify_restore_payload
+
+            picked = await pick_restore_bytes(
+                self._page,
+                title=tr("action.restore", lang),
+                extensions=["db", "sqlite", "sqlite3", "json"],
+            )
+            if not picked:
+                backups = service.list_backups()
+                if not backups:
+                    snack(self._page, tr("settings.no_backups", lang), error=True)
+                    return
+                latest = backups[0]
+                confirm_dialog(
+                    self._page,
+                    title=tr("action.restore", lang),
+                    message=tr("settings.restore_confirm", lang),
+                    confirm_text=tr("action.restore", lang),
+                    cancel_text=tr("action.cancel", lang),
+                    on_confirm=lambda: self._do_restore(latest),
+                )
+                return
+            name, payload = picked
+            kind = classify_restore_payload(name, payload)
+            if kind == "json":
+                snack(self._page, tr("settings.restore_need_db", lang), error=True)
+                return
+            if kind != "db":
+                snack(self._page, tr("settings.restore_bad_file", lang), error=True)
+                return
+            if not name.lower().endswith((".db", ".sqlite", ".sqlite3")):
+                name = f"{name}.db"
+            target = service.backup_dir / name
+            service.backup_dir.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+            confirm_dialog(
+                self._page,
+                title=tr("action.restore", lang),
+                message=tr("settings.restore_confirm", lang),
+                confirm_text=tr("action.restore", lang),
+                cancel_text=tr("action.cancel", lang),
+                on_confirm=lambda: self._do_restore(target),
+            )
+            return
         backups = service.list_backups()
         if not backups:
             snack(self._page, tr("settings.no_backups", lang), error=True)
@@ -829,7 +1053,7 @@ class SettingsPage(ft.Column):
             if c.get_settings is not None:
                 settings = await c.get_settings.execute()
                 self._state.set_settings(settings, notify=False)
-                apply_theme(self._page, settings.theme)
+                apply_theme_from_settings(self._page, settings)
             self._state.request_view_rebuild()
             self._state.bump_refresh()
             self._page.update()
@@ -926,7 +1150,7 @@ class SettingsPage(ft.Column):
             if c.get_settings is not None:
                 settings = await c.get_settings.execute()
                 self._state.set_settings(settings, notify=False)
-                apply_theme(self._page, settings.theme)
+                apply_theme_from_settings(self._page, settings)
             if c.create_account is not None:
                 from lib.domain.entities.account import Account
 

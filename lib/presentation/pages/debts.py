@@ -61,7 +61,7 @@ class DebtsPage(ft.Column):
     def __init__(self, page: ft.Page, state: "AppState") -> None:
         self._page = page
         self._state = state
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=12)
+        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
         self._status_filter = "active"
         self._direction_filter = "all"
         self._sort_by = "due_date"
@@ -542,7 +542,7 @@ class DebtsPage(ft.Column):
 
     def _open_detail(self, debt: Debt) -> None:
         lang = self._state.language
-        body = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
+        body = ft.Column(spacing=12, scroll=ft.ScrollMode.HIDDEN, expand=True)
         close_holder: dict[str, object] = {}
 
         def _close_detail() -> None:

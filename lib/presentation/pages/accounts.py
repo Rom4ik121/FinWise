@@ -43,7 +43,7 @@ class AccountsPage(ft.Column):
         self._page = page
         self._state = state
         self._token = -1
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=12)
+        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
         super().__init__(
             expand=True,
             controls=[
@@ -389,7 +389,7 @@ class AccountsPage(ft.Column):
                             content=ft.Column(
                                 expand=True,
                                 spacing=12,
-                                scroll=ft.ScrollMode.AUTO,
+                                scroll=ft.ScrollMode.HIDDEN,
                                 controls=[
                                     name_tf,
                                     currency_picker,

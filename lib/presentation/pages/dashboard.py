@@ -17,6 +17,7 @@ from lib.presentation.notification_badges import (
     SUBSCRIPTION_ALERT_KINDS,
     pending_count,
 )
+from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
     page_header,
@@ -48,7 +49,7 @@ class DashboardPage(ft.Column):
     def __init__(self, page: ft.Page, state: "AppState") -> None:
         self._page = page
         self._state = state
-        self._body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=12)
+        self._body = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
         self._token = -1
         super().__init__(
             expand=True,
@@ -123,12 +124,12 @@ class DashboardPage(ft.Column):
                                 width=32,
                                 height=32,
                                 border_radius=10,
-                                bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                                bgcolor=get_active_skin().badge_bg(dark=True),
                                 alignment=ft.Alignment.CENTER,
                                 content=ft.Icon(
                                     ft.Icons.INSIGHTS,
                                     size=18,
-                                    color=ft.Colors.ON_PRIMARY_CONTAINER,
+                                    color=get_active_skin().badge_fg(dark=True),
                                 ),
                             ),
                             ft.Text(
@@ -187,7 +188,6 @@ class DashboardPage(ft.Column):
                 title=tr("dashboard.total_balance", lang),
                 value=format_money(total, base),
                 icon=ft.Icons.ACCOUNT_BALANCE_WALLET,
-                accent=ft.Colors.PRIMARY,
                 hero=True,
                 expand=True,
             ),

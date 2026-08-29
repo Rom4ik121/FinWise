@@ -1,17 +1,19 @@
-"""Finanse visual system — dark-first, high-contrast light alternative.
+"""FinWise visual system — palettes live in ``lib.presentation.skins``.
 
-Palette direction: deep slate + mint/teal accents (no purple glow).
+Classic (default) is slate + mint. Neon is matte black + #00FF99.
 """
 
 from __future__ import annotations
 
+import os
+import sys
+
 import flet as ft
 
-# ---------------------------------------------------------------------------
-# Design tokens
-# ---------------------------------------------------------------------------
+from lib.presentation.skins import get_active_skin, set_active_skin
 
-# Dark
+# Classic tokens kept as import-time aliases (the default look).
+# Runtime widgets should use ``get_active_skin()`` so Neon can recolor them.
 DARK_BG = "#0B1220"
 DARK_SURFACE = "#121A2B"
 DARK_SURFACE_2 = "#1A2438"
@@ -26,7 +28,6 @@ DARK_INCOME = "#4ADE80"
 DARK_EXPENSE = "#F87171"
 DARK_WARN = "#FBBF24"
 
-# Light — high contrast, crisp details
 LIGHT_BG = "#F1F5F9"
 LIGHT_SURFACE = "#FFFFFF"
 LIGHT_SURFACE_2 = "#F8FAFC"
@@ -46,87 +47,59 @@ FONT_FAMILY = "Segoe UI"
 FONT_FAMILY_DISPLAY = "Segoe UI Semibold"
 
 
+def _mobile_runtime(page: ft.Page | None = None) -> bool:
+    """True on iOS/Android packaged Flet apps (system fonts only)."""
+    if sys.platform in {"android", "ios"}:
+        return True
+    plat = os.getenv("FLET_PLATFORM", "").strip().lower()
+    if plat in {"android", "ios"}:
+        return True
+    try:
+        from lib.core.config import _is_ios
+
+        if _is_ios():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    if page is None:
+        return False
+    host = str(getattr(page, "platform", "")).lower()
+    return "ios" in host or "android" in host
+
+
 def light_color_scheme() -> ft.ColorScheme:
-    """High-contrast light scheme — all UI details stay readable."""
-    return ft.ColorScheme(
-        primary=LIGHT_PRIMARY,
-        on_primary=LIGHT_ON_PRIMARY,
-        primary_container="#CCFBF1",
-        on_primary_container="#042F2E",
-        secondary=LIGHT_PRIMARY_DIM,
-        on_secondary=LIGHT_ON_PRIMARY,
-        secondary_container="#D1FAE5",
-        on_secondary_container="#064E3B",
-        tertiary="#0369A1",
-        on_tertiary="#FFFFFF",
-        tertiary_container="#E0F2FE",
-        on_tertiary_container="#0C4A6E",
-        surface=LIGHT_BG,
-        on_surface=LIGHT_TEXT,
-        surface_container_lowest=LIGHT_SURFACE,
-        surface_container_low=LIGHT_SURFACE_2,
-        surface_container=LIGHT_SURFACE,
-        surface_container_high=LIGHT_SURFACE_2,
-        surface_container_highest=LIGHT_SURFACE_3,
-        on_surface_variant=LIGHT_MUTED,
-        outline=LIGHT_BORDER,
-        outline_variant="#E2E8F0",
-        error="#DC2626",
-        on_error="#FFFFFF",
-        error_container="#FEE2E2",
-        on_error_container="#7F1D1D",
-        inverse_surface=DARK_SURFACE,
-        on_inverse_surface=DARK_TEXT,
-        inverse_primary=DARK_PRIMARY,
-        shadow="#0F172A33",
-        scrim="#0F172A66",
-    )
+    """Light scheme for the active visual style."""
+    return get_active_skin().light_color_scheme()
 
 
 def dark_color_scheme() -> ft.ColorScheme:
-    """Modern dark slate + mint accent scheme."""
-    return ft.ColorScheme(
-        primary=DARK_PRIMARY,
-        on_primary=DARK_ON_PRIMARY,
-        primary_container="#115E59",
-        on_primary_container="#CCFBF1",
-        secondary="#5EEAD4",
-        on_secondary="#042F2E",
-        secondary_container="#134E4A",
-        on_secondary_container="#CCFBF1",
-        tertiary="#38BDF8",
-        on_tertiary="#0C4A6E",
-        tertiary_container="#075985",
-        on_tertiary_container="#E0F2FE",
-        surface=DARK_BG,
-        on_surface=DARK_TEXT,
-        surface_container_lowest="#070B14",
-        surface_container_low=DARK_SURFACE,
-        surface_container=DARK_SURFACE,
-        surface_container_high=DARK_SURFACE_2,
-        surface_container_highest=DARK_SURFACE_3,
-        on_surface_variant=DARK_MUTED,
-        outline=DARK_BORDER,
-        outline_variant="#1F2A40",
-        error=DARK_EXPENSE,
-        on_error="#450A0A",
-        error_container="#7F1D1D",
-        on_error_container="#FECACA",
-        inverse_surface=LIGHT_SURFACE,
-        on_inverse_surface=LIGHT_TEXT,
-        inverse_primary=LIGHT_PRIMARY,
-        shadow="#00000066",
-        scrim="#00000099",
-    )
+    """Dark scheme for the active visual style."""
+    return get_active_skin().dark_color_scheme()
 
 
-def build_theme(*, dark: bool = False) -> ft.Theme:
-    """Build a polished Material theme for light or dark appearance."""
-    return ft.Theme(
-        color_scheme_seed=SEED_COLOR,
-        color_scheme=dark_color_scheme() if dark else light_color_scheme(),
-        font_family=FONT_FAMILY,
-    )
+def build_theme(*, dark: bool = False, page: ft.Page | None = None) -> ft.Theme:
+    """Build a Material theme for the active skin."""
+    skin = get_active_skin()
+    kwargs: dict = {
+        "color_scheme_seed": skin.seed,
+        "color_scheme": skin.color_scheme(dark=dark),
+        # Hide the grey Material thumb on every scrollable (pages, lists, sheets).
+        "scrollbar_theme": ft.ScrollbarTheme(
+            thumb_visibility=False,
+            track_visibility=False,
+            thickness=0,
+            cross_axis_margin=0,
+            main_axis_margin=0,
+            interactive=False,
+            thumb_color=ft.Colors.TRANSPARENT,
+            track_color=ft.Colors.TRANSPARENT,
+            track_border_color=ft.Colors.TRANSPARENT,
+        ),
+    }
+    # Segoe UI is missing on iPhone/Android and breaks glyph metrics (letters split).
+    if not _mobile_runtime(page):
+        kwargs["font_family"] = FONT_FAMILY
+    return ft.Theme(**kwargs)
 
 
 def resolve_theme_mode(mode: str | ft.ThemeMode | None) -> ft.ThemeMode:
@@ -161,29 +134,43 @@ def is_dark_mode(page: ft.Page, mode: str | ft.ThemeMode | None = None) -> bool:
     return True
 
 
-def apply_theme(page: ft.Page, mode: str | None = "dark") -> None:
-    """Apply light/dark themes and theme mode to the page."""
-    page.theme = build_theme(dark=False)
-    page.dark_theme = build_theme(dark=True)
+def apply_theme(
+    page: ft.Page,
+    mode: str | None = "dark",
+    style: str | None = None,
+) -> None:
+    """Apply visual style, light/dark themes, and theme mode to the page."""
+    if style is not None:
+        set_active_skin(style)
+    page.theme = build_theme(dark=False, page=page)
+    page.dark_theme = build_theme(dark=True, page=page)
     page.theme_mode = resolve_theme_mode(mode)
-    page.bgcolor = ft.Colors.SURFACE
-    page.fonts = {
-        "Segoe UI": "Segoe UI",
-        "Segoe UI Semibold": "Segoe UI Semibold",
-    }
+    dark = is_dark_mode(page, page.theme_mode)
+    skin = get_active_skin()
+    page.bgcolor = skin.dark_bg if dark else skin.light_bg
+    page.decoration = ft.BoxDecoration(gradient=skin.page_gradient(dark=dark))
+    if _mobile_runtime(page):
+        page.theme.font_family = None
+        page.dark_theme.font_family = None
+    else:
+        page.fonts = {
+            "Segoe UI": "Segoe UI",
+            "Segoe UI Semibold": "Segoe UI Semibold",
+        }
     # Floating nav lives in FinanseApp shell (rounded host), not page.navigation_bar.
+
+
+def apply_theme_from_settings(page: ft.Page, settings: object) -> None:
+    """Apply theme + UI style from a settings snapshot."""
+    from lib.core.config import DEFAULT_UI_STYLE
+
+    apply_theme(
+        page,
+        getattr(settings, "theme", None),
+        getattr(settings, "ui_style", None) or DEFAULT_UI_STYLE,
+    )
 
 
 def page_gradient(dark: bool) -> ft.LinearGradient:
     """Subtle atmospheric background gradient for shells / lock screen."""
-    if dark:
-        return ft.LinearGradient(
-            begin=ft.Alignment.TOP_LEFT,
-            end=ft.Alignment.BOTTOM_RIGHT,
-            colors=[DARK_BG, "#0E1A2E", "#0B1F24"],
-        )
-    return ft.LinearGradient(
-        begin=ft.Alignment.TOP_CENTER,
-        end=ft.Alignment.BOTTOM_CENTER,
-        colors=[LIGHT_BG, "#E8F5F3", LIGHT_BG],
-    )
+    return get_active_skin().page_gradient(dark=dark)

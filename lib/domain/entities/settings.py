@@ -12,6 +12,8 @@ from lib.core.config import (
     DEFAULT_EXCHANGE_UPDATE_INTERVAL_MINUTES,
     DEFAULT_LANGUAGE,
     DEFAULT_THEME,
+    DEFAULT_UI_STYLE,
+    KNOWN_UI_STYLES,
 )
 
 
@@ -27,6 +29,7 @@ class AppSettings(BaseModel):
     id: str = "default"
     default_currency: str = DEFAULT_CURRENCY
     theme: str = DEFAULT_THEME
+    ui_style: str = DEFAULT_UI_STYLE
     language: str = DEFAULT_LANGUAGE
     exchange_update_interval_minutes: int = DEFAULT_EXCHANGE_UPDATE_INTERVAL_MINUTES
     notifications_enabled: bool = True
@@ -65,6 +68,14 @@ class AppSettings(BaseModel):
     @classmethod
     def _upper_currency(cls, value: str) -> str:
         return value.strip().upper()
+
+    @field_validator("ui_style", mode="before")
+    @classmethod
+    def _normalize_ui_style(cls, value: object) -> str:
+        key = str(value or DEFAULT_UI_STYLE).strip().lower()
+        if key in KNOWN_UI_STYLES:
+            return key
+        return DEFAULT_UI_STYLE
 
     @field_validator("updated_at", mode="before")
     @classmethod

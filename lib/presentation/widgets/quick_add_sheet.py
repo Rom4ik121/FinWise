@@ -116,6 +116,55 @@ async def _show_form(
         hint_text=tr("tags.hint", lang),
         expand=True,
     )
+    voice_status = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+
+    async def _listen_voice() -> None:
+        from lib.infrastructure.services.speech import get_speech_service, listen_speech
+        from lib.infrastructure.services.voice_parse import parse_voice_expense
+
+        if get_speech_service() is None:
+            snack(page, tr("voice.unavailable", lang), error=True)
+            return
+        voice_status.value = tr("voice.listening", lang)
+        try:
+            voice_status.update()
+        except Exception:  # noqa: BLE001
+            pass
+        spoken = await listen_speech(language=lang)
+        if not spoken:
+            voice_status.value = tr("voice.empty", lang)
+            try:
+                voice_status.update()
+            except Exception:  # noqa: BLE001
+                pass
+            snack(page, tr("voice.empty", lang), error=True)
+            return
+        draft = parse_voice_expense(spoken)
+        type_dd.value = draft.tx_type.value
+        category_picker.set_tx_type(draft.tx_type.value)
+        if draft.amount is not None:
+            amount_tf.value = str(draft.amount)
+        if draft.category and draft.category != "Прочее":
+            category_picker.select_name(draft.category)
+        comment_tf.value = spoken
+        voice_status.value = spoken
+        try:
+            type_dd.update()
+            amount_tf.update()
+            comment_tf.update()
+            voice_status.update()
+        except Exception:  # noqa: BLE001
+            pass
+        if draft.amount and draft.amount > 0 and category_picker.selected_name:
+            await _save()
+            return
+        snack(page, tr("voice.filled", lang))
+
+    mic = ft.OutlinedButton(
+        tr("voice.button", lang),
+        icon=ft.Icons.MIC,
+        on_click=lambda _e: run_async(page, _listen_voice),
+    )
 
     async def _save() -> None:
         try:
@@ -183,6 +232,8 @@ async def _show_form(
         body=[
             type_dd,
             amount_tf,
+            mic,
+            voice_status,
             account_dd,
             category_picker,
             comment_tf,

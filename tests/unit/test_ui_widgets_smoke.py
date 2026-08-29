@@ -86,13 +86,16 @@ def test_subscription_and_debt_cards_build() -> None:
 
 def test_charts_empty_and_with_data() -> None:
     empty_pie = build_pie_chart_image([], [], language="en")
-    assert isinstance(empty_pie, (ft.Image, ft.Container))
+    assert isinstance(empty_pie, ft.Container)
 
     pie = build_pie_chart_image(["Food"], [Decimal("10")], language="ru")
-    assert isinstance(pie, (ft.Image, ft.Container))
+    assert isinstance(pie, ft.Container)
+    canvases = _find_canvases(pie)
+    assert canvases
+    assert canvases[0].expand is not True
 
     empty_line = build_line_chart_image([], [], [], language="uz")
-    assert isinstance(empty_line, (ft.Image, ft.Container))
+    assert isinstance(empty_line, ft.Container)
 
     line = build_line_chart_image(
         ["01-01", "01-02"],
@@ -100,7 +103,63 @@ def test_charts_empty_and_with_data() -> None:
         [Decimal("5"), Decimal("8")],
         language="en",
     )
-    assert isinstance(line, (ft.Image, ft.Container))
+    assert isinstance(line, ft.Container)
+
+
+def _find_canvases(ctrl: ft.Control) -> list:
+    found = []
+    stack = [ctrl]
+    while stack:
+        cur = stack.pop()
+        if type(cur).__name__ == "Canvas":
+            found.append(cur)
+        content = getattr(cur, "content", None)
+        if content is not None:
+            stack.append(content)
+        controls = getattr(cur, "controls", None)
+        if controls:
+            stack.extend(controls)
+    return found
+
+
+def test_chart_layout_fits_window() -> None:
+    from lib.presentation.widgets.charts import chart_layout
+
+    w, h = chart_layout(None)
+    assert w >= 240
+    assert 180 <= h <= 360
+
+
+def test_charts_many_periods_scroll() -> None:
+    periods = [f"08-{i:02d}" for i in range(1, 16)]
+    income = [Decimal("10")] * 15
+    expense = [Decimal("4")] * 15
+    chart = build_line_chart_image(
+        periods, income, expense, language="ru", width=320, height=200
+    )
+    assert isinstance(chart, ft.Container)
+
+
+def test_neon_charts_are_glow_spline_and_donut() -> None:
+    from lib.presentation.skins import get_active_skin, set_active_skin
+    from lib.presentation.widgets.charts import build_line_chart_image, build_pie_chart_image
+
+    previous = get_active_skin().id
+    try:
+        set_active_skin("neon")
+        pie = build_pie_chart_image(["Food"], [Decimal("10")], language="en")
+        line = build_line_chart_image(
+            ["01-01", "01-02", "01-03"],
+            [Decimal("10"), Decimal("20"), Decimal("15")],
+            [Decimal("5"), Decimal("8"), Decimal("12")],
+            language="en",
+        )
+        assert isinstance(pie, ft.Container)
+        assert isinstance(line, ft.Container)
+        assert pie.content is not None
+        assert line.content is not None
+    finally:
+        set_active_skin(previous)
 
 
 def test_charts_native_fallback(monkeypatch) -> None:
@@ -123,3 +182,24 @@ def test_budgets_page_importable() -> None:
     from lib.presentation.pages.budgets import BudgetsPage
 
     assert BudgetsPage is not None
+
+
+def test_analytics_merges_income_and_spend_tabs() -> None:
+    from lib.presentation.pages import analytics as analytics_mod
+
+    assert analytics_mod._SECTIONS[0] == "flow"
+    assert "income" not in analytics_mod._SECTIONS
+    assert "spend" not in analytics_mod._SECTIONS
+
+
+def test_neon_glass_cards() -> None:
+    from lib.presentation.skins import get_active_skin, set_active_skin
+    from lib.presentation.styles import card_surface
+
+    previous = get_active_skin().id
+    try:
+        set_active_skin("neon")
+        card = card_surface(ft.Text("x"))
+        assert card.blur is not None
+    finally:
+        set_active_skin(previous)

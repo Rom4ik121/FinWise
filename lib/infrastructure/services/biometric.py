@@ -115,15 +115,17 @@ def is_mobile_platform(page: "ft.Page | None" = None) -> bool:
 
 
 def register_local_auth_service(page: "ft.Page") -> bool:
-    """Attach the Flet local_auth bridge and keep a strong reference."""
+    """Attach the Flet local_auth bridge as a non-visual service."""
     if not is_mobile_platform(page):
         return False
     try:
         from flet_local_auth import FinanseLocalAuth
 
+        from lib.infrastructure.services.flet_services import attach_page_service
+
         auth = FinanseLocalAuth()
-        page.add(auth)
-        page.update()
+        if not attach_page_service(page, auth):
+            return False
         set_local_auth_service(auth)
         logger.info("Mobile biometric service registered (platform=%s)", page.platform)
         return True

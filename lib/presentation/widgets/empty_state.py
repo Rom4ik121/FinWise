@@ -7,6 +7,9 @@ from typing import Optional
 import flet as ft
 
 
+from lib.presentation.skins import get_active_skin
+
+
 class EmptyState(ft.Container):
     """Centered icon + message (+ optional action) when a list is empty."""
 
@@ -18,14 +21,15 @@ class EmptyState(ft.Container):
         action_label: Optional[str] = None,
         on_action: Optional[ft.ControlEventHandler] = None,
     ) -> None:
+        skin = get_active_skin()
         controls: list[ft.Control] = [
             ft.Container(
                 width=56,
                 height=56,
                 border_radius=18,
-                bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                bgcolor=skin.badge_bg(dark=True),
                 alignment=ft.Alignment.CENTER,
-                content=ft.Icon(icon, size=28, color=ft.Colors.ON_PRIMARY_CONTAINER),
+                content=ft.Icon(icon, size=28, color=skin.badge_fg(dark=True)),
             ),
             ft.Text(
                 message,

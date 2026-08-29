@@ -14,10 +14,19 @@ from lib.presentation.account_stats import aggregate_account_period
 from lib.presentation.analytics_period import (
     ANALYTICS_PERIOD_KEYS,
     DEFAULT_ANALYTICS_PERIOD,
+    enumerate_period_keys,
+    fill_time_series,
     format_chart_period_label,
     resolve_analytics_period,
 )
-from lib.presentation.styles import card_surface, muted_text, page_header, section_title
+from lib.presentation.skins import get_active_skin
+from lib.presentation.styles import (
+    card_surface,
+    muted_text,
+    page_header,
+    section_title,
+    amount_color,
+)
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
     format_money,
@@ -27,7 +36,11 @@ from lib.presentation.utils import (
     snack,
     tr,
 )
-from lib.presentation.widgets.charts import build_line_chart_image, build_pie_chart_image
+from lib.presentation.widgets.charts import (
+    build_line_chart_image,
+    build_pie_chart_image,
+    chart_layout,
+)
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.loading import loading_indicator
 from lib.presentation.widgets.summary_card import SummaryCard
@@ -37,17 +50,6 @@ if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 
-def _content_width(page: ft.Page) -> int:
-    raw = getattr(page, "width", None) or getattr(
-        getattr(page, "window", None), "width", None
-    )
-    try:
-        width = int(raw) if raw else 390
-    except (TypeError, ValueError):
-        width = 390
-    return max(280, min(width - 40, 520))
-
-
 class AccountDetailPage(ft.Column):
     """Statistics for a single account opened from the accounts list."""
 
@@ -55,7 +57,7 @@ class AccountDetailPage(ft.Column):
         self._page = page
         self._state = state
         self._account_id = account_id
-        self._body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=12)
+        self._body = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
         self._period = DEFAULT_ANALYTICS_PERIOD
         self._token = -1
         self._period_button = self._build_period_button(state.language)
@@ -217,7 +219,7 @@ class AccountDetailPage(ft.Column):
         c = self._state.container
         now = datetime.now(timezone.utc)
         dark = is_dark_mode(self._page, self._state.theme_mode)
-        chart_w = _content_width(self._page)
+        chart_w, chart_h = chart_layout(self._page)
         period_cfg = resolve_analytics_period(self._period, now)
         period_label = tr(f"dashboard.period.{period_cfg.key}", lang)
 
@@ -256,7 +258,7 @@ class AccountDetailPage(ft.Column):
 
         stats = aggregate_account_period(txs, period_cfg.group_by)
         net = stats.income - stats.expense
-        net_accent = ft.Colors.SECONDARY if net >= 0 else ft.Colors.ERROR
+        net_accent = amount_color(net >= 0, dark=dark)
 
         controls: list[ft.Control] = [
             self._hero(
@@ -276,15 +278,17 @@ class AccountDetailPage(ft.Column):
                         title=tr("dashboard.period_income", lang, period=period_label),
                         value=format_money(stats.income, currency),
                         icon=ft.Icons.TRENDING_UP,
-                        accent=ft.Colors.SECONDARY,
+                        accent=amount_color(True, dark=dark),
                         expand=True,
+                        dark=dark,
                     ),
                     SummaryCard(
                         title=tr("dashboard.period_expense", lang, period=period_label),
                         value=format_money(stats.expense, currency),
                         icon=ft.Icons.TRENDING_DOWN,
-                        accent=ft.Colors.ERROR,
+                        accent=amount_color(False, dark=dark),
                         expand=True,
+                        dark=dark,
                     ),
                 ],
             ),
@@ -340,7 +344,7 @@ class AccountDetailPage(ft.Column):
                                     ft.Text(
                                         format_money(stats.transfer_in, currency),
                                         weight=ft.FontWeight.W_700,
-                                        color=ft.Colors.SECONDARY,
+                                        color=amount_color(True, dark=dark),
                                     ),
                                 ],
                             ),
@@ -353,7 +357,7 @@ class AccountDetailPage(ft.Column):
                                     ft.Text(
                                         format_money(stats.transfer_out, currency),
                                         weight=ft.FontWeight.W_700,
-                                        color=ft.Colors.ERROR,
+                                        color=amount_color(False, dark=dark),
                                     ),
                                 ],
                             ),
@@ -380,11 +384,17 @@ class AccountDetailPage(ft.Column):
             [amt for _cat, amt in pie_cats],
             title="",
             width=chart_w,
-            height=260,
+            height=chart_h,
             dark=dark,
             language=lang,
+            show_legend=False,
         )
-        series = stats.by_period
+        series = fill_time_series(
+            stats.by_period,
+            enumerate_period_keys(
+                period_cfg, existing=[p[0] for p in stats.by_period]
+            ),
+        )
         if period_cfg.max_chart_points and len(series) > period_cfg.max_chart_points:
             series = series[-period_cfg.max_chart_points :]
         line = build_line_chart_image(
@@ -393,12 +403,12 @@ class AccountDetailPage(ft.Column):
             [p[2] for p in series],
             title="",
             width=chart_w,
-            height=220,
+            height=chart_h,
             dark=dark,
             language=lang,
         )
 
-        palette = [
+        palette = list(get_active_skin().chart_colors) or [
             "#2DD4BF",
             "#38BDF8",
             "#4ADE80",

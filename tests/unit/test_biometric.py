@@ -128,3 +128,82 @@ def test_is_mobile_platform_from_page() -> None:
     page = _FakePage()
     page.platform = PagePlatform.ANDROID
     assert is_mobile_platform(page) is True
+
+
+def test_register_local_auth_does_not_page_add(monkeypatch) -> None:
+    import sys
+    import types
+
+    from flet import PagePlatform
+
+    added: list[object] = []
+
+    class _Page:
+        def __init__(self) -> None:
+            self.platform = PagePlatform.IOS
+            self.web = False
+            self.services: list[object] = []
+
+        def add(self, *controls: object) -> None:
+            added.extend(controls)
+
+        def update(self) -> None:
+            return None
+
+    class _Auth:
+        pass
+
+    fake = types.ModuleType("flet_local_auth")
+    fake.FinanseLocalAuth = _Auth  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "flet_local_auth", fake)
+    monkeypatch.setattr(
+        "lib.infrastructure.services.biometric.is_mobile_platform",
+        lambda _p: True,
+    )
+    from lib.infrastructure.services.biometric import (
+        register_local_auth_service,
+        set_local_auth_service,
+    )
+
+    page = _Page()
+    ok = register_local_auth_service(page)  # type: ignore[arg-type]
+    assert added == []
+    assert ok is True
+    assert page.services
+    set_local_auth_service(None)
+
+
+def test_register_local_auth_skips_web_client(monkeypatch) -> None:
+    import sys
+    import types
+
+    from flet import PagePlatform
+
+    class _Page:
+        def __init__(self) -> None:
+            self.platform = PagePlatform.ANDROID
+            self.web = True
+            self.services: list[object] = []
+
+        def add(self, *controls: object) -> None:
+            raise AssertionError("must not page.add services")
+
+        def update(self) -> None:
+            return None
+
+    fake = types.ModuleType("flet_local_auth")
+    fake.FinanseLocalAuth = type("Auth", (), {})  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "flet_local_auth", fake)
+    monkeypatch.setattr(
+        "lib.infrastructure.services.biometric.is_mobile_platform",
+        lambda _p: True,
+    )
+    from lib.infrastructure.services.biometric import (
+        register_local_auth_service,
+        set_local_auth_service,
+    )
+
+    page = _Page()
+    assert register_local_auth_service(page) is False  # type: ignore[arg-type]
+    assert page.services == []
+    set_local_auth_service(None)

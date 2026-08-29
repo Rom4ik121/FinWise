@@ -169,7 +169,12 @@ class CurrenciesPage(ft.Column):
             on_submit=lambda _e: self._apply_search_to_converter(),
         )
         self._base_caption = muted_text("", size=11)
-        self._rates_list = ft.ListView(expand=True, spacing=0, padding=ft.Padding.only(bottom=8))
+        self._rates_list = ft.ListView(
+            expand=True,
+            spacing=0,
+            padding=ft.Padding.only(bottom=8),
+            scroll=ft.ScrollMode.HIDDEN,
+        )
         self._converter = self._build_converter_card(lang)
         self._body = ft.Column(
             expand=True,

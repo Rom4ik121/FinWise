@@ -21,7 +21,7 @@ def h_scroll(
         content=ft.Row(
             controls=list(controls),
             spacing=spacing,
-            scroll=ft.ScrollMode.AUTO,
+            scroll=ft.ScrollMode.HIDDEN,
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
     )
@@ -39,7 +39,7 @@ def v_scroll_body(
         content=ft.Column(
             expand=True,
             spacing=spacing,
-            scroll=ft.ScrollMode.AUTO,
+            scroll=ft.ScrollMode.HIDDEN,
             controls=list(controls),
         ),
     )

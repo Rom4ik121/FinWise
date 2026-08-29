@@ -28,6 +28,7 @@ def _to_entity(model: SettingsModel) -> AppSettings:
         id=model.id,
         default_currency=normalize_currency_code(model.default_currency),
         theme=model.theme,
+        ui_style=getattr(model, "ui_style", None) or "classic",
         language=model.language,
         exchange_update_interval_minutes=model.exchange_update_interval_minutes,
         notifications_enabled=model.notifications_enabled,
@@ -50,6 +51,7 @@ def _apply_entity(model: SettingsModel, entity: AppSettings) -> None:
     model.id = entity.id or DEFAULT_SETTINGS_ID
     model.default_currency = normalize_currency_code(entity.default_currency)
     model.theme = entity.theme
+    model.ui_style = entity.ui_style
     model.language = entity.language
     model.exchange_update_interval_minutes = entity.exchange_update_interval_minutes
     model.notifications_enabled = entity.notifications_enabled

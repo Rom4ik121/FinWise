@@ -22,6 +22,8 @@ APP_AUTHOR: Final[str] = "finanse"
 DEFAULT_CURRENCY: Final[str] = "RUB"
 DEFAULT_THEME: Final[str] = "dark"
 DEFAULT_LANGUAGE: Final[str] = "ru"
+DEFAULT_UI_STYLE: Final[str] = "classic"
+KNOWN_UI_STYLES: Final[tuple[str, ...]] = ("classic", "neon")
 DEFAULT_EXCHANGE_UPDATE_INTERVAL_MINUTES: Final[int] = 60
 
 # Money precision
@@ -690,25 +692,42 @@ DEFAULT_CATEGORY_SEED: Final[tuple[tuple[str, str, str, str], ...]] = (
 )
 
 
+def _is_android() -> bool:
+    """Detect Android (packaged Flet / Serious Python)."""
+    if sys.platform == "android":
+        return True
+    plat = os.environ.get("FLET_PLATFORM", "").strip().lower()
+    if plat == "android" or os.environ.get("FLET_ANDROID"):
+        return True
+    if sys.platform != "linux":
+        return False
+    try:
+        home = Path.home().as_posix()
+    except Exception:  # noqa: BLE001
+        return False
+    return "/data/user/" in home or "/data/data/" in home
+
+
 def _is_ios() -> bool:
-    """Detect iOS (incl. Flet iOS builds via Serious Python, Python 3.14)."""
-    # Serious Python on iOS may report sys.platform as "ios" or "darwin".
+    """Detect iOS (incl. Flet iOS builds via Serious Python, Python 3.14).
+
+    Do not call ``os.path.isdir`` on ``/private/var/mobile/Containers`` or
+    ``Path.home().resolve()``: the sandbox raises ``PermissionError`` (and
+    ``isdir`` then returns False), so those checks miss a real iPhone.
+    """
     if sys.platform == "ios":
+        return True
+    if os.environ.get("FTC_DEVICE") or os.environ.get("FLET_IOS"):
         return True
     if sys.platform != "darwin":
         return False
-    # On iOS the home directory lives inside the app sandbox container.
-    # Path.home() may return a symlinked path (``/var/mobile/Containers/…``)
-    # or the resolved real path (``/private/var/mobile/Containers/…``).
-    # Check both forms to reliably detect iOS regardless of symlink resolution.
-    home = str(Path.home())
-    resolved = str(Path.home().resolve())
-    for candidate in (home, resolved):
-        if "/var/mobile/Containers/" in candidate:
-            return True
-    if os.environ.get("FTC_DEVICE") or os.environ.get("FLET_IOS"):
-        return True
-    return False
+    try:
+        home = Path.home().as_posix()
+    except Exception:  # noqa: BLE001
+        return False
+    # Symlink form ``/var/mobile/Containers/…`` or resolved
+    # ``/private/var/mobile/Containers/…``.
+    return "/var/mobile/Containers/" in home
 
 
 def _default_data_dir() -> Path:
@@ -722,6 +741,13 @@ def _default_data_dir() -> Path:
     """
     if _is_ios():
         path = Path.home() / "Library" / "Application Support" / APP_NAME
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    if _is_android():
+        # Stay inside the app sandbox. platformdirs would create
+        # ``~/.local/share/finanse`` and fail with PermissionError on boot.
+        path = Path.home() / APP_NAME
         path.mkdir(parents=True, exist_ok=True)
         return path
 

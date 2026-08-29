@@ -199,15 +199,6 @@ async def _flet_main(page: ft.Page) -> None:
     page.add(build_launch_splash())
     page.update()
 
-    from lib.infrastructure.services.biometric import register_local_auth_service
-    from lib.infrastructure.services.push_notifier import (
-        register_android_notifications,
-        request_push_permissions,
-    )
-
-    register_local_auth_service(page)
-    register_android_notifications(page)
-
     config = get_default_config()
     setup_logging(log_dir=config.log_dir)
     init_db(config)
@@ -231,7 +222,22 @@ async def _flet_main(page: ft.Page) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("process_due_subscriptions failed")
 
-    # Eager reminder scheduling on startup (not only at reminder_time).
+    app = FinanseApp(page, container)
+    page.controls.clear()
+    page.update()
+
+    from lib.infrastructure.services.biometric import register_local_auth_service
+    from lib.infrastructure.services.push_notifier import (
+        register_android_notifications,
+        request_push_permissions,
+    )
+    from lib.infrastructure.services.speech import register_speech_service
+
+    # Services must not be page.add()'d — that paints "Unknown control" on splash.
+    register_local_auth_service(page)
+    register_android_notifications(page)
+    register_speech_service(page)
+
     try:
         settings = await container.get_settings.execute()
         if settings.notifications_enabled:
@@ -247,8 +253,6 @@ async def _flet_main(page: ft.Page) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("Startup reminder scheduling failed")
 
-    app = FinanseApp(page, container)
-    page.controls.clear()
     await app.start()
 
 

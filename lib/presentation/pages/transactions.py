@@ -81,7 +81,7 @@ class TransactionsPage(ft.Column):
         self._accounts: list = []
         self._goals: list = []
         self._category_map: dict[str, object] = {}
-        self._list = ft.Column(spacing=6, expand=True, scroll=ft.ScrollMode.AUTO)
+        self._list = ft.Column(spacing=6, expand=True, scroll=ft.ScrollMode.HIDDEN)
         self._offset = 0
         self._has_more = False
         self._shown: list[Transaction] = []

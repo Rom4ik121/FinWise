@@ -42,6 +42,50 @@ def format_money(
     return f"{prefix}{quantized:,.2f} {currency}".replace(",", " ")
 
 
+def _trim_compact(body: str) -> str:
+    return body.replace(".0M", "M").replace(".0K", "K").replace(".0B", "B")
+
+
+def format_money_parts(
+    amount: Decimal | float | int | str,
+    currency: str = "RUB",
+    *,
+    signed: bool = False,
+) -> tuple[str, str]:
+    """Compact figure and currency code for dense UI (``−1.2M``, ``UZS``)."""
+    value = Decimal(str(amount))
+    quantized = value.quantize(Decimal("0.01"))
+    prefix = ""
+    if quantized < 0:
+        prefix = "−"
+        quantized = abs(quantized)
+    elif signed and quantized > 0:
+        prefix = "+"
+    magnitude = float(quantized)
+    if magnitude >= 1_000_000_000:
+        body = _trim_compact(f"{magnitude / 1_000_000_000:.1f}B")
+    elif magnitude >= 1_000_000:
+        body = _trim_compact(f"{magnitude / 1_000_000:.1f}M")
+    elif magnitude >= 1_000:
+        body = _trim_compact(f"{magnitude / 1_000:.1f}K")
+    elif quantized == quantized.to_integral_value():
+        body = f"{int(quantized)}"
+    else:
+        body = f"{quantized:.2f}".rstrip("0").rstrip(".")
+    return f"{prefix}{body}", currency
+
+
+def format_money_compact(
+    amount: Decimal | float | int | str,
+    currency: str = "RUB",
+    *,
+    signed: bool = False,
+) -> str:
+    """Shorter money for narrow columns (KPI, chips, budget bars)."""
+    figure, code = format_money_parts(amount, currency, signed=signed)
+    return f"{figure} {code}"
+
+
 def format_date(dt: datetime | None, *, with_time: bool = False) -> str:
     """Format a UTC datetime for local-friendly display."""
     if dt is None:

@@ -25,6 +25,14 @@ def test_settings_language_and_theme(container) -> None:
         assert saved.theme == "light"
         assert saved.default_currency == "UZS"
 
+        settings.ui_style = "neon"
+        saved = await container.update_settings.execute(settings)
+        assert saved.ui_style == "neon"
+
+        settings.ui_style = "classic"
+        saved = await container.update_settings.execute(settings)
+        assert saved.ui_style == "classic"
+
     run_async(_run())
 
 

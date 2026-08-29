@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 import flet as ft
 
+from lib.presentation.skins import get_active_skin
 from lib.presentation.utils import tr
 
 
@@ -14,8 +15,10 @@ def dual_add_button(
     *,
     on_expense: Optional[Callable[[], None]] = None,
     on_income: Optional[Callable[[], None]] = None,
+    dark: bool = True,
 ) -> ft.Container:
     """One long button: left = expense, right = income."""
+    skin = get_active_skin()
 
     def _side(
         *,
@@ -42,6 +45,8 @@ def dual_add_button(
                         size=13,
                         weight=ft.FontWeight.W_700,
                         color=color,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                 ],
             ),
@@ -51,7 +56,6 @@ def dual_add_button(
         height=52,
         border_radius=16,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         shadow=ft.BoxShadow(
             blur_radius=14,
             color="#00000033",
@@ -64,15 +68,15 @@ def dual_add_button(
                 _side(
                     label=tr("transaction.expense", lang),
                     icon=ft.Icons.REMOVE_ROUNDED,
-                    bgcolor=ft.Colors.ERROR_CONTAINER,
-                    color=ft.Colors.ON_ERROR_CONTAINER,
+                    bgcolor=skin.action_expense_bg(dark=dark),
+                    color=skin.action_expense_fg(dark=dark),
                     on_click=on_expense,
                 ),
                 _side(
                     label=tr("transaction.income", lang),
                     icon=ft.Icons.ADD_ROUNDED,
-                    bgcolor=ft.Colors.PRIMARY_CONTAINER,
-                    color=ft.Colors.ON_PRIMARY_CONTAINER,
+                    bgcolor=skin.action_income_bg(dark=dark),
+                    color=skin.action_income_fg(dark=dark),
                     on_click=on_income,
                 ),
             ],

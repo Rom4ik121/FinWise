@@ -195,6 +195,21 @@ class CategoryPicker(ft.Column):
         except Exception:  # noqa: BLE001
             pass
 
+    def select_name(self, name: str) -> None:
+        """Select an existing category or keep a spoken name for create-on-save."""
+        needle = (name or "").strip()
+        if not needle:
+            return
+        match = next(
+            (
+                cat.name
+                for cat in self._categories
+                if cat.name == needle or cat.name.casefold() == needle.casefold()
+            ),
+            needle,
+        )
+        self._pick(match)
+
     def prompt_if_empty(self) -> None:
         """Open the create-category form when the catalog is still empty."""
         if not self._categories:
@@ -211,7 +226,7 @@ class CategoryPicker(ft.Column):
         lang = self._state.language
         dismiss_fullscreen(self._page, key=_PICKER_KEY)
 
-        list_col = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+        list_col = ft.Column(spacing=8, scroll=ft.ScrollMode.HIDDEN, expand=True)
 
         def _close(_e: ft.ControlEvent | None = None) -> None:
             dismiss_fullscreen(self._page, key=_PICKER_KEY)

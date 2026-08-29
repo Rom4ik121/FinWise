@@ -92,7 +92,7 @@ def open_fullscreen_form(
                         content=ft.Column(
                             expand=True,
                             spacing=12,
-                            scroll=ft.ScrollMode.AUTO,
+                            scroll=ft.ScrollMode.HIDDEN,
                             controls=[*body, ft.Container(height=24)],
                         ),
                     ),

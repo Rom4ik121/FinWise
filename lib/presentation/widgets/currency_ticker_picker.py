@@ -190,7 +190,7 @@ class CurrencyTickerPicker(ft.Container):
         overlay_key = self._overlay_key
         dismiss_fullscreen(self._page, key=overlay_key)
 
-        list_col = ft.ListView(spacing=2, expand=True)
+        list_col = ft.ListView(spacing=2, expand=True, scroll=ft.ScrollMode.HIDDEN)
         search = ft.TextField(
             label=tr("currencies.search", lang),
             hint_text=tr("currencies.search_hint", lang),

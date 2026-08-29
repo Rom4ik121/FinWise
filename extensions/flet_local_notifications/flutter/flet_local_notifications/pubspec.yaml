@@ -1,0 +1,19 @@
+name: flet_local_notifications
+description: FinWise local notifications (iOS + Android)
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.2.3 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_local_notifications: ^17.2.4
+  timezone: ^0.9.4
+  flet:
+    path: ../../../../../../../packages/flet
+
+dev_dependencies:
+  flutter_lints: ^4.0.0

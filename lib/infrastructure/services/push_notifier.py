@@ -1,4 +1,4 @@
-"""OS push / local notifications (Windows Toast + Android)."""
+"""OS push / local notifications (Windows Toast + Android / iOS)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import hashlib
 import logging
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
@@ -18,8 +19,8 @@ ANDROID_CHANNEL_NAME = "FinWise reminders"
 ANDROID_CHANNEL_DESC = "Debt, subscription, and goal alerts"
 
 
-class AndroidNotificationsBridge(Protocol):
-    """Subset of ``FletAndroidNotifications`` used by FinWise."""
+class MobileNotificationsBridge(Protocol):
+    """Subset of FinanseLocalNotifications / FletAndroidNotifications."""
 
     async def request_permissions(self) -> Any: ...
 
@@ -33,20 +34,33 @@ class AndroidNotificationsBridge(Protocol):
         **kwargs: Any,
     ) -> Any: ...
 
+    async def schedule_notification(
+        self,
+        notification_id: int,
+        title: str,
+        body: str,
+        *,
+        when_iso: str,
+        **kwargs: Any,
+    ) -> Any: ...
 
-_android_service: AndroidNotificationsBridge | None = None
+
+_mobile_service: MobileNotificationsBridge | None = None
 _seq = 0
 
-
-def set_android_notifications(service: AndroidNotificationsBridge | None) -> None:
-    """Register the Flet Android notifications service."""
-    global _android_service
-    _android_service = service
+# Back-compat aliases used by older tests.
+AndroidNotificationsBridge = MobileNotificationsBridge
 
 
-def get_android_notifications() -> AndroidNotificationsBridge | None:
-    """Return the registered Android notifications service, if any."""
-    return _android_service
+def set_android_notifications(service: MobileNotificationsBridge | None) -> None:
+    """Register the mobile OS notification service."""
+    global _mobile_service
+    _mobile_service = service
+
+
+def get_android_notifications() -> MobileNotificationsBridge | None:
+    """Return the registered mobile notification service, if any."""
+    return _mobile_service
 
 
 def push_disabled_by_env() -> bool:
@@ -69,6 +83,50 @@ def next_notification_id() -> int:
     global _seq
     _seq += 1
     return 100_000 + (_seq % 1_000_000)
+
+
+def parse_reminder_hhmm(value: str) -> tuple[int, int]:
+    """Parse ``HH:MM`` reminder time; fall back to 09:00."""
+    parts = (value or "09:00").strip().split(":")
+    if len(parts) != 2:
+        return 9, 0
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return 9, 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return 9, 0
+    return hour, minute
+
+
+def reminder_fire_at(
+    due: datetime,
+    *,
+    reminder_time: str = "09:00",
+    lead_days: int = 3,
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    """UTC instant for an OS reminder, or ``None`` if it is already due."""
+    due_aware = due if due.tzinfo else due.replace(tzinfo=timezone.utc)
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    hour, minute = parse_reminder_hhmm(reminder_time)
+    local = due_aware.astimezone()
+    fire_date = local.date() - timedelta(days=max(0, int(lead_days)))
+    fire_local = datetime(
+        fire_date.year,
+        fire_date.month,
+        fire_date.day,
+        hour,
+        minute,
+        tzinfo=local.tzinfo,
+    )
+    fire_utc = fire_local.astimezone(timezone.utc)
+    if fire_utc <= moment:
+        return None
+    return fire_utc
 
 
 def _icon_path() -> str:
@@ -104,7 +162,7 @@ async def request_push_permissions() -> bool:
     """Request OS notification permission when supported."""
     if push_disabled_by_env():
         return False
-    svc = _android_service
+    svc = _mobile_service
     if svc is None:
         # Windows toasts do not need a runtime permission prompt.
         return sys.platform == "win32"
@@ -136,7 +194,7 @@ async def show_os_notification(
             else next_notification_id()
         )
 
-    svc = _android_service
+    svc = _mobile_service
     if svc is not None:
         try:
             await svc.show_notification(
@@ -161,6 +219,61 @@ async def show_os_notification(
     return False
 
 
+async def schedule_os_notification(
+    title: str,
+    body: str,
+    *,
+    when: Optional[datetime] = None,
+    notification_id: Optional[int] = None,
+    kind: str = "info",
+    related_id: Optional[str] = None,
+) -> bool:
+    """Show now, or schedule on the device when ``when`` is in the future."""
+    if push_disabled_by_env():
+        return False
+
+    nid = notification_id
+    if nid is None:
+        nid = (
+            stable_notification_id(kind, related_id)
+            if related_id
+            else next_notification_id()
+        )
+
+    when_utc: Optional[datetime] = None
+    if when is not None:
+        when_utc = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+        when_utc = when_utc.astimezone(timezone.utc)
+        if when_utc <= datetime.now(timezone.utc) + timedelta(seconds=20):
+            when_utc = None
+
+    svc = _mobile_service
+    schedule = getattr(svc, "schedule_notification", None) if svc is not None else None
+    if when_utc is not None and callable(schedule):
+        try:
+            await schedule(
+                nid,
+                title or APP_ID,
+                body or "",
+                when_iso=when_utc.isoformat(),
+                channel_id=ANDROID_CHANNEL_ID,
+                channel_name=ANDROID_CHANNEL_NAME,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to schedule OS notification")
+
+    if when_utc is not None:
+        return False
+    return await show_os_notification(
+        title,
+        body,
+        notification_id=nid,
+        kind=kind,
+        related_id=related_id,
+    )
+
+
 def dispatch_push(
     title: str,
     body: str,
@@ -177,7 +290,7 @@ def dispatch_push(
         loop = asyncio.get_running_loop()
     except RuntimeError:
         # No event loop — Windows toast is sync-safe.
-        if _android_service is None:
+        if _mobile_service is None:
             _show_windows_toast(title, body)
         else:
             logger.debug("Skipping Android push outside event loop")
@@ -195,28 +308,41 @@ def dispatch_push(
 
 
 def register_android_notifications(page: Any) -> bool:
-    """Attach ``FletAndroidNotifications`` on Android builds."""
+    """Attach local notifications on Android and iOS (never as a visual widget)."""
     try:
-        from flet import PagePlatform
         from lib.infrastructure.services.biometric import is_mobile_platform
+        from lib.infrastructure.services.flet_services import attach_page_service
 
         if not is_mobile_platform(page):
-            return False
-        if getattr(page, "platform", None) not in {
-            PagePlatform.ANDROID,
-            PagePlatform.ANDROID_TV,
-        }:
-            # iOS: package does not provide a bridge yet.
             return False
     except Exception:  # noqa: BLE001
         return False
 
     try:
+        from flet_local_notifications import FinanseLocalNotifications
+
+        service = FinanseLocalNotifications()
+        if attach_page_service(page, service):
+            set_android_notifications(service)
+            logger.info("Local notification service registered")
+            return True
+    except Exception:  # noqa: BLE001
+        logger.exception("FinanseLocalNotifications unavailable")
+
+    try:
+        from flet import PagePlatform
         from flet_android_notifications import FletAndroidNotifications
 
+        if getattr(page, "platform", None) not in {
+            PagePlatform.ANDROID,
+            PagePlatform.ANDROID_TV,
+        }:
+            return False
+        from lib.infrastructure.services.flet_services import attach_page_service
+
         service = FletAndroidNotifications()
-        page.add(service)
-        page.update()
+        if not attach_page_service(page, service):
+            return False
         set_android_notifications(service)
         logger.info("Android push notification service registered")
         return True

@@ -8,7 +8,7 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.domain.entities.debt import Debt, DebtDirection, DebtStatus
-from lib.presentation.styles import card_surface, muted_text
+from lib.presentation.styles import amount_color, card_surface, muted_text
 from lib.presentation.utils import format_date, format_money
 
 
@@ -30,7 +30,7 @@ class DebtCard(ft.Container):
         from lib.presentation.utils import tr
 
         i_owe = debt.direction == DebtDirection.I_OWE
-        accent = ft.Colors.ERROR if i_owe else ft.Colors.SECONDARY
+        accent = amount_color(not i_owe)
         status_value = (
             debt.status.value
             if isinstance(debt.status, DebtStatus)
@@ -154,9 +154,11 @@ class DebtCard(ft.Container):
                 ),
                 ft.Text(
                     format_money(debt.remaining_amount, debt.currency),
-                    size=20,
+                    size=18,
                     weight=ft.FontWeight.W_700,
                     color=accent,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 muted_text(
                     tr("debt.due_by", language, date=format_date(debt.due_date))

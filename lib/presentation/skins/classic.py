@@ -1,0 +1,47 @@
+"""Classic FinWise look — current default (slate + mint)."""
+
+from __future__ import annotations
+
+from lib.presentation.skins._base import UiSkin
+
+SKIN = UiSkin(
+    id="classic",
+    dark_bg="#0B1220",
+    dark_surface="#121A2B",
+    dark_surface_2="#1A2438",
+    dark_surface_3="#243049",
+    dark_border="#2C3A55",
+    dark_text="#F1F5F9",
+    dark_muted="#94A3B8",
+    dark_primary="#2DD4BF",
+    dark_primary_dim="#14B8A6",
+    dark_on_primary="#042F2E",
+    dark_primary_container="#115E59",
+    dark_on_primary_container="#CCFBF1",
+    dark_income="#4ADE80",
+    dark_expense="#F87171",
+    dark_warn="#FBBF24",
+    light_bg="#F1F5F9",
+    light_surface="#FFFFFF",
+    light_surface_2="#F8FAFC",
+    light_surface_3="#E2E8F0",
+    light_border="#CBD5E1",
+    light_text="#0F172A",
+    light_muted="#475569",
+    light_primary="#0F766E",
+    light_primary_dim="#0D9488",
+    light_on_primary="#FFFFFF",
+    light_primary_container="#CCFBF1",
+    light_on_primary_container="#042F2E",
+    light_income="#15803D",
+    light_expense="#B91C1C",
+    light_warn="#B45309",
+    card_radius=18,
+    chip_radius=14,
+    hero_radius=22,
+    glow="#00000022",
+    card_blur=18,
+    seed="#2DD4BF",
+    chart_kind="bars",
+    accent_fill="container",
+)

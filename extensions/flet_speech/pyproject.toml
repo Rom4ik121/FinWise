@@ -1,0 +1,18 @@
+[project]
+name = "flet-speech"
+version = "0.1.0"
+description = "On-device speech recognition for FinWise."
+requires-python = ">=3.11"
+dependencies = [
+  "flet>=0.83.0,<0.87",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.flet.extensions.flet_speech]
+path = "flutter/flet_speech"
+
+[tool.setuptools.packages.find]
+where = ["."]

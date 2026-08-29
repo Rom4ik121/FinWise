@@ -9,6 +9,7 @@ import flet as ft
 
 from lib.domain.entities.account import Account
 from lib.presentation.account_icons import account_icon_control
+from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.utils import format_money
 
@@ -30,7 +31,7 @@ class AccountCard(ft.Container):
         from lib.presentation.utils import tr
 
         native = format_money(account.balance, account.currency)
-        accent = account.color or ft.Colors.PRIMARY
+        accent = account.color or get_active_skin().primary_hex(dark=True)
         converted_line: list[ft.Control] = []
         if (
             base_balance is not None
@@ -66,6 +67,7 @@ class AccountCard(ft.Container):
                     controls=[
                         ft.Row(
                             spacing=12,
+                            expand=True,
                             controls=[
                                 ft.Container(
                                     width=46,
@@ -82,11 +84,14 @@ class AccountCard(ft.Container):
                                 ft.Column(
                                     spacing=2,
                                     tight=True,
+                                    expand=True,
                                     controls=[
                                         ft.Text(
                                             account.name,
                                             weight=ft.FontWeight.W_700,
                                             size=16,
+                                            max_lines=2,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
                                         ),
                                         muted_text(account.currency),
                                     ],
@@ -96,7 +101,13 @@ class AccountCard(ft.Container):
                         menu,
                     ],
                 ),
-                ft.Text(native, size=22, weight=ft.FontWeight.W_700),
+                ft.Text(
+                    native,
+                    size=20,
+                    weight=ft.FontWeight.W_700,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
                 *converted_line,
             ],
         )

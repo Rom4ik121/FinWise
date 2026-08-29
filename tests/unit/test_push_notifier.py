@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import os
+from datetime import datetime, timedelta, timezone
 
 from lib.infrastructure.services.push_notifier import (
     dispatch_push,
     push_disabled_by_env,
+    reminder_fire_at,
     stable_notification_id,
 )
 
@@ -27,3 +28,17 @@ def test_dispatch_push_respects_disable_env(monkeypatch) -> None:
     dispatch_push("Title", "Body", kind="info")
     monkeypatch.delenv("FINANCE_DISABLE_PUSH", raising=False)
     assert not push_disabled_by_env()
+
+
+def test_reminder_fire_at_skips_already_due() -> None:
+    now = datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
+    due = now + timedelta(hours=2)
+    assert reminder_fire_at(due, reminder_time="09:00", lead_days=3, now=now) is None
+
+
+def test_reminder_fire_at_schedules_before_due() -> None:
+    now = datetime(2026, 8, 1, 8, 0, tzinfo=timezone.utc)
+    due = datetime(2026, 8, 10, 0, 0, tzinfo=timezone.utc)
+    when = reminder_fire_at(due, reminder_time="09:00", lead_days=3, now=now)
+    assert when is not None
+    assert now < when < due

@@ -1,15 +1,17 @@
-"""Dedicated analytics screen — compact KPIs and sectioned charts."""
+"""Dedicated analytics screen — swipeable sections with tappable amounts."""
 
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import flet as ft
 
 from lib.domain.entities.currency_codes import normalize_currency_code
+from lib.domain.entities.debt import DebtDirection, DebtStatus
+from lib.domain.entities.goal import GoalStatus
 from lib.domain.entities.transaction import TransactionType
 from lib.domain.services.rate_book import RateBook
 from lib.domain.use_cases.transactions import GetTransactionStatsUseCase
@@ -17,20 +19,35 @@ from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.analytics_period import (
     ANALYTICS_PERIOD_KEYS,
     DEFAULT_ANALYTICS_PERIOD,
+    enumerate_period_keys,
+    fill_time_series,
     format_chart_period_label,
     resolve_analytics_period,
 )
-from lib.presentation.styles import card_surface, muted_text, page_header, summary_strip
+from lib.presentation.styles import (
+    amount_color,
+    card_surface,
+    glass_layer,
+    muted_text,
+    page_header,
+    section_title,
+)
+from lib.presentation.skins import get_active_skin
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
     format_money,
+    format_money_parts,
     load_rate_book,
     run_async,
     safe_update,
     snack,
     tr,
 )
-from lib.presentation.widgets.charts import build_line_chart_image, build_pie_chart_image
+from lib.presentation.widgets.charts import (
+    build_line_chart_image,
+    build_pie_chart_image,
+    chart_layout,
+)
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.loading import loading_indicator
 
@@ -47,45 +64,62 @@ _PALETTE = (
 )
 
 
-def _content_width(page: ft.Page) -> int:
-    """Usable chart width based on current window size."""
-    raw = getattr(page, "width", None) or getattr(
-        getattr(page, "window", None), "width", None
-    )
-    try:
-        width = int(raw) if raw else 390
-    except (TypeError, ValueError):
-        width = 390
-    return max(260, min(width - 32, 640))
+def _chart_palette() -> Sequence[str]:
+    colors = get_active_skin().chart_colors
+    return colors if colors else _PALETTE
+
+_SECTIONS = (
+    "flow",
+    "goals",
+    "debts",
+    "subscriptions",
+    "budget",
+)
 
 
-def _window_height(page: ft.Page) -> int:
-    raw = getattr(page, "height", None) or getattr(
-        getattr(page, "window", None), "height", None
-    )
-    try:
-        return int(raw) if raw else 720
-    except (TypeError, ValueError):
-        return 720
+def _status_value(value: object) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def _to_base(book: RateBook, amount: Decimal, currency: str, base: str) -> Decimal:
+    src = normalize_currency_code(currency)
+    converted = book.convert(amount, src, base)
+    if converted is not None:
+        return converted
+    return Decimal(str(amount))
 
 
 class AnalyticsPage(ft.Column):
-    """Period KPIs, category breakdown, and income/expense dynamics."""
+    """Period KPIs and swipeable analytics sections."""
 
     def __init__(self, page: ft.Page, state: "AppState") -> None:
         self._page = page
         self._state = state
         self._analytics_period = DEFAULT_ANALYTICS_PERIOD
-        self._section = "spend"
+        self._section = "flow"
         self._token = -1
-        self._period_row = ft.Row(
-            spacing=8,
-            run_spacing=8,
-            wrap=True,
+        self._period_row = ft.ListView(
+            horizontal=True,
+            spacing=4,
+            padding=ft.Padding.only(right=12),
+            height=32,
+            scroll=ft.ScrollMode.HIDDEN,
         )
-        self._kpi_host = ft.Column(spacing=8, tight=True)
-        self._segments_host = ft.Container(content=self._segment_bar(state.language))
-        self._section_host = ft.Container(expand=True)
+        self._kpi_host = ft.Column(spacing=4, tight=True)
+        self._section_chips = ft.ListView(
+            horizontal=True,
+            spacing=4,
+            padding=ft.Padding.only(right=12),
+            height=32,
+            scroll=ft.ScrollMode.HIDDEN,
+        )
+        self._pager = ft.PageView(
+            expand=True,
+            horizontal=True,
+            snap=True,
+            pad_ends=False,
+            on_change=self._on_pager_change,
+        )
         super().__init__(
             expand=True,
             spacing=0,
@@ -110,12 +144,12 @@ class AnalyticsPage(ft.Column):
                     padding=ft.Padding.only(left=12, right=12, bottom=8),
                     content=ft.Column(
                         expand=True,
-                        spacing=8,
+                        spacing=6,
                         controls=[
                             self._period_row,
                             self._kpi_host,
-                            self._segments_host,
-                            self._section_host,
+                            self._section_chips,
+                            self._pager,
                         ],
                     ),
                 ),
@@ -124,10 +158,147 @@ class AnalyticsPage(ft.Column):
         state.subscribe(self._on_state)
         run_async(page, self.reload)
 
+    def _data_token(self, state: "AppState") -> int:
+        return (
+            state.analytics_token
+            + state.transactions_token
+            + state.goals_token
+            + state.debts_token
+            + state.subscriptions_token
+            + state.budgets_token
+        )
+
     def _on_state(self, state: "AppState") -> None:
-        token = state.analytics_token + state.transactions_token
+        token = self._data_token(state)
         if token != self._token:
             run_async(self._page, self.reload)
+
+    def _show_full_amount(
+        self,
+        label: str,
+        amount: Decimal | float | int | str,
+        currency: str,
+        *,
+        signed: bool = False,
+    ) -> None:
+        lang = self._state.language
+        full = format_money(amount, currency, signed=signed)
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(label or tr("analytics.full_amount", lang), max_lines=2),
+            content=ft.Text(
+                full,
+                size=22,
+                weight=ft.FontWeight.W_800,
+                selectable=True,
+            ),
+            actions=[
+                ft.TextButton(
+                    tr("action.close", lang),
+                    on_click=lambda _e: self._page.pop_dialog(),
+                ),
+            ],
+        )
+        self._page.show_dialog(dialog)
+
+    def _money(
+        self,
+        amount: Decimal | float | int | str,
+        currency: str,
+        *,
+        label: str,
+        color: Optional[str] = None,
+        size: int = 13,
+        signed: bool = False,
+        weight: ft.FontWeight = ft.FontWeight.W_800,
+        align: ft.TextAlign = ft.TextAlign.END,
+        stacked: bool = False,
+    ) -> ft.Control:
+        figure, code = format_money_parts(amount, currency, signed=signed)
+        figure_text = ft.Text(
+            figure,
+            size=size,
+            weight=weight,
+            color=color or ft.Colors.ON_SURFACE,
+            text_align=align,
+            no_wrap=True,
+            max_lines=1,
+        )
+        code_text = ft.Text(
+            code,
+            size=9,
+            weight=ft.FontWeight.W_500,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+            text_align=align,
+            no_wrap=True,
+        )
+        if stacked:
+            body: ft.Control = ft.Column(
+                spacing=0,
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[figure_text, code_text],
+            )
+        else:
+            body = ft.Row(
+                spacing=3,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.END,
+                controls=[figure_text, code_text],
+            )
+        return ft.Container(
+            ink=True,
+            border_radius=6,
+            padding=ft.Padding.symmetric(horizontal=1, vertical=1),
+            on_click=lambda _e, a=amount, c=currency, l=label, s=signed: (
+                self._show_full_amount(l, a, c, signed=s)
+            ),
+            content=body,
+        )
+
+    def _chip(
+        self,
+        label: str,
+        *,
+        selected: bool,
+        on_click,
+    ) -> ft.Control:
+        skin = get_active_skin()
+        dark = self._dark()
+        return ft.Container(
+            height=28,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=3),
+            border_radius=999,
+            alignment=ft.Alignment.CENTER,
+            **(
+                {
+                    "bgcolor": skin.badge_bg(dark=dark),
+                    "blur": None,
+                }
+                if selected
+                else glass_layer()
+            ),
+            border=ft.Border.all(
+                1,
+                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
+            ),
+            ink=True,
+            animate=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+            scale=1.04 if selected else 1.0,
+            animate_scale=ft.Animation(220, ft.AnimationCurve.EASE_OUT_BACK),
+            on_click=on_click,
+            content=ft.Text(
+                label,
+                size=11,
+                weight=ft.FontWeight.W_600,
+                no_wrap=True,
+                color=(
+                    skin.badge_fg(dark=dark)
+                    if selected
+                    else ft.Colors.ON_SURFACE_VARIANT
+                ),
+            ),
+        )
 
     def _aggregate_period(
         self,
@@ -141,6 +312,7 @@ class AnalyticsPage(ft.Column):
         Decimal,
         Decimal,
         list[tuple[str, Decimal]],
+        list[tuple[str, Decimal]],
         list[tuple[str, Decimal, Decimal]],
         bool,
     ]:
@@ -150,7 +322,8 @@ class AnalyticsPage(ft.Column):
         income = Decimal("0.00")
         expense = Decimal("0.00")
         ok = True
-        category_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+        expense_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+        income_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
         period_income: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
         period_expense: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
 
@@ -179,40 +352,23 @@ class AnalyticsPage(ft.Column):
             if tx.type == TransactionType.INCOME:
                 income += converted
                 period_income[key] += converted
+                income_totals[tx.category] += converted
             else:
                 expense += converted
                 period_expense[key] += converted
-                category_totals[tx.category] += converted
+                expense_totals[tx.category] += converted
 
-        by_category = sorted(category_totals.items(), key=lambda kv: kv[1], reverse=True)
+        by_expense = sorted(expense_totals.items(), key=lambda kv: kv[1], reverse=True)
+        by_income = sorted(income_totals.items(), key=lambda kv: kv[1], reverse=True)
         keys = sorted(set(period_income) | set(period_expense))
         by_period = [(key, period_income[key], period_expense[key]) for key in keys]
-        return total, income, expense, by_category, by_period, ok
+        return total, income, expense, by_expense, by_income, by_period, ok
 
     def _period_chip(self, key: str, lang: str) -> ft.Control:
-        selected = key == self._analytics_period
-        return ft.Container(
-            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-            border_radius=14,
-            bgcolor=(
-                ft.Colors.PRIMARY_CONTAINER if selected else ft.Colors.SURFACE_CONTAINER
-            ),
-            border=ft.Border.all(
-                1,
-                ft.Colors.PRIMARY if selected else ft.Colors.OUTLINE_VARIANT,
-            ),
-            ink=True,
+        return self._chip(
+            tr(f"dashboard.period.{key}", lang),
+            selected=key == self._analytics_period,
             on_click=lambda _e, k=key: self._set_period(k),
-            content=ft.Text(
-                tr(f"dashboard.period.{key}", lang),
-                size=12,
-                weight=ft.FontWeight.W_600,
-                color=(
-                    ft.Colors.ON_PRIMARY_CONTAINER
-                    if selected
-                    else ft.Colors.ON_SURFACE
-                ),
-            ),
         )
 
     def _set_period(self, key: str) -> None:
@@ -227,101 +383,92 @@ class AnalyticsPage(ft.Column):
         ]
         safe_update(self._period_row)
 
-    def _segment_bar(self, lang: str) -> ft.Control:
-        def cell(key: str, label: str) -> ft.Control:
-            selected = self._section == key
-            return ft.Container(
-                expand=True,
-                bgcolor=(
-                    ft.Colors.PRIMARY_CONTAINER
-                    if selected
-                    else ft.Colors.TRANSPARENT
-                ),
-                ink=True,
-                on_click=lambda _e, k=key: self._set_section(k),
-                padding=ft.Padding.symmetric(vertical=8),
-                content=ft.Text(
-                    label,
-                    size=12,
-                    weight=ft.FontWeight.W_700,
-                    text_align=ft.TextAlign.CENTER,
-                    color=(
-                        ft.Colors.ON_PRIMARY_CONTAINER
-                        if selected
-                        else ft.Colors.ON_SURFACE_VARIANT
-                    ),
-                ),
-            )
-
-        bar = ft.Container(
-            height=38,
-            border_radius=12,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            bgcolor=ft.Colors.SURFACE_CONTAINER,
-            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-            content=ft.Row(
-                spacing=0,
-                expand=True,
-                controls=[
-                    cell("spend", tr("analytics.tab.spend", lang)),
-                    cell("trend", tr("analytics.tab.trend", lang)),
-                    cell("more", tr("analytics.tab.more", lang)),
-                ],
-            ),
+    def _section_chip(self, key: str, lang: str) -> ft.Control:
+        return self._chip(
+            tr(f"analytics.tab.{key}", lang),
+            selected=key == self._section,
+            on_click=lambda _e, k=key: self._set_section(k),
         )
-        return bar
 
-    def _set_section(self, key: str) -> None:
+    def _rebuild_section_chips(self) -> None:
+        lang = self._state.language
+        self._section_chips.controls = [
+            self._section_chip(key, lang) for key in _SECTIONS
+        ]
+        safe_update(self._section_chips)
+
+    def _set_section(self, key: str, *, from_pager: bool = False) -> None:
+        if key in {"spend", "income"}:
+            key = "flow"
+        if key not in _SECTIONS:
+            key = "flow"
         if self._section == key:
+            if from_pager:
+                self._rebuild_section_chips()
             return
         self._section = key
-        self._refresh_segments()
-        self._show_section()
+        if not from_pager:
+            self._pager.selected_index = _SECTIONS.index(key)
+            safe_update(self._pager)
+        self._rebuild_section_chips()
 
-    def _refresh_segments(self) -> None:
-        self._segments_host.content = self._segment_bar(self._state.language)
-        safe_update(self._segments_host)
-
-    def _show_section(self) -> None:
-        view = {
-            "spend": getattr(self, "_spend_view", None),
-            "trend": getattr(self, "_trend_view", None),
-            "more": getattr(self, "_more_view", None),
-        }.get(self._section)
-        self._section_host.content = view or ft.Container()
-        safe_update(self._section_host)
+    def _on_pager_change(self, e: ft.ControlEvent) -> None:
+        control = getattr(e, "control", None) or self._pager
+        raw = getattr(e, "data", None)
+        if raw is not None and str(raw).isdigit():
+            idx = int(raw)
+        else:
+            idx = int(getattr(control, "selected_index", 0) or 0)
+        idx = max(0, min(idx, len(_SECTIONS) - 1))
+        self._set_section(_SECTIONS[idx], from_pager=True)
 
     def _metric_cell(
         self,
         label: str,
-        value: str,
+        amount: Decimal | float | int | str,
+        currency: str,
         *,
         color: Optional[str] = None,
+        signed: bool = False,
+        plain: Optional[str] = None,
     ) -> ft.Control:
+        value: ft.Control
+        if plain is not None:
+            value = ft.Text(
+                plain,
+                size=15,
+                weight=ft.FontWeight.W_800,
+                color=color or ft.Colors.ON_SURFACE,
+                text_align=ft.TextAlign.CENTER,
+                max_lines=1,
+            )
+        else:
+            value = self._money(
+                amount,
+                currency,
+                label=label,
+                color=color,
+                size=15,
+                signed=signed,
+                align=ft.TextAlign.CENTER,
+                stacked=True,
+            )
         return ft.Container(
             expand=True,
             content=ft.Column(
-                spacing=2,
+                spacing=1,
                 tight=True,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Text(
                         label,
-                        size=11,
+                        size=10,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                         text_align=ft.TextAlign.CENTER,
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
                     ),
-                    ft.Text(
-                        value,
-                        size=13,
-                        weight=ft.FontWeight.W_700,
-                        color=color or ft.Colors.ON_SURFACE,
-                        text_align=ft.TextAlign.CENTER,
-                        max_lines=2,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
+                    value,
                 ],
             ),
         )
@@ -333,26 +480,151 @@ class AnalyticsPage(ft.Column):
                 vertical_alignment=ft.CrossAxisAlignment.START,
                 controls=cells,
             ),
+            padding=8,
+        )
+
+    def _kv_row(
+        self,
+        label: str,
+        amount: Decimal | float | int | str,
+        currency: str,
+        *,
+        color: Optional[str] = None,
+        signed: bool = False,
+        trailing: str | None = None,
+    ) -> ft.Control:
+        right: list[ft.Control] = [
+            self._money(
+                amount,
+                currency,
+                label=label,
+                color=color,
+                signed=signed,
+            )
+        ]
+        if trailing:
+            right.append(
+                ft.Text(
+                    trailing,
+                    size=11,
+                    width=40,
+                    text_align=ft.TextAlign.END,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                )
+            )
+        return ft.Row(
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Text(
+                    label,
+                    size=12,
+                    expand=True,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    max_lines=2,
+                    color=ft.Colors.ON_SURFACE,
+                ),
+                *right,
+            ],
+        )
+
+    def _scroll_page(self, controls: Sequence[ft.Control]) -> ft.Control:
+        return ft.Container(
+            expand=True,
+            padding=ft.Padding.only(right=2),
+            content=ft.Column(
+                expand=True,
+                scroll=ft.ScrollMode.HIDDEN,
+                spacing=8,
+                controls=list(controls),
+            ),
+        )
+
+    def _category_card(
+        self,
+        *,
+        title: str,
+        cats: list[tuple[str, Decimal]],
+        total: Decimal,
+        base: str,
+        lang: str,
+        dark: bool,
+        chart_w: int,
+        chart_h: int,
+        empty_key: str,
+        empty_chart: str,
+    ) -> ft.Control:
+        pie_cats = cats[:6]
+        pie = build_pie_chart_image(
+            [localize_category_name(cat, lang) for cat, _amt in pie_cats],
+            [amt for _cat, amt in pie_cats],
+            title="",
+            width=chart_w,
+            height=chart_h,
+            dark=dark,
+            language=lang,
+            show_legend=False,
+            empty_message=empty_chart,
+        )
+        rows: list[ft.Control] = []
+        denom = total if total > 0 else Decimal("0")
+        palette = _chart_palette()
+        for idx, (cat, amount) in enumerate(pie_cats):
+            share = (amount / denom * 100) if denom > 0 else Decimal("0")
+            name = localize_category_name(cat, lang)
+            rows.append(
+                ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Container(
+                            width=8,
+                            height=8,
+                            border_radius=4,
+                            bgcolor=palette[idx % len(palette)],
+                        ),
+                        ft.Text(
+                            name,
+                            size=12,
+                            expand=True,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            max_lines=1,
+                        ),
+                        self._money(amount, base, label=name, size=11, color=None),
+                        ft.Text(
+                            f"{share:.0f}%",
+                            size=11,
+                            width=36,
+                            text_align=ft.TextAlign.END,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                )
+            )
+        if not pie_cats:
+            rows = [muted_text(tr(empty_key, lang), size=12)]
+        return card_surface(
+            ft.Column(
+                spacing=8,
+                tight=True,
+                controls=[section_title(title), pie, *rows],
+            ),
             padding=10,
         )
 
     async def reload(self) -> None:
-        """Reload analytics KPIs and charts."""
-        self._token = (
-            self._state.analytics_token + self._state.transactions_token
-        )
+        """Reload analytics KPIs and section pages."""
+        self._token = self._data_token(self._state)
         lang = self._state.language
         self._rebuild_period_row(lang)
+        self._rebuild_section_chips()
         self._kpi_host.controls = [loading_indicator(message=tr("action.refresh", lang))]
-        self._section_host.content = ft.Container()
         safe_update(self._kpi_host)
-        safe_update(self._section_host)
 
         c = self._state.container
         now = datetime.now(timezone.utc)
         dark = is_dark_mode(self._page, self._state.theme_mode)
-        chart_w = _content_width(self._page)
-        chart_h = max(150, min(240, _window_height(self._page) - 380))
+        chart_w, chart_h = chart_layout(self._page)
 
         try:
             accounts = await c.list_accounts.execute(active_only=True)
@@ -375,7 +647,8 @@ class AnalyticsPage(ft.Column):
             total_balance,
             period_income,
             period_expense,
-            by_category,
+            by_expense,
+            by_income,
             by_period,
             fx_ok,
         ) = self._aggregate_period(
@@ -389,7 +662,8 @@ class AnalyticsPage(ft.Column):
                     total_balance,
                     period_income,
                     period_expense,
-                    by_category,
+                    by_expense,
+                    by_income,
                     by_period,
                     fx_ok,
                 ) = self._aggregate_period(
@@ -411,11 +685,41 @@ class AnalyticsPage(ft.Column):
             except Exception:  # noqa: BLE001
                 sub_analytics = None
 
+        goals: list = []
+        if getattr(c, "list_goals", None) is not None:
+            try:
+                goals = await c.list_goals.execute(include_completed=True)
+            except Exception:  # noqa: BLE001
+                goals = []
+        debts: list = []
+        if getattr(c, "list_debts", None) is not None:
+            try:
+                debts = await c.list_debts.execute()
+            except Exception:  # noqa: BLE001
+                debts = []
+        budgets: list = []
+        if getattr(c, "recalculate_budget_spent", None) is not None:
+            try:
+                await c.recalculate_budget_spent.execute(month=now.month, year=now.year)
+            except Exception:  # noqa: BLE001
+                pass
+        if getattr(c, "get_budgets_for_month", None) is not None:
+            try:
+                budgets = await c.get_budgets_for_month.execute(now.month, now.year)
+            except Exception:  # noqa: BLE001
+                budgets = []
+
         net = period_income - period_expense
-        net_color = ft.Colors.SECONDARY if net >= 0 else ft.Colors.ERROR
-        ops_count = sum(
-            1 for tx in period_txs if not getattr(tx, "transfer_id", None)
-        )
+        net_color = amount_color(net >= 0, dark=dark)
+        income_ops = 0
+        expense_ops = 0
+        for tx in period_txs:
+            if getattr(tx, "transfer_id", None):
+                continue
+            if tx.type == TransactionType.INCOME:
+                income_ops += 1
+            else:
+                expense_ops += 1
         if period_cfg.date_from is None:
             days = 365
         else:
@@ -423,7 +727,12 @@ class AnalyticsPage(ft.Column):
                 1,
                 (period_cfg.date_to.date() - period_cfg.date_from.date()).days,
             )
-        avg_day = (period_expense / Decimal(days)) if days else period_expense
+        avg_expense_day = (
+            (period_expense / Decimal(days)) if days else period_expense
+        )
+        avg_income_day = (
+            (period_income / Decimal(days)) if days else period_income
+        )
         savings = (
             f"{((net / period_income) * 100):.0f}%"
             if period_income > 0
@@ -435,181 +744,433 @@ class AnalyticsPage(ft.Column):
                 [
                     self._metric_cell(
                         tr("analytics.income", lang),
-                        format_money(period_income, base),
-                        color=ft.Colors.SECONDARY,
+                        period_income,
+                        base,
+                        color=amount_color(True, dark=dark),
                     ),
                     self._metric_cell(
                         tr("analytics.expense", lang),
-                        format_money(period_expense, base),
-                        color=ft.Colors.ERROR,
+                        period_expense,
+                        base,
+                        color=amount_color(False, dark=dark),
                     ),
                     self._metric_cell(
                         tr("analytics.net", lang),
-                        format_money(net, base),
+                        net,
+                        base,
                         color=net_color,
+                        signed=True,
                     ),
                 ]
             ),
+            self._metrics_card(
+                [
+                    self._metric_cell(
+                        tr("analytics.balance", lang),
+                        total_balance,
+                        base,
+                    ),
+                    self._metric_cell(
+                        tr("analytics.savings", lang),
+                        0,
+                        base,
+                        plain=savings,
+                    ),
+                ]
+            ),
+            muted_text(tr("analytics.tap_hint", lang), size=11),
         ]
         safe_update(self._kpi_host)
 
-        pie_cats = by_category[:6]
-        pie = build_pie_chart_image(
-            [localize_category_name(cat, lang) for cat, _amt in pie_cats],
-            [amt for _cat, amt in pie_cats],
-            title="",
-            width=chart_w,
-            height=chart_h,
-            dark=dark,
-            language=lang,
+        series = fill_time_series(
+            by_period,
+            enumerate_period_keys(period_cfg, existing=[p[0] for p in by_period]),
         )
-        category_rows: list[ft.Control] = []
-        expense_total = period_expense or Decimal("0")
-        for idx, (cat, amount) in enumerate(pie_cats):
-            share = (
-                (amount / expense_total * 100) if expense_total > 0 else Decimal("0")
-            )
-            category_rows.append(
-                ft.Row(
-                    spacing=8,
-                    controls=[
-                        ft.Container(
-                            width=8,
-                            height=8,
-                            border_radius=4,
-                            bgcolor=_PALETTE[idx % len(_PALETTE)],
-                        ),
-                        ft.Text(
-                            localize_category_name(cat, lang),
-                            size=12,
-                            expand=True,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                            max_lines=1,
-                        ),
-                        ft.Text(
-                            f"{format_money(amount, base)}  {share:.0f}%",
-                            size=11,
-                            weight=ft.FontWeight.W_600,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                    ],
-                )
-            )
-        if not pie_cats:
-            category_rows = [
-                muted_text(tr("empty.transactions", lang), size=12),
-            ]
-
-        self._spend_view = ft.Column(
-            expand=True,
-            scroll=ft.ScrollMode.AUTO,
-            spacing=8,
-            controls=[
-                card_surface(
-                    ft.Column(spacing=8, tight=True, controls=[pie, *category_rows]),
-                    padding=10,
-                )
-            ],
-        )
-
-        series = by_period
         if period_cfg.max_chart_points and len(series) > period_cfg.max_chart_points:
             series = series[-period_cfg.max_chart_points :]
-        line = build_line_chart_image(
-            [format_chart_period_label(p[0], period_cfg.group_by) for p in series],
-            [p[1] for p in series],
-            [p[2] for p in series],
-            title="",
-            width=chart_w,
-            height=max(chart_h, 180),
-            dark=dark,
-            language=lang,
-        )
-        self._trend_view = ft.Column(
-            expand=True,
-            scroll=ft.ScrollMode.AUTO,
-            spacing=8,
-            controls=[
+        period_labels = [
+            format_chart_period_label(p[0], period_cfg.group_by) for p in series
+        ]
+        series_income = [p[1] for p in series]
+        series_expense = [p[2] for p in series]
+
+        flow_page = self._scroll_page(
+            [
+                self._metrics_card(
+                    [
+                        self._metric_cell(
+                            tr("analytics.avg_income_day", lang),
+                            avg_income_day,
+                            base,
+                            color=amount_color(True, dark=dark),
+                        ),
+                        self._metric_cell(
+                            tr("analytics.avg_day", lang),
+                            avg_expense_day,
+                            base,
+                            color=amount_color(False, dark=dark),
+                        ),
+                        self._metric_cell(
+                            tr("analytics.ops", lang),
+                            0,
+                            base,
+                            plain=str(income_ops + expense_ops),
+                        ),
+                    ]
+                ),
+                self._category_card(
+                    title=tr("analytics.spend_cats", lang),
+                    cats=by_expense,
+                    total=period_expense,
+                    base=base,
+                    lang=lang,
+                    dark=dark,
+                    chart_w=chart_w,
+                    chart_h=chart_h,
+                    empty_key="empty.transactions",
+                    empty_chart=tr("chart.no_expenses", lang),
+                ),
+                self._category_card(
+                    title=tr("analytics.income_cats", lang),
+                    cats=by_income,
+                    total=period_income,
+                    base=base,
+                    lang=lang,
+                    dark=dark,
+                    chart_w=chart_w,
+                    chart_h=chart_h,
+                    empty_key="empty.transactions",
+                    empty_chart=tr("chart.no_income", lang),
+                ),
                 card_surface(
                     ft.Column(
                         spacing=8,
                         tight=True,
                         controls=[
-                            ft.Row(
-                                spacing=12,
-                                controls=[
-                                    ft.Row(
-                                        spacing=6,
-                                        tight=True,
-                                        controls=[
-                                            ft.Container(
-                                                width=10,
-                                                height=10,
-                                                border_radius=5,
-                                                bgcolor=ft.Colors.SECONDARY,
-                                            ),
-                                            ft.Text(
-                                                tr("transaction.income", lang), size=11
-                                            ),
-                                        ],
-                                    ),
-                                    ft.Row(
-                                        spacing=6,
-                                        tight=True,
-                                        controls=[
-                                            ft.Container(
-                                                width=10,
-                                                height=10,
-                                                border_radius=5,
-                                                bgcolor=ft.Colors.ERROR,
-                                            ),
-                                            ft.Text(
-                                                tr("transaction.expense", lang), size=11
-                                            ),
-                                        ],
-                                    ),
-                                ],
+                            section_title(tr("dashboard.dynamics", lang)),
+                            build_line_chart_image(
+                                period_labels,
+                                series_income,
+                                series_expense,
+                                title="",
+                                width=chart_w,
+                                height=max(chart_h, 180),
+                                dark=dark,
+                                language=lang,
+                                show_income=True,
+                                show_expense=True,
                             ),
-                            line,
                         ],
                     ),
                     padding=10,
-                )
-            ],
+                ),
+            ]
         )
 
-        more_controls: list[ft.Control] = [
-            self._metrics_card(
-                [
-                    self._metric_cell(
-                        tr("analytics.balance", lang),
-                        format_money(total_balance, base),
-                    ),
-                    self._metric_cell(tr("analytics.savings", lang), savings),
-                ]
+        self._pager.controls = [
+            flow_page,
+            self._scroll_page(self._goals_controls(goals, book, base, lang)),
+            self._scroll_page(self._debts_controls(debts, book, base, lang)),
+            self._scroll_page(
+                self._subscription_analytics_controls(sub_analytics, lang, base)
             ),
-            self._metrics_card(
-                [
-                    self._metric_cell(
-                        tr("analytics.avg_day", lang),
-                        format_money(avg_day, base),
-                        color=ft.Colors.ERROR,
-                    ),
-                    self._metric_cell(tr("analytics.ops", lang), str(ops_count)),
-                ]
+            self._scroll_page(
+                self._budget_controls(budgets, lang, base, now.month, now.year)
             ),
         ]
-        more_controls.extend(
-            self._subscription_analytics_controls(sub_analytics, lang, base)
+        if self._section not in _SECTIONS:
+            self._section = "flow"
+        self._pager.selected_index = _SECTIONS.index(self._section)
+        self._rebuild_section_chips()
+        safe_update(self._pager)
+
+    def _dark(self) -> bool:
+        return is_dark_mode(self._page, self._state.theme_mode)
+
+    def _goals_controls(
+        self,
+        goals: list,
+        book: RateBook,
+        base: str,
+        lang: str,
+    ) -> list[ft.Control]:
+        visible = [
+            g
+            for g in goals
+            if _status_value(g.status) != GoalStatus.ARCHIVED.value
+        ]
+        if not visible:
+            return [
+                EmptyState(
+                    tr("empty.goals", lang),
+                    icon=ft.Icons.FLAG_OUTLINED,
+                    action_label=tr("action.add", lang),
+                    on_action=lambda _e: self._state.open_secondary("goals"),
+                )
+            ]
+        target = sum(
+            (_to_base(book, g.target_amount, g.currency, base) for g in visible),
+            Decimal("0"),
         )
-        self._more_view = ft.Column(
-            expand=True,
-            scroll=ft.ScrollMode.AUTO,
-            spacing=8,
-            controls=more_controls,
+        saved = sum(
+            (_to_base(book, g.current_amount, g.currency, base) for g in visible),
+            Decimal("0"),
         )
-        self._refresh_segments()
-        self._show_section()
+        remaining = sum(
+            (
+                _to_base(book, g.remaining_amount, g.currency, base)
+                for g in visible
+                if _status_value(g.status) == GoalStatus.ACTIVE.value
+            ),
+            Decimal("0"),
+        )
+        rows: list[ft.Control] = [
+            card_surface(
+                ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        self._kv_row(
+                            tr("goals.total_target", lang), target, base
+                        ),
+                        self._kv_row(
+                            tr("goals.total_saved", lang),
+                            saved,
+                            base,
+                            color=amount_color(True),
+                        ),
+                        self._kv_row(
+                            tr("goals.total_remaining", lang), remaining, base
+                        ),
+                    ],
+                ),
+                padding=12,
+            )
+        ]
+        for goal in visible:
+            ratio = float(goal.progress_ratio)
+            ratio = max(0.0, min(ratio, 1.0))
+            currency = goal.currency or base
+            rows.append(
+                card_surface(
+                    ft.Column(
+                        spacing=6,
+                        tight=True,
+                        controls=[
+                            ft.Text(
+                                goal.name,
+                                size=13,
+                                weight=ft.FontWeight.W_700,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            self._kv_row(
+                                tr("goals.total_saved", lang),
+                                goal.current_amount,
+                                currency,
+                            ),
+                            self._kv_row(
+                                tr("goals.total_target", lang),
+                                goal.target_amount,
+                                currency,
+                            ),
+                            ft.ProgressBar(
+                                value=ratio,
+                                color=ft.Colors.PRIMARY,
+                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                            ),
+                        ],
+                    ),
+                    padding=12,
+                )
+            )
+        return rows
+
+    def _debts_controls(
+        self,
+        debts: list,
+        book: RateBook,
+        base: str,
+        lang: str,
+    ) -> list[ft.Control]:
+        live = [
+            d
+            for d in debts
+            if _status_value(d.status)
+            in {DebtStatus.ACTIVE.value, DebtStatus.OVERDUE.value}
+        ]
+        if not live:
+            return [
+                EmptyState(
+                    tr("empty.debts", lang),
+                    icon=ft.Icons.CREDIT_SCORE,
+                    action_label=tr("action.add", lang),
+                    on_action=lambda _e: self._state.open_secondary("debts"),
+                )
+            ]
+        i_owe = Decimal("0")
+        owed = Decimal("0")
+        for debt in live:
+            remaining = _to_base(book, debt.remaining_amount, debt.currency, base)
+            direction = _status_value(debt.direction)
+            if direction == DebtDirection.I_OWE.value:
+                i_owe += remaining
+            else:
+                owed += remaining
+        rows: list[ft.Control] = [
+            card_surface(
+                ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        self._kv_row(
+                            tr("analytics.i_owe", lang),
+                            i_owe,
+                            base,
+                            color=amount_color(False, dark=self._dark()),
+                        ),
+                        self._kv_row(
+                            tr("analytics.owed_to_me", lang),
+                            owed,
+                            base,
+                            color=amount_color(True, dark=self._dark()),
+                        ),
+                    ],
+                ),
+                padding=12,
+            )
+        ]
+        for debt in live:
+            direction = _status_value(debt.direction)
+            label = (
+                tr("analytics.i_owe", lang)
+                if direction == DebtDirection.I_OWE.value
+                else tr("analytics.owed_to_me", lang)
+            )
+            rows.append(
+                card_surface(
+                    ft.Column(
+                        spacing=6,
+                        tight=True,
+                        controls=[
+                            ft.Text(
+                                debt.counterparty,
+                                size=13,
+                                weight=ft.FontWeight.W_700,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            muted_text(label),
+                            self._kv_row(
+                                tr("analytics.full_amount", lang),
+                                debt.remaining_amount,
+                                debt.currency or base,
+                            ),
+                        ],
+                    ),
+                    padding=12,
+                )
+            )
+        return rows
+
+    def _budget_controls(
+        self,
+        budgets: list,
+        lang: str,
+        base: str,
+        month: int,
+        year: int,
+    ) -> list[ft.Control]:
+        period = f"{tr(f'budgets.month.{month}', lang)} {year}"
+        if not budgets:
+            return [
+                muted_text(tr("analytics.budget_month_hint", lang)),
+                EmptyState(
+                    tr("budgets.no_budgets", lang),
+                    icon=ft.Icons.PIE_CHART,
+                    action_label=tr("action.add", lang),
+                    on_action=lambda _e: self._state.open_secondary("budgets"),
+                ),
+            ]
+        total_limit = sum((item.limit for item in budgets), Decimal("0"))
+        total_spent = sum((item.spent for item in budgets), Decimal("0"))
+        remaining = total_limit - total_spent
+        if remaining < 0:
+            remaining = Decimal("0")
+        rows: list[ft.Control] = [
+            muted_text(f"{tr('analytics.budget_month_hint', lang)} · {period}"),
+            card_surface(
+                ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        self._kv_row(
+                            tr("budgets.total_limit", lang), total_limit, base
+                        ),
+                        self._kv_row(
+                            tr("budgets.total_spent", lang),
+                            total_spent,
+                            base,
+                            color=amount_color(
+                                total_spent <= total_limit, dark=self._dark()
+                            ),
+                        ),
+                        self._kv_row(
+                            tr("budgets.remaining", lang), remaining, base
+                        ),
+                    ],
+                ),
+                padding=12,
+            ),
+        ]
+        for progress in budgets:
+            percent = float(progress.percent)
+            color = (
+                ft.Colors.ERROR
+                if percent > 100
+                else (ft.Colors.AMBER if percent >= 80 else ft.Colors.GREEN)
+            )
+            status = (
+                tr("budgets.over_budget", lang)
+                if percent > 100
+                else tr("budgets.percent", lang)
+            )
+            name = localize_category_name(progress.category_id, lang)
+            rows.append(
+                card_surface(
+                    ft.Column(
+                        spacing=6,
+                        tight=True,
+                        controls=[
+                            ft.Text(
+                                name,
+                                size=13,
+                                weight=ft.FontWeight.W_700,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            self._kv_row(
+                                tr("budgets.total_spent", lang),
+                                progress.spent,
+                                base,
+                            ),
+                            self._kv_row(
+                                tr("budgets.total_limit", lang),
+                                progress.limit,
+                                base,
+                            ),
+                            ft.ProgressBar(
+                                value=min(percent / 100.0, 1.0),
+                                color=color,
+                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                            ),
+                            muted_text(f"{percent:.0f}% · {status}"),
+                        ],
+                    ),
+                    padding=12,
+                )
+            )
+        return rows
 
     def _subscription_analytics_controls(
         self,
@@ -619,50 +1180,54 @@ class AnalyticsPage(ft.Column):
     ) -> list[ft.Control]:
         if analytics is None:
             return [
-                card_surface(
-                    muted_text(tr("analytics.no_subs", lang)),
-                    padding=12,
+                EmptyState(
+                    tr("analytics.no_subs", lang),
+                    icon=ft.Icons.EVENT_REPEAT,
+                    action_label=tr("action.add", lang),
+                    on_action=lambda _e: self._state.open_secondary("subscriptions"),
                 )
             ]
         top_rows: list[ft.Control] = []
         for item in analytics.top_subscriptions[:5]:
-            top_rows.append(
-                ft.Row(
-                    spacing=8,
-                    controls=[
-                        ft.Text(
-                            str(item.get("name") or "—"),
-                            expand=True,
-                            size=12,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                            max_lines=1,
-                        ),
-                        ft.Text(
-                            format_money(item.get("amount") or 0, base),
-                            weight=ft.FontWeight.W_600,
-                            size=12,
-                        ),
-                    ],
-                )
-            )
+            name = str(item.get("name") or "—")
+            amount = item.get("amount") or 0
+            top_rows.append(self._kv_row(name, amount, base))
         if not top_rows:
             top_rows = [muted_text("—")]
         return [
-            self._metrics_card(
-                [
-                    self._metric_cell(
-                        tr("analytics.subscriptions_spent", lang),
-                        format_money(analytics.total_spent, base),
-                    ),
-                    self._metric_cell(
-                        tr("analytics.subscriptions_monthly_cost", lang),
-                        format_money(analytics.total_monthly_cost, base),
-                    ),
-                    self._metric_cell(
-                        tr("analytics.subscriptions_active", lang),
-                        str(analytics.total_active),
-                    ),
-                ]
+            card_surface(
+                ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        self._kv_row(
+                            tr("analytics.subscriptions_spent", lang),
+                            analytics.total_spent,
+                            base,
+                        ),
+                        self._kv_row(
+                            tr("analytics.subscriptions_monthly_cost", lang),
+                            analytics.total_monthly_cost,
+                            base,
+                        ),
+                        ft.Row(
+                            spacing=8,
+                            controls=[
+                                ft.Text(
+                                    tr("analytics.subscriptions_active", lang),
+                                    size=12,
+                                    expand=True,
+                                ),
+                                ft.Text(
+                                    str(analytics.total_active),
+                                    size=12,
+                                    weight=ft.FontWeight.W_700,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                padding=12,
             ),
             card_surface(
                 ft.Column(

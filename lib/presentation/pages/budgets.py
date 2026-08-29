@@ -18,7 +18,7 @@ from lib.presentation.notification_badges import (
 )
 from lib.presentation.styles import card_surface, muted_text, page_header, summary_strip
 from lib.presentation.money_input import make_amount_field, parse_amount
-from lib.presentation.utils import category_icon, format_money, run_async, snack, tr
+from lib.presentation.utils import category_icon, format_money_compact, run_async, snack, tr
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.empty_state import EmptyState
@@ -46,7 +46,7 @@ class BudgetsPage(ft.Column):
         now = datetime.now(timezone.utc)
         self._month = now.month
         self._year = now.year
-        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=12)
+        self._list = ft.Column(expand=True, scroll=ft.ScrollMode.HIDDEN, spacing=12)
         self._token = -1
         self._categories_by_name: dict[str, object] = {}
         super().__init__(
@@ -174,17 +174,17 @@ class BudgetsPage(ft.Column):
                 [
                     (
                         tr("budgets.total_limit", lang),
-                        format_money(total_limit, currency),
+                        format_money_compact(total_limit, currency),
                         ft.Colors.PRIMARY,
                     ),
                     (
                         tr("budgets.total_spent", lang),
-                        format_money(total_spent, currency),
+                        format_money_compact(total_spent, currency),
                         ft.Colors.ERROR if total_spent > total_limit else ft.Colors.SECONDARY,
                     ),
                     (
                         tr("budgets.remaining", lang),
-                        format_money(remaining, currency),
+                        format_money_compact(remaining, currency),
                         ft.Colors.ERROR if total_spent > total_limit else None,
                     ),
                 ]
@@ -248,26 +248,30 @@ class BudgetsPage(ft.Column):
                         ],
                     ),
                     ft.Text(
-                        f"{format_money(progress.spent, currency)} / "
-                        f"{format_money(progress.limit, currency)}",
-                        size=13,
+                        f"{format_money_compact(progress.spent, currency)} / "
+                        f"{format_money_compact(progress.limit, currency)}",
+                        size=12,
+                        max_lines=2,
                     ),
                     ft.ProgressBar(
                         value=bar_value,
                         color=color,
                         bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
                     ),
-                    ft.Row(
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
                         controls=[
                             ft.Text(
                                 f"{percent:.0f}% · {status}",
                                 size=12,
                                 color=color,
-                                expand=True,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
                             ),
                             muted_text(
                                 f"{tr('budgets.remaining', lang)}: "
-                                f"{format_money(progress.remaining, currency)}",
+                                f"{format_money_compact(progress.remaining, currency)}",
                             ),
                         ],
                     ),
