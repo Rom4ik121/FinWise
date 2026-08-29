@@ -99,8 +99,9 @@ Binance. Курсы Numeric(24,12), `quantize_rate` не обнуляет UZS.
 
 - In-app: `NotificationService.push` (и сразу OS dispatch, если можно).
 - OS: Windows — winotify; Android/iOS — `FinanseLocalNotifications`
-  (`flutter_local_notifications`), запасной путь Android —
-  `flet_android_notifications`.
+  (`flutter_local_notifications`). Пакет `flet-android-notifications` в
+  зависимости сборки не входит: на iOS он ломает `pub get` (`timezone`
+  0.11 против 0.9). Python-fallback остаётся, если пакет установлен вручную.
 - `schedule_reminders` ставит in-app события и **zonedSchedule** на 30 дней
   вперёд (срабатывает при закрытом приложении после сборки IPA/APK).
 - Цикл Python срабатывает в `reminder_time`, пока процесс жив.

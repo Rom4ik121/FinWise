@@ -45,8 +45,9 @@
 **NotificationService** — очередь; `push` зовёт `dispatch_push`.
 
 **push_notifier.py** — `FinanseLocalNotifications` (iOS+Android, show/schedule),
-fallback `FletAndroidNotifications`, Windows toast. `reminder_fire_at` —
-UTC-момент для OS schedule. Env `FINANCE_DISABLE_PUSH`.
+опциональный import `FletAndroidNotifications` (не в requirements: ломает
+IPA из‑за `timezone`), Windows toast. `reminder_fire_at` — UTC-момент для
+OS schedule. Env `FINANCE_DISABLE_PUSH`.
 
 **reminder_scheduler.py** — in-app долги/подписки/цели + OS schedule на 30 дней.
 

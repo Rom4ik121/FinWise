@@ -21,7 +21,6 @@ dependencies = [
   "flet-local-auth",
   "flet-local-notifications",
   "flet-speech",
-  "flet-android-notifications>=0.10.0",
 ]
 
 [project.optional-dependencies]
@@ -68,8 +67,6 @@ flet-speech = "./extensions/flet_speech"
 local_auth = "^2.3.0"
 local_auth_android = "^1.0.46"
 local_auth_darwin = "^1.4.1"
-flutter_local_notifications = "^17.2.4"
-timezone = "^0.9.4"
 speech_to_text = "^6.6.2"
 
 [tool.flet.splash]

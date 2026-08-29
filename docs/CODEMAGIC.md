@@ -144,6 +144,7 @@ Codemagic только **собирает** IPA. На Windows без Mac:
 | `APPLE_TEAM_ID is missing` | Группа `finanse_ios` + переменная в UI |
 | No matching provisioning profile | Bundle ID / тип ad_hoc / UDID в профиле |
 | Binary wheel not found for iOS | Пакет без iOS wheel — см. лог; упростить deps |
+| `timezone ^0.9.4` vs `^0.11.0` | Не ставить `flet-android-notifications` в iOS-сборку: он тянет Flutter `timezone` 0.11, а пуши iOS идут через `flet_local_notifications` (`timezone` 0.9). Предупреждение `flutter doctor` про PATH 3.41 vs 3.44 — не причина падения. |
 | Build timeout | Увеличить `max_build_duration` в yaml |
 | 500 min exhausted | Ждать новый месяц или включить billing |
 
