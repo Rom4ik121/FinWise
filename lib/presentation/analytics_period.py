@@ -59,9 +59,11 @@ def resolve_analytics_period(key: str, now: datetime) -> AnalyticsPeriodConfig:
             max_chart_points=None,
         )
     if key == "all":
+        # Bound "all time" so phones with years of history stay responsive.
+        # Charts still downsample to max_chart_points; UI label stays "all".
         return AnalyticsPeriodConfig(
             key=key,
-            date_from=None,
+            date_from=now - timedelta(days=365 * 5),
             date_to=now,
             group_by=StatsPeriod.MONTH,
             max_chart_points=36,

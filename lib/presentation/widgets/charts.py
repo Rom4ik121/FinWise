@@ -24,6 +24,23 @@ _CHART_COLORS = [
 ]
 
 
+class _SafeCanvas(cv.Canvas):
+    """Canvas that drops events when already unmounted (Flet raises on ``.page``)."""
+
+    def before_event(self, e):  # noqa: ANN001
+        parent = self
+        try:
+            from flet.controls.page import Page
+
+            while parent is not None:
+                if isinstance(parent, Page):
+                    return True
+                parent = parent.parent
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
+
 def _chart_palette() -> Sequence[str]:
     colors = get_active_skin().chart_colors
     return colors if colors else _CHART_COLORS
@@ -144,15 +161,26 @@ def _legend_dot(color: str, label: str) -> ft.Control:
     )
 
 
-def _stroke(color: str, width: float, *, glow: bool = False) -> ft.Paint:
+def _stroke(
+    color: str,
+    width: float,
+    *,
+    glow: bool = False,
+    cap: ft.StrokeCap = ft.StrokeCap.ROUND,
+) -> ft.Paint:
     return ft.Paint(
         color=ft.Colors.with_opacity(0.22, color) if glow else color,
         stroke_width=width,
         style=ft.PaintingStyle.STROKE,
-        stroke_cap=ft.StrokeCap.ROUND,
-        stroke_join=ft.StrokeJoin.ROUND,
+        stroke_cap=cap,
+        stroke_join=ft.StrokeJoin.ROUND if cap == ft.StrokeCap.ROUND else ft.StrokeJoin.MITER,
         anti_alias=True,
     )
+
+
+def _arc_stroke(color: str, width: float) -> ft.Paint:
+    """Donut segments must use BUTT caps so slices meet flush (no blob overlaps)."""
+    return _stroke(color, width, cap=ft.StrokeCap.BUTT)
 
 
 def _polyline(points: Sequence[tuple[float, float]]) -> list[cv.Path.PathElement]:
@@ -190,8 +218,9 @@ def _start_draw(
 ) -> None:
     """Draw the chart from empty to full after the canvas is mounted."""
     flag = playing if playing is not None else [False]
-    if page is None:
+    if page is None or frames <= 1:
         canvas.shapes = make_shapes(1.0)
+        flag[0] = False
         return
     canvas.shapes = make_shapes(0.0)
     flag[0] = True
@@ -202,13 +231,14 @@ def _start_draw(
         try:
             mounted = False
             for _ in range(80):
-                if control_page(canvas) is not None:
-                    mounted = True
-                    break
-                await asyncio.sleep(0.02)
+                if control_page(canvas) is None:
+                    await asyncio.sleep(0.02)
+                    continue
+                mounted = True
+                break
             if not mounted:
                 return
-            total = max(16, frames)
+            total = max(8, frames)
             for i in range(1, total + 1):
                 if control_page(canvas) is None:
                     return
@@ -216,7 +246,7 @@ def _start_draw(
                 eased = 1.0 - (1.0 - t) ** 2
                 canvas.shapes = make_shapes(eased)
                 safe_update(canvas)
-                await asyncio.sleep(0.018)
+                await asyncio.sleep(0.016)
             if control_page(canvas) is None:
                 return
             canvas.shapes = make_shapes(1.0)
@@ -263,6 +293,25 @@ def _nearest_period_index(local_x: float, *, n: int, plot_w: float) -> int:
     return int(round(max(0.0, min(1.0, ratio)) * (n - 1)))
 
 
+def _normalize_donut_sweeps(amounts: Sequence[float]) -> list[float]:
+    """Turn amounts into radian sweeps that always fill the ring.
+
+    Tiny categories get a minimum visible arc, then everything is scaled so
+    the total is exactly ``2π`` (no holes from skipped slices).
+    """
+    positive = [max(0.0, float(v)) for v in amounts]
+    total = sum(positive)
+    if total <= 0:
+        return []
+    raw = [(v / total) * 2 * math.pi for v in positive]
+    n = len(raw)
+    # ~6° floor so Canvas Arc + BUTT caps still paint tiny shares.
+    min_vis = min(0.11, (2 * math.pi) / max(n * 2.5, 3))
+    boosted = [max(s, min_vis) if s > 0 else 0.0 for s in raw]
+    boost_sum = sum(boosted) or 1.0
+    return [(s / boost_sum) * 2 * math.pi for s in boosted]
+
+
 def _donut_slice_index(dx: float, dy: float, sweeps: Sequence[float]) -> int:
     """Map a tap relative to the donut center onto a slice."""
     if not sweeps:
@@ -281,10 +330,13 @@ def _donut_slice_index(dx: float, dy: float, sweeps: Sequence[float]) -> int:
     return last
 
 
-def _x_keep(n: int, width: int) -> set[int]:
+def _x_keep(n: int, width: int, *, compact: bool = False) -> set[int]:
     if n <= 1:
         return {0}
-    budget = 4 if width < 340 else (5 if width < 520 else 7)
+    if compact:
+        budget = 3 if width < 340 else 4
+    else:
+        budget = 4 if width < 340 else (5 if width < 520 else 7)
     budget = min(budget, n)
     if budget >= n:
         return set(range(n))
@@ -293,6 +345,28 @@ def _x_keep(n: int, width: int) -> set[int]:
     keep.add(0)
     keep.add(n - 1)
     return keep
+
+
+def _downsample_line(
+    periods: list[str],
+    series: list[float],
+    inc: list[float],
+    exp: list[float],
+    *,
+    max_points: int,
+) -> tuple[list[str], list[float], list[float], list[float]]:
+    """Evenly thin a dense series while keeping endpoints (compact charts)."""
+    n = len(series)
+    if n <= max_points or max_points < 3:
+        return periods, series, inc, exp
+    step = (n - 1) / (max_points - 1)
+    indices = sorted({0, n - 1, *(int(round(i * step)) for i in range(1, max_points - 1))})
+    return (
+        [periods[i] for i in indices],
+        [series[i] for i in indices],
+        [inc[i] for i in indices],
+        [exp[i] for i in indices],
+    )
 
 
 def _info_line_chart(
@@ -307,6 +381,8 @@ def _info_line_chart(
     show_income: bool,
     show_expense: bool,
     page: ft.Page | None = None,
+    compact: bool = False,
+    animate: bool = True,
 ) -> ft.Control:
     from lib.infrastructure.services.localization import t
     from lib.presentation.styles import glass_layer
@@ -332,26 +408,69 @@ def _info_line_chart(
     for i in range(len(periods)):
         running += inc[i] - exp[i]
         series.append(running)
+    if compact and len(series) > 40:
+        periods_list = list(periods)
+        periods_list, series, inc, exp = _downsample_line(
+            periods_list, series, inc, exp, max_points=40
+        )
+        periods = periods_list
     n = len(periods)
     lo = _nice_floor(min(0.0, min(series)))
     hi = _nice_ceiling(max(0.0, max(series), 1.0))
     if hi <= lo:
         hi = lo + 1.0
+    # Slight pad so the line doesn't hug the top/bottom edge.
+    pad = (hi - lo) * (0.06 if compact else 0.04)
+    lo -= pad
+    hi += pad
     span = hi - lo
     income_color = skin.income_hex(dark=dark)
     expense_color = skin.expense_hex(dark=dark)
     line_color = skin.text_hex(dark=dark)
     muted = skin.muted_hex(dark=dark)
     glow = skin.chart_kind == "glow"
-    plot_h = max(height - 40, 168)
+    # Density-aware stroke: many points → thinner line, never stretch the plot.
+    density = max(1.0, n / 14.0)
+    if compact:
+        plot_h = max(int(height), 128)
+        tick_count = 3  # 4 Y labels (lo … hi) with even spacing
+        label_size = 8
+        sample_labels = [
+            _money_formatter(lo + span * i / 3) for i in range(4)
+        ]
+        label_chars = max(len(s) for s in sample_labels)
+        margin_left = max(34.0, 8.0 + label_chars * 5.6)
+        margin_right = 10.0
+        margin_top = 12.0
+        margin_bottom = 20.0
+        line_w = max(1.2, 1.7 / (density**0.4))
+        end_r_outer = max(3.0, 4.5 / (density**0.3))
+        end_r_inner = max(1.4, 2.2 / (density**0.3))
+        anim_frames = 1 if not animate else 16
+    else:
+        plot_h = max(height - 40, 168)
+        margin_left = 42.0 if width < 360 else 48.0
+        margin_right = 12.0
+        margin_top = 10.0
+        margin_bottom = 22.0
+        line_w = max(1.4, 2.8 / (density**0.35))
+        tick_count = 4
+        label_size = 10
+        end_r_outer, end_r_inner = 8.0, 3.5
+        anim_frames = 1 if not animate else 18
+
+    def _layout(plot_w: float, plot_h_px: float) -> tuple[float, float, float, float]:
+        left = margin_left if plot_w >= 200 else max(28.0, margin_left * 0.85)
+        right = margin_right
+        top = margin_top
+        bottom = margin_bottom
+        inner_w = max(plot_w - left - right, 40.0)
+        # Never force inner_h larger than the canvas — that pushed the line off-screen.
+        inner_h = max(plot_h_px - top - bottom, 20.0)
+        return left, top, inner_w, inner_h
 
     def _xy(idx: int, value: float, plot_w: float, plot_h_px: float) -> tuple[float, float]:
-        left = 42.0 if plot_w < 360 else 48.0
-        right = 12.0
-        top = 10.0
-        bottom = 22.0
-        inner_w = max(plot_w - left - right, 80.0)
-        inner_h = max(plot_h_px - top - bottom, 96.0)
+        left, top, inner_w, inner_h = _layout(plot_w, plot_h_px)
         x = left + (inner_w * idx / max(n - 1, 1) if n > 1 else inner_w / 2)
         y = top + inner_h * (1.0 - ((value - lo) / span))
         return x, y
@@ -379,14 +498,9 @@ def _info_line_chart(
         progress: float = 1.0,
         selected_idx: int = -1,
     ) -> list[cv.Shape]:
-        left = 42.0 if plot_w < 360 else 48.0
-        right = 12.0
-        top = 10.0
-        bottom = 22.0
-        inner_w = max(plot_w - left - right, 80.0)
-        inner_h = max(plot_h_px - top - bottom, 96.0)
+        left, top, inner_w, inner_h = _layout(plot_w, plot_h_px)
         shapes: list[cv.Shape] = []
-        ticks = 4
+        ticks = tick_count
         for i in range(ticks + 1):
             frac = i / ticks
             value = lo + span * frac
@@ -403,9 +517,11 @@ def _info_line_chart(
             shapes.append(
                 cv.Text(
                     2,
-                    y - 7,
+                    y - (7 if i == ticks else (2 if i == 0 else 5)),
                     _money_formatter(value),
-                    style=ft.TextStyle(size=10, color=muted, weight=ft.FontWeight.W_500),
+                    style=ft.TextStyle(
+                        size=label_size, color=muted, weight=ft.FontWeight.W_500
+                    ),
                 )
             )
         zero_y = top + inner_h * (1.0 - ((0.0 - lo) / span))
@@ -430,48 +546,68 @@ def _info_line_chart(
                     cv.Path(
                         fill,
                         paint=ft.Paint(
-                            color=ft.Colors.with_opacity(0.16 if glow else 0.10, fill_color),
+                            color=ft.Colors.with_opacity(
+                                0.12 if compact else (0.16 if glow else 0.10),
+                                fill_color,
+                            ),
                             style=ft.PaintingStyle.FILL,
                         ),
                     )
                 )
-            if glow:
-                shapes.append(cv.Path(_polyline(xy), paint=_stroke(income_color, 9, glow=True)))
+            if glow and not compact:
+                shapes.append(
+                    cv.Path(_polyline(xy), paint=_stroke(income_color, 9, glow=True))
+                )
             for i in range(len(pts) - 1):
                 color = income_color if pts[i + 1][2] >= pts[i][2] else expense_color
                 shapes.append(
                     cv.Path(
                         _polyline([(pts[i][0], pts[i][1]), (pts[i + 1][0], pts[i + 1][1])]),
-                        paint=_stroke(color, 2.8),
+                        paint=_stroke(color, line_w),
                     )
                 )
             last = pts[-1]
-            shapes.append(cv.Circle(last[0], last[1], 8, paint=ft.Paint(color=income_color if last[2] >= 0 else expense_color)))
             shapes.append(
                 cv.Circle(
                     last[0],
                     last[1],
-                    3.5,
+                    end_r_outer,
+                    paint=ft.Paint(
+                        color=income_color if last[2] >= 0 else expense_color
+                    ),
+                )
+            )
+            shapes.append(
+                cv.Circle(
+                    last[0],
+                    last[1],
+                    end_r_inner,
                     paint=ft.Paint(color=line_color if dark else "#FFFFFF"),
                 )
             )
         elif len(pts) == 1:
             last = pts[-1]
-            shapes.append(cv.Circle(last[0], last[1], 4, paint=ft.Paint(color=income_color)))
+            shapes.append(
+                cv.Circle(last[0], last[1], 3 if compact else 4, paint=ft.Paint(color=income_color))
+            )
         baseline = top + inner_h
-        keep = _x_keep(n, int(plot_w))
+        keep = _x_keep(n, int(plot_w), compact=compact)
         for i in sorted(keep):
             x = _xy(i, series[i], plot_w, plot_h_px)[0]
             label = periods[i]
+            if not label:
+                continue
             shapes.append(
                 cv.Text(
-                    x - (len(label) * 2.6),
-                    baseline + 4,
+                    x - (len(label) * 2.4),
+                    baseline + 2,
                     label,
-                    style=ft.TextStyle(size=10, color=muted, weight=ft.FontWeight.W_500),
+                    style=ft.TextStyle(
+                        size=label_size, color=muted, weight=ft.FontWeight.W_500
+                    ),
                 )
             )
-        if 0 <= selected_idx < n and progress >= 0.5:
+        if 0 <= selected_idx < n and progress >= 0.5 and not compact:
             sx, sy = _xy(selected_idx, series[selected_idx], plot_w, plot_h_px)
             mark = income_color if series[selected_idx] >= 0 else expense_color
             shapes.append(
@@ -494,16 +630,21 @@ def _info_line_chart(
             )
         return shapes
 
-    canvas = cv.Canvas(
+    # Compact: grow to card width (height fixed). Full charts also expand.
+    canvas = _SafeCanvas(
         expand=True,
-        width=width,
+        width=None if compact else width,
         height=plot_h,
-        shapes=_shapes(float(width), float(plot_h), 1.0 if page is None else 0.0),
-        resize_interval=16,
+        shapes=_shapes(
+            float(width),
+            float(plot_h),
+            1.0 if page is None or not animate else 0.0,
+        ),
+        resize_interval=32,
     )
     last_size = [float(width), float(plot_h)]
-    last_progress = [1.0 if page is None else 0.0]
-    playing = [page is not None]
+    last_progress = [1.0 if page is None or not animate else 0.0]
+    playing = [bool(page is not None and animate)]
     selected = [-1]
     last_bits = f"{t('chart.last', language)} · {_money_formatter(series[-1])}"
     caption = ft.Text(
@@ -515,15 +656,19 @@ def _info_line_chart(
     )
 
     def _on_resize(e: cv.CanvasResizeEvent) -> None:
-        if playing[0]:
-            return
         w = float(getattr(e, "width", 0) or 0)
         h = float(getattr(e, "height", 0) or 0)
-        if w < 60 or h < 60:
+        min_side = 40 if compact else 60
+        if w < min_side or h < min_side:
             return
+        # Keep height locked for compact so the home card does not stretch.
+        if compact:
+            h = float(plot_h)
         if abs(w - last_size[0]) < 1 and abs(h - last_size[1]) < 1:
             return
         last_size[0], last_size[1] = w, h
+        if playing[0]:
+            return
         canvas.shapes = _shapes(w, h, last_progress[0], selected[0])
         from lib.presentation.utils import safe_update
 
@@ -575,24 +720,35 @@ def _info_line_chart(
             buzz=True,
         )
 
-    _start_draw(canvas, _make, page=page, frames=40, playing=playing)
+    _start_draw(canvas, _make, page=page, frames=anim_frames, playing=playing)
+    plot_kwargs: dict = {
+        "height": plot_h,
+        "border_radius": skin.card_radius,
+        "padding": ft.Padding.only(top=2 if compact else 4, bottom=2, right=4),
+        "content": ft.GestureDetector(
+            expand=True,
+            mouse_cursor=ft.MouseCursor.CLICK,
+            on_tap_down=None if compact else _on_pointer,
+            content=canvas,
+        ),
+    }
+    if not compact:
+        plot_kwargs["expand"] = True
+        plot_kwargs.update(glass_layer(elevated=True, opacity=0.22))
+    else:
+        plot_kwargs["bgcolor"] = ft.Colors.with_opacity(0.12, ft.Colors.SURFACE)
+        plot_kwargs["clip_behavior"] = ft.ClipBehavior.HARD_EDGE
+    plot = ft.Container(**plot_kwargs)
+    if compact:
+        return ft.Container(
+            height=plot_h,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=plot,
+        )
     legend = [
         _legend_dot(income_color, t("chart.net_up", language)),
         _legend_dot(expense_color, t("chart.net_down", language)),
     ]
-    plot = ft.Container(
-        expand=True,
-        height=plot_h,
-        border_radius=skin.card_radius,
-        padding=ft.Padding.only(top=4, bottom=2, right=4),
-        content=ft.GestureDetector(
-            expand=True,
-            mouse_cursor=ft.MouseCursor.CLICK,
-            on_tap_down=_on_pointer,
-            content=canvas,
-        ),
-        **glass_layer(elevated=True, opacity=0.22),
-    )
     return _chart_shell(
         ft.Column(
             tight=True,
@@ -647,17 +803,18 @@ def _info_donut_chart(
     radius = size * 0.34
     stroke = max(12.0, size * 0.10)
     track = skin.dark_surface_3 if dark else skin.light_surface_3
-    slices: list[tuple[str, float]] = []
-    for idx, amount in enumerate(nums):
-        slices.append((palette[idx % len(palette)], (amount / total) * 2 * math.pi))
+    sweeps = _normalize_donut_sweeps(nums)
+    gap = 0.012 if len(sweeps) > 1 else 0.0
+    slices: list[tuple[str, float]] = [
+        (palette[idx % len(palette)], sweeps[idx]) for idx in range(len(sweeps))
+    ]
 
     selected = [0]
-    sweeps = [item[1] for item in slices]
 
     def _shapes(progress: float) -> list[cv.Shape]:
         budget = max(0.0, min(1.0, progress)) * 2 * math.pi
         shapes: list[cv.Shape] = [
-            cv.Circle(cx, cy, radius, paint=_stroke(track, stroke)),
+            cv.Circle(cx, cy, radius, paint=_arc_stroke(track, stroke)),
         ]
         start = -math.pi / 2
         remaining = budget
@@ -665,8 +822,15 @@ def _info_donut_chart(
             if remaining <= 0:
                 break
             take = min(sweep, remaining)
-            if take > 0.004:
-                width = stroke + 3 if idx == selected[0] else stroke
+            remaining -= take
+            if take <= 1e-6:
+                start += take
+                continue
+            draw = take
+            # Seams only on larger slices — tiny ones keep full width.
+            if len(slices) > 1 and take >= sweep - 1e-9 and sweep > gap * 8:
+                draw = max(take - gap, take * 0.92)
+            if idx == selected[0]:
                 shapes.append(
                     cv.Arc(
                         cx - radius,
@@ -674,12 +838,24 @@ def _info_donut_chart(
                         radius * 2,
                         radius * 2,
                         start_angle=start,
-                        sweep_angle=take,
-                        paint=_stroke(color, width, glow=False),
+                        sweep_angle=draw,
+                        paint=_arc_stroke(
+                            ft.Colors.with_opacity(0.28, color), stroke + 7
+                        ),
                     )
                 )
+            shapes.append(
+                cv.Arc(
+                    cx - radius,
+                    cy - radius,
+                    radius * 2,
+                    radius * 2,
+                    start_angle=start,
+                    sweep_angle=draw,
+                    paint=_arc_stroke(color, stroke),
+                )
+            )
             start += take
-            remaining -= take
         return shapes
 
     top_share = nums[0] / total * 100 if total else 0
@@ -710,7 +886,7 @@ def _info_donut_chart(
         alignment=ft.MainAxisAlignment.CENTER,
         controls=[share_label, amount_label, name_label],
     )
-    ring = cv.Canvas(
+    ring = _SafeCanvas(
         width=size,
         height=size,
         expand=False,
@@ -744,7 +920,7 @@ def _info_donut_chart(
             return
         _show_slice(_donut_slice_index(xy[0] - cx, xy[1] - cy, sweeps), buzz=True)
 
-    _start_draw(ring, _shapes, page=page, frames=42)
+    _start_draw(ring, _shapes, page=page, frames=36)
     donut = ft.Container(
         width=size,
         height=size,
@@ -828,6 +1004,8 @@ def build_line_chart_image(
     show_income: bool = True,
     show_expense: bool = True,
     page: ft.Page | None = None,
+    compact: bool = False,
+    animate: bool = True,
 ) -> ft.Control:
     """Single cumulative net line: income lifts it, expense drops it."""
     _ = title
@@ -842,5 +1020,7 @@ def build_line_chart_image(
         show_income=show_income,
         show_expense=show_expense,
         page=page,
+        compact=compact,
+        animate=animate,
     )
 

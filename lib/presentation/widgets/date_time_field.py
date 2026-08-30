@@ -14,7 +14,7 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.infrastructure.services.localization import normalize_lang
-from lib.presentation.utils import format_date, tr
+from lib.presentation.utils import format_date, safe_update, tr
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -330,10 +330,7 @@ class DateTimeField(ft.Column):
             self._value_text,
             self._panel,
         ):
-            try:
-                control.update()
-            except Exception:  # noqa: BLE001
-                pass
+            safe_update(control)
 
     def open_picker(self) -> None:
         """Expand the inline calendar (safe inside an open AlertDialog)."""
@@ -492,10 +489,7 @@ class DateTimeField(ft.Column):
                 )
             rows.append(ft.Row(spacing=2, controls=cells))
         self._grid.controls = rows
-        try:
-            self._month_title.update()
-            self._grid.update()
-            self._hour_dd.update()
-            self._minute_dd.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(self._month_title)
+        safe_update(self._grid)
+        safe_update(self._hour_dd)
+        safe_update(self._minute_dd)

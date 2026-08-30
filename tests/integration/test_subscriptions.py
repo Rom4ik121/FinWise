@@ -230,3 +230,66 @@ def test_end_date_expires_without_charge(container) -> None:
         assert refreshed.status == SubscriptionStatus.EXPIRED
 
     run_async(_run())
+
+
+def test_subscription_charge_updates_budget(container) -> None:
+    async def _run() -> None:
+        from lib.domain.entities.category import CategoryKind
+        from tests.factories import make_category
+
+        await container.create_category.execute(
+            make_category(name="Прочее", kind=CategoryKind.EXPENSE)
+        )
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Прочее", now.month, now.year, Decimal("200"))
+        acc = await container.create_account.execute(make_account(balance="500"))
+        due = now - timedelta(days=1)
+        await container.create_subscription.execute(
+            make_subscription(
+                acc.id,
+                amount="40",
+                next_billing=due,
+            )
+        )
+        txs = await container.process_due_subscriptions.execute()
+        assert len(txs) >= 1
+        progress = await container.get_budgets_for_month.execute(now.month, now.year)
+        assert progress[0].spent == Decimal("40.00")
+
+    run_async(_run())
+
+
+def test_subscription_charge_converts_currency(container) -> None:
+    async def _run() -> None:
+        from lib.domain.entities.currency import ExchangeRate
+
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="USD",
+                quote="RUB",
+                rate=Decimal("100"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        acc = await container.create_account.execute(
+            make_account(currency="RUB", balance="1000")
+        )
+        due = datetime.now(timezone.utc) - timedelta(days=1)
+        sub = await container.create_subscription.execute(
+            make_subscription(
+                acc.id,
+                amount="5",
+                currency="USD",
+                next_billing=due,
+            )
+        )
+        txs = await container.process_due_subscriptions.execute()
+        assert len(txs) >= 1
+        assert txs[0].amount == Decimal("500.00")
+        assert txs[0].currency == "RUB"
+        account = await container.account_repository.get_by_id(acc.id)
+        assert account.balance == Decimal("500.00")
+        refreshed = await container.subscription_repository.get_by_id(sub.id)
+        assert refreshed.payments_made == 1
+
+    run_async(_run())

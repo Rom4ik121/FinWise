@@ -126,8 +126,31 @@ def init_db(config: Optional[AppConfig] = None, *, echo: bool = False) -> Engine
     Base.metadata.create_all(bind=engine)
     _apply_sqlite_column_patches(engine)
     _ensure_sqlite_indexes(engine)
+    _try_alembic_upgrade(config)
     logger.info("Database schema initialized")
     return engine
+
+
+def _try_alembic_upgrade(config: Optional[AppConfig] = None) -> None:
+    """Best-effort ``alembic upgrade head`` (idempotent; warn on failure)."""
+    try:
+        from pathlib import Path
+
+        from alembic import command
+        from alembic.config import Config as AlembicConfig
+
+        root = Path(__file__).resolve().parents[2]
+        migrations = root / "migrations"
+        if not (migrations / "env.py").is_file():
+            return
+        alembic_cfg = AlembicConfig()
+        alembic_cfg.set_main_option("script_location", str(migrations))
+        alembic_cfg.set_main_option("prepend_sys_path", str(root))
+        cfg = config or get_default_config()
+        alembic_cfg.set_main_option("sqlalchemy.url", cfg.database_url)
+        command.upgrade(alembic_cfg, "head")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Alembic upgrade head skipped: %s", exc)
 
 
 def _apply_sqlite_column_patches(engine: Engine) -> None:
@@ -135,12 +158,25 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
     if engine.url.get_backend_name() != "sqlite":
         return
     patches = {
+        "debts": [
+            ("account_id", "VARCHAR(36)"),
+            ("next_payment_date", "DATETIME"),
+            ("next_payment_amount", "NUMERIC(18, 2)"),
+            ("accrue_interest", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("accrued_interest", "NUMERIC(18, 2) NOT NULL DEFAULT 0"),
+            ("last_interest_accrued_at", "DATETIME"),
+        ],
+        "accounts": [
+            ("include_in_total", "BOOLEAN NOT NULL DEFAULT 1"),
+        ],
         "settings": [
             ("reminder_time", "VARCHAR(8) NOT NULL DEFAULT '09:00'"),
             ("reminder_days", "INTEGER NOT NULL DEFAULT 3"),
             ("check_balance_before_subscription", "BOOLEAN NOT NULL DEFAULT 1"),
             ("budget_alerts", "BOOLEAN NOT NULL DEFAULT 1"),
-            ("ui_style", "VARCHAR(32) NOT NULL DEFAULT 'classic'"),
+            ("ui_style", "VARCHAR(32) NOT NULL DEFAULT 'neon'"),
+            ("dashboard_hide_chart", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("dashboard_chart_days", "INTEGER NOT NULL DEFAULT 30"),
         ],
         "budgets": [
             ("last_alert_level", "INTEGER NOT NULL DEFAULT 0"),
@@ -153,6 +189,7 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("subscription_id", "VARCHAR(36)"),
             ("transfer_id", "VARCHAR(36)"),
             ("transfer_peer_account_id", "VARCHAR(36)"),
+            ("items", "JSON NOT NULL DEFAULT '[]'"),
         ],
         "goals": [
             ("currency", "VARCHAR(16) NOT NULL DEFAULT 'RUB'"),
@@ -234,6 +271,14 @@ def _ensure_sqlite_indexes(engine: Engine) -> None:
         "ON transactions (subscription_id)",
         "CREATE INDEX IF NOT EXISTS ix_transactions_transfer_id "
         "ON transactions (transfer_id)",
+        "CREATE INDEX IF NOT EXISTS ix_transactions_goal_date "
+        "ON transactions (goal_id, date DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_transactions_debt_date "
+        "ON transactions (debt_id, date DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_transactions_subscription_date "
+        "ON transactions (subscription_id, date DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_transactions_type_category_date "
+        "ON transactions (type, category, date DESC)",
     )
     with engine.begin() as conn:
         tables = {

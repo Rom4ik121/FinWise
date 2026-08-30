@@ -14,7 +14,12 @@ from lib.domain.entities.budget import Budget
 from lib.domain.entities.money import quantize_money
 from lib.domain.repositories.budget_repository import BudgetRepository
 from lib.infrastructure.db_models import BudgetModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.budget")
 
@@ -52,11 +57,15 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
         self._session_factory = session_factory
 
     async def get_by_id(self, budget_id: str) -> Optional[Budget]:
+        if in_unit_of_work():
+            return self._get_by_id_sync(budget_id)
         return await asyncio.to_thread(self._get_by_id_sync, budget_id)
 
     async def get_by_category_and_month(
         self, category_id: str, month: int, year: int
     ) -> Optional[Budget]:
+        if in_unit_of_work():
+            return self._get_by_category_and_month_sync(category_id, month, year)
         return await asyncio.to_thread(
             self._get_by_category_and_month_sync, category_id, month, year
         )
@@ -68,12 +77,23 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
         category_ids: Optional[Sequence[str]] = None,
     ) -> list[Budget]:
         names = tuple(category_ids) if category_ids else None
+        if in_unit_of_work():
+            return self._list_for_month_sync(month, year, names)
         return await asyncio.to_thread(self._list_for_month_sync, month, year, names)
 
+    async def list_all(self) -> list[Budget]:
+        if in_unit_of_work():
+            return self._list_all_sync()
+        return await asyncio.to_thread(self._list_all_sync)
+
     async def save(self, budget: Budget) -> Budget:
+        if in_unit_of_work():
+            return self._save_sync(budget)
         return await asyncio.to_thread(self._save_sync, budget)
 
     async def delete(self, budget_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(budget_id)
         return await asyncio.to_thread(self._delete_sync, budget_id)
 
     async def update_spent(self, budget_id: str, new_spent: Decimal) -> Optional[Budget]:
@@ -113,6 +133,15 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
             if category_ids:
                 stmt = stmt.where(BudgetModel.category_id.in_(category_ids))
             stmt = stmt.order_by(BudgetModel.category_id)
+            return [_to_entity(m) for m in session.scalars(stmt).all()]
+
+    def _list_all_sync(self) -> list[Budget]:
+        with session_scope(self._session_factory) as session:
+            stmt = select(BudgetModel).order_by(
+                BudgetModel.year.desc(),
+                BudgetModel.month.desc(),
+                BudgetModel.category_id,
+            )
             return [_to_entity(m) for m in session.scalars(stmt).all()]
 
     def _save_sync(self, entity: Budget) -> Budget:

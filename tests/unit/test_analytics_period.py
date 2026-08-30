@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from lib.domain.use_cases.transactions import StatsPeriod
@@ -29,7 +29,7 @@ def test_resolve_analytics_period_all_time_uses_monthly_buckets() -> None:
     now = datetime(2026, 8, 12, tzinfo=timezone.utc)
     cfg = resolve_analytics_period("all", now)
 
-    assert cfg.date_from is None
+    assert cfg.date_from == now - timedelta(days=365 * 5)
     assert cfg.group_by == StatsPeriod.MONTH
     assert cfg.max_chart_points == 36
 

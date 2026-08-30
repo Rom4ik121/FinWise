@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Optional
 import flet as ft
 
 from lib.domain.entities.goal import Goal, GoalStatus
+from lib.domain.entities.money import quantize_money
+from lib.core.config import SAVINGS_CATEGORIES
 from lib.presentation.notification_badges import (
     GOAL_ALERT_KINDS,
     mark_related_read,
@@ -24,6 +26,7 @@ from lib.presentation.styles import (
 )
 from lib.presentation.money_input import attach_grouped_digits, make_amount_field, parse_amount
 from lib.presentation.utils import (
+    bind_dropdown_select,
     format_date,
     format_money,
     load_rate_book,
@@ -31,6 +34,7 @@ from lib.presentation.utils import (
     safe_update,
     snack,
     tr,
+    try_convert_amount,
 )
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -163,12 +167,7 @@ class GoalsPage(ft.Column):
             self._state.settings,
             GOAL_ALERT_KINDS,
         )
-        for related_id in list(self._alert_ids):
-            mark_related_read(
-                self._state.container, related_id, GOAL_ALERT_KINDS
-            )
-        if self._alert_ids:
-            self._state.bump_refresh("dashboard")
+        # Do not auto-mark alerts read here — only when the user opens a goal.
         try:
             goals = await self._state.container.list_goals.execute(
                 status=self._status_filter,
@@ -191,12 +190,29 @@ class GoalsPage(ft.Column):
             return
 
         base = self._state.base_currency
-        total_target = sum((g.target_amount for g in goals), Decimal("0"))
-        total_saved = sum((g.current_amount for g in goals), Decimal("0"))
-        total_remaining = sum(
-            (g.remaining_amount for g in goals if g.status == GoalStatus.ACTIVE),
-            Decimal("0"),
-        )
+        book = await load_rate_book(self._state.container)
+        total_target = Decimal("0")
+        total_saved = Decimal("0")
+        total_remaining = Decimal("0")
+        fx_ok = True
+        for g in goals:
+            target = try_convert_amount(book, g.target_amount, g.currency, base)
+            saved = try_convert_amount(book, g.current_amount, g.currency, base)
+            if target is None or saved is None:
+                fx_ok = False
+                continue
+            total_target += target
+            total_saved += saved
+            if g.status == GoalStatus.ACTIVE:
+                remaining = try_convert_amount(
+                    book, g.remaining_amount, g.currency, base
+                )
+                if remaining is None:
+                    fx_ok = False
+                    continue
+                total_remaining += remaining
+        if not fx_ok:
+            snack(self._page, tr("fx.missing_rates", lang), error=True)
         cards: list[ft.Control] = [
             summary_strip(
                 [
@@ -234,12 +250,26 @@ class GoalsPage(ft.Column):
         safe_update(self._list)
 
     def _goal_card(self, goal: Goal) -> ft.Control:
+        cache = goal.cached_projection or {}
+        required_raw = cache.get("required_monthly_contribution")
+        required: Decimal | None = None
+        if required_raw not in (None, ""):
+            try:
+                required = Decimal(str(required_raw))
+            except Exception:  # noqa: BLE001
+                required = None
+        on_track = cache.get("is_on_track")
+        if on_track is not None and not isinstance(on_track, bool):
+            on_track = None
         return GoalProgress(
             goal,
             currency=goal.currency or self._state.base_currency,
             language=self._state.language,
             alert=goal.id in self._alert_ids,
+            required_monthly=required,
+            is_on_track=on_track,
             on_click=self._open_detail,
+            on_alert=self._open_detail,
             on_contribute=self._contribute
             if goal.status == GoalStatus.ACTIVE
             else None,
@@ -287,11 +317,11 @@ class GoalsPage(ft.Column):
                     amount = parse_amount(amount_tf.value)
                 except (InvalidOperation, ValueError):
                     convert_hint.value = ""
-                    convert_hint.update()
+                    safe_update(convert_hint)
                     return
                 if amount <= 0:
                     convert_hint.value = ""
-                    convert_hint.update()
+                    safe_update(convert_hint)
                     return
                 converted = book.convert(amount, account.currency, goal.currency)
                 if converted is None:
@@ -308,12 +338,12 @@ class GoalsPage(ft.Column):
                         amount=format_money(converted, goal.currency),
                     )
                     convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
-                convert_hint.update()
+                safe_update(convert_hint)
 
             attach_grouped_digits(
                 amount_tf, lang, extra_on_change=_refresh_conversion
             )
-            account_dd.on_select = _refresh_conversion
+            bind_dropdown_select(account_dd, _refresh_conversion)
 
             async def _save() -> None:
                 try:
@@ -340,6 +370,20 @@ class GoalsPage(ft.Column):
                         error=True,
                     )
                     return
+                remaining = quantize_money(
+                    max(Decimal("0"), goal.target_amount - goal.current_amount)
+                )
+                if remaining > 0 and converted > remaining:
+                    snack(
+                        self._page,
+                        tr(
+                            "goal.overfund_warn",
+                            lang,
+                            remaining=format_money(remaining, goal.currency),
+                        ),
+                        error=False,
+                    )
+
                 try:
                     updated = await self._state.container.contribute_to_goal.execute(
                         goal.id,
@@ -347,7 +391,13 @@ class GoalsPage(ft.Column):
                         account_id=account_id,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    snack(self._page, str(exc), error=True)
+                    msg = str(exc)
+                    if "archived" in msg.lower():
+                        snack(self._page, tr("goal.archived_block", lang), error=True)
+                    elif "completed" in msg.lower():
+                        snack(self._page, tr("goal.completed_block", lang), error=True)
+                    else:
+                        snack(self._page, msg, error=True)
                     return
                 close()
                 self._state.bump_refresh("dashboard", "accounts", "transactions", "goals")
@@ -392,6 +442,12 @@ class GoalsPage(ft.Column):
 
     def _open_detail(self, goal: Goal) -> None:
         lang = self._state.language
+        if goal.id in self._alert_ids:
+            mark_related_read(
+                self._state.container, goal.id, GOAL_ALERT_KINDS
+            )
+            self._alert_ids.discard(goal.id)
+            self._state.bump_refresh("dashboard")
         body = ft.Column(spacing=12, scroll=ft.ScrollMode.HIDDEN, expand=True)
         close_holder: dict[str, object] = {}
 
@@ -403,7 +459,7 @@ class GoalsPage(ft.Column):
         async def _load() -> None:
             body.controls = [loading_indicator()]
             try:
-                body.update()
+                safe_update(body)
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -483,8 +539,8 @@ class GoalsPage(ft.Column):
                         self._contribution_row(goal_obj, tx, accounts, close_holder)
                     )
                 load_more_btn.visible = more_has
-                contrib_col.update()
-                load_more_btn.update()
+                safe_update(contrib_col)
+                safe_update(load_more_btn)
 
             load_more_btn = ft.TextButton(
                 tr("action.load_more", lang, default="Load more"),
@@ -549,7 +605,7 @@ class GoalsPage(ft.Column):
                 contrib_col,
                 load_more_btn,
             ]
-            body.update()
+            safe_update(body)
 
         close = open_fullscreen_form(
             self._page,
@@ -576,8 +632,19 @@ class GoalsPage(ft.Column):
         credit = goal_credit_amount(tx)  # type: ignore[arg-type]
         account = accounts.get(getattr(tx, "account_id", ""))
         account_name = account.name if account is not None else "—"
+        account_ccy = account.currency if account is not None else getattr(tx, "currency", "")
+        debit = quantize_money(getattr(tx, "amount", credit))
+        debit_ccy = getattr(tx, "currency", None) or account_ccy or goal.currency
         comment = (getattr(tx, "comment", "") or "").strip()
         date_txt = format_date(getattr(tx, "date", None))
+        subtitle = account_name
+        if debit_ccy.upper() != (goal.currency or "").upper():
+            subtitle = (
+                f"{account_name} · −{format_money(debit, debit_ccy)} → "
+                f"{format_money(credit, goal.currency)}"
+            )
+        else:
+            subtitle = f"{account_name} · −{format_money(debit, debit_ccy)}"
 
         def _delete(_e: ft.ControlEvent | None = None) -> None:
             async def _do() -> None:
@@ -626,7 +693,7 @@ class GoalsPage(ft.Column):
                                 f"{date_txt} · {format_money(credit, goal.currency)}",
                                 weight=ft.FontWeight.W_600,
                             ),
-                            muted_text(account_name),
+                            muted_text(subtitle),
                             muted_text(comment) if comment else ft.Container(height=0),
                         ],
                     ),
@@ -698,10 +765,25 @@ class GoalsPage(ft.Column):
             value=(goal.currency if goal else self._state.base_currency),
             include_crypto=True,
         )
+        savings_options = sorted(SAVINGS_CATEGORIES)
+        default_link = (
+            goal.category_link
+            if goal and (goal.category_link or "").strip()
+            else tr("category.savings", lang)
+        )
+        category_dd = ft.Dropdown(
+            label=tr("goal.category_link", lang),
+            value=default_link if default_link in savings_options else savings_options[0],
+            options=[
+                ft.DropdownOption(key=name, text=name) for name in savings_options
+            ],
+            expand=True,
+        )
         editor_controls: list[ft.Control] = [
             name_tf,
             target_tf,
             currency_picker,
+            category_dd,
         ]
         if goal:
             editor_controls.append(
@@ -715,6 +797,17 @@ class GoalsPage(ft.Column):
             editor_controls.append(
                 ft.Text(
                     tr("goal.progress_hint", lang),
+                    size=11,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                )
+            )
+            if (goal.currency or "").upper() != (
+                currency_picker.value or ""
+            ).upper():
+                pass
+            editor_controls.append(
+                ft.Text(
+                    tr("goal.currency_change_hint", lang),
                     size=11,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 )
@@ -738,17 +831,19 @@ class GoalsPage(ft.Column):
                 currency=currency_picker.value or self._state.base_currency,
                 deadline=deadline,
                 priority=int(priority_dd.value or 3),
-                category_link=goal.category_link
-                if goal
-                else tr("category.savings", lang),
+                category_link=(category_dd.value or tr("category.savings", lang)).strip(),
                 status=goal.status if goal else GoalStatus.ACTIVE,
                 is_completed=goal.is_completed if goal else False,
                 created_at=goal.created_at if goal else datetime.now(timezone.utc),
             )
-            if goal:
-                await self._state.container.update_goal.execute(entity)
-            else:
-                await self._state.container.create_goal.execute(entity)
+            try:
+                if goal:
+                    await self._state.container.update_goal.execute(entity)
+                else:
+                    await self._state.container.create_goal.execute(entity)
+            except Exception as exc:  # noqa: BLE001
+                snack(self._page, str(exc), error=True)
+                return
             close()
             self._state.bump_refresh("dashboard")
             await self.reload()
@@ -759,7 +854,11 @@ class GoalsPage(ft.Column):
                 return
 
             async def _do() -> None:
-                await self._state.container.delete_goal.execute(goal.id)
+                try:
+                    await self._state.container.delete_goal.execute(goal.id)
+                except Exception as exc:  # noqa: BLE001
+                    snack(self._page, str(exc), error=True)
+                    return
                 close()
                 self._state.bump_refresh("dashboard")
                 await self.reload()
@@ -767,7 +866,7 @@ class GoalsPage(ft.Column):
             confirm_dialog(
                 self._page,
                 title=tr("action.confirm_delete", lang),
-                message=goal.name,
+                message=tr("goal.delete_keep_txs", lang, name=goal.name),
                 confirm_text=tr("action.delete", lang),
                 cancel_text=tr("action.cancel", lang),
                 on_confirm=_do,

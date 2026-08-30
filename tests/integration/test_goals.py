@@ -158,3 +158,126 @@ def test_goal_projection_and_delete_contribution(container) -> None:
         assert refreshed.status == GoalStatus.ACTIVE
 
     run_async(_run())
+
+
+def test_add_transaction_fills_goal_credit_fx(container) -> None:
+    async def _run() -> None:
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="USD",
+                quote="RUB",
+                rate=Decimal("100"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        usd = await container.create_account.execute(
+            make_account(name="USD", currency="USD", balance="50")
+        )
+        goal = await container.create_goal.execute(
+            make_goal(target="1000", currency="RUB")
+        )
+        from tests.factories import make_transaction
+
+        tx = await container.add_transaction.execute(
+            make_transaction(
+                usd.id,
+                amount="5",
+                currency="USD",
+                category="Сбережения",
+                goal_id=goal.id,
+            )
+        )
+        assert tx.goal_credit_amount == Decimal("500.00")
+        refreshed = await container.goal_repository.get_by_id(goal.id)
+        assert refreshed is not None
+        assert refreshed.current_amount == Decimal("500.00")
+
+    run_async(_run())
+
+
+def test_update_goal_currency_converts_progress(container) -> None:
+    async def _run() -> None:
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="USD",
+                quote="RUB",
+                rate=Decimal("100"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        acc = await container.create_account.execute(make_account(balance="1000"))
+        goal = await container.create_goal.execute(
+            make_goal(target="1000", currency="RUB")
+        )
+        await container.contribute_to_goal.execute(
+            goal.id, Decimal("500"), account_id=acc.id
+        )
+        updated = await container.update_goal.execute(
+            goal.model_copy(
+                update={
+                    "currency": "USD",
+                    "target_amount": Decimal("20"),
+                    "current_amount": Decimal("500"),
+                }
+            )
+        )
+        assert updated.currency == "USD"
+        assert updated.current_amount == Decimal("5.00")
+
+    run_async(_run())
+
+
+def test_delete_goal_unlinks_contributions(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="1000"))
+        goal = await container.create_goal.execute(make_goal(target="200"))
+        await container.contribute_to_goal.execute(
+            goal.id, Decimal("50"), account_id=acc.id
+        )
+        txs = await container.list_transactions.execute(goal_id=goal.id)
+        assert len(txs) == 1
+        tx_id = txs[0].id
+        assert await container.delete_goal.execute(goal.id) is True
+        leftover = await container.transaction_repository.get_by_id(tx_id)
+        assert leftover is not None
+        assert leftover.goal_id is None
+        # Credit kept so budget recalculate never treats savings as spend.
+        assert leftover.goal_credit_amount == Decimal("50.00")
+        bal = await container.account_repository.get_by_id(acc.id)
+        assert bal is not None
+        assert bal.balance == Decimal("950.00")
+
+    run_async(_run())
+
+
+def test_goal_contribution_skips_budget_spent(container) -> None:
+    async def _run() -> None:
+        from lib.domain.entities.category import CategoryKind
+        from tests.factories import make_category, make_transaction
+
+        cat = "Накопление"
+        await container.create_category.execute(
+            make_category(name=cat, kind=CategoryKind.EXPENSE)
+        )
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute(cat, now.month, now.year, Decimal("500"))
+        acc = await container.create_account.execute(make_account(balance="1000"))
+        goal = await container.create_goal.execute(make_goal(target="200"))
+        await container.contribute_to_goal.execute(
+            goal.id, Decimal("80"), account_id=acc.id
+        )
+        progress = await container.get_budget_progress.execute(
+            category_id=cat, month=now.month, year=now.year
+        )
+        assert progress.spent == Decimal("0.00")
+
+        # Same category without goal_id still hits the budget.
+        await container.add_transaction.execute(
+            make_transaction(acc.id, amount="40", category=cat)
+        )
+        progress2 = await container.get_budget_progress.execute(
+            category_id=cat, month=now.month, year=now.year
+        )
+        assert progress2.spent == Decimal("40.00")
+
+    run_async(_run())

@@ -16,7 +16,8 @@ def test_display_text_formats() -> None:
     dt = datetime(2024, 5, 1, 14, 30, tzinfo=timezone.utc)
     assert _display_text(None, with_time=False, empty_label="—") == "—"
     assert "01.05.2024" in _display_text(dt, with_time=False, empty_label="—")
-    assert "14:30" in _display_text(dt, with_time=True, empty_label="—")
+    local_hm = dt.astimezone().strftime("%H:%M")
+    assert local_hm in _display_text(dt, with_time=True, empty_label="—")
 
 
 def test_picker_locale_follows_app_lang() -> None:

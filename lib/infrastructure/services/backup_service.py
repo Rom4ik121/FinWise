@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from lib.core.config import AppConfig, get_default_config
+from lib.infrastructure.services.secret_box import master_key_path
 
 logger = logging.getLogger("finanse.infrastructure.services.backup")
 
@@ -18,7 +19,12 @@ class BackupServiceError(Exception):
 
 
 class BackupService:
-    """Copy the SQLite DB file to / from the configured backup directory."""
+    """Copy the SQLite DB file to / from the configured backup directory.
+
+    When a ``.secret_box_key`` exists, it is copied next to the backup as
+    ``<backup>.db.key`` so exchange credentials remain decryptable after restore
+    on the same or another device that receives both files.
+    """
 
     def __init__(self, config: Optional[AppConfig] = None) -> None:
         self._config = config or get_default_config()
@@ -56,6 +62,7 @@ class BackupService:
         try:
             # Also copy WAL/SHM sidecars when present for a consistent snapshot.
             self._copy_sqlite_bundle(source, target)
+            self._copy_secret_key(target)
             logger.info("Database backed up to %s", target)
             return target
         except OSError as exc:
@@ -84,6 +91,7 @@ class BackupService:
 
             self._remove_sqlite_sidecars(target)
             self._copy_sqlite_bundle(source, target)
+            self._restore_secret_key(source)
             logger.info("Database restored from %s to %s", source, target)
             return target
         except OSError as exc:
@@ -103,12 +111,38 @@ class BackupService:
         path = Path(backup_path)
         try:
             self._remove_sqlite_sidecars(path)
+            key_side = Path(str(path) + ".key")
+            if key_side.exists():
+                key_side.unlink()
             if path.exists():
                 path.unlink()
             logger.info("Deleted backup %s", path)
         except OSError as exc:
             logger.exception("Failed to delete backup %s", path)
             raise BackupServiceError(f"Delete failed: {exc}") from exc
+
+    def _copy_secret_key(self, backup_db: Path) -> None:
+        key = master_key_path(self._config)
+        if not key.is_file():
+            return
+        shutil.copy2(key, Path(str(backup_db) + ".key"))
+
+    def _restore_secret_key(self, backup_db: Path) -> None:
+        key_src = Path(str(backup_db) + ".key")
+        if not key_src.is_file():
+            logger.warning(
+                "Backup has no companion key file; exchange credentials may not decrypt"
+            )
+            return
+        dest = master_key_path(self._config)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(key_src, dest)
+        try:
+            import os
+
+            os.chmod(dest, 0o600)
+        except OSError:
+            pass
 
     @staticmethod
     def _copy_sqlite_bundle(source: Path, target: Path) -> None:

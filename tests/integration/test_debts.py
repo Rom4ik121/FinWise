@@ -134,9 +134,10 @@ def test_delete_debt_payment_restores_remaining(container) -> None:
         )
         await container.repay_debt.execute(debt.id, Decimal("80"), account_id=acc.id)
         txs = await container.list_transactions.execute(debt_id=debt.id)
-        assert len(txs) == 1
+        payments = [t for t in txs if "debt_principal" not in (t.tags or [])]
+        assert len(payments) == 1
         deleted = await container.delete_debt_payment.execute(
-            txs[0].id, debt_id=debt.id
+            payments[0].id, debt_id=debt.id
         )
         assert deleted is True
         refreshed = await container.debt_repository.get_by_id(debt.id)
@@ -168,5 +169,168 @@ def test_interest_requires_rate(container) -> None:
         debt = await container.create_debt.execute(make_debt())
         with pytest.raises(ValueError):
             await container.calculate_debt_interest.execute(debt.id)
+
+    run_async(_run())
+
+
+def test_create_debt_principal_converts_fx(container) -> None:
+    async def _run() -> None:
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="USD",
+                quote="RUB",
+                rate=Decimal("90"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        usd = await container.create_account.execute(
+            make_account(name="USD", currency="USD", balance="0")
+        )
+        debt = await container.create_debt.execute(
+            make_debt(amount="900", currency="RUB", direction=DebtDirection.I_OWE),
+            account_id=usd.id,
+        )
+        assert debt.remaining_amount == Decimal("900.00")
+        account = await container.account_repository.get_by_id(usd.id)
+        assert account.balance == Decimal("10.00")
+        txs = await container.list_transactions.execute(account_id=usd.id)
+        assert len(txs) == 1
+        assert txs[0].amount == Decimal("10.00")
+        assert txs[0].currency == "USD"
+        assert txs[0].debt_id == debt.id
+        assert "debt_principal" in txs[0].tags
+
+    run_async(_run())
+
+
+def test_delete_debt_reverses_principal_cash(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="0"))
+        debt = await container.create_debt.execute(
+            make_debt(amount="100", direction=DebtDirection.I_OWE),
+            account_id=acc.id,
+        )
+        assert debt.remaining_amount == Decimal("100.00")
+        account = await container.account_repository.get_by_id(acc.id)
+        assert account.balance == Decimal("100.00")
+        assert await container.delete_debt.execute(debt.id) is True
+        account2 = await container.account_repository.get_by_id(acc.id)
+        assert account2.balance == Decimal("0.00")
+        assert await container.list_transactions.execute(debt_id=debt.id) == []
+
+    run_async(_run())
+
+
+def test_create_debt_principal_blocks_missing_rate(container) -> None:
+    async def _run() -> None:
+        eur = await container.create_account.execute(
+            make_account(name="EUR", currency="EUR", balance="0")
+        )
+        with pytest.raises(ValueError, match="No exchange rate"):
+            await container.create_debt.execute(
+                make_debt(amount="100", currency="RUB"),
+                account_id=eur.id,
+            )
+
+    run_async(_run())
+
+
+def test_accrue_interest_increases_remaining(container) -> None:
+    async def _run() -> None:
+        past = datetime.now(timezone.utc) - timedelta(days=40)
+        debt = await container.create_debt.execute(
+            make_debt(amount="1200", interest_rate=Decimal("12")).model_copy(
+                update={"started_at": past}
+            )
+        )
+        debt = await container.update_debt.execute(
+            debt.model_copy(
+                update={
+                    "accrue_interest": True,
+                    "interest_rate": Decimal("12"),
+                    "last_interest_accrued_at": past,
+                }
+            )
+        )
+        before = debt.remaining_amount
+        changed = await container.accrue_debt_interest.execute()
+        assert any(d.id == debt.id for d in changed)
+        refreshed = await container.debt_repository.get_by_id(debt.id)
+        assert refreshed is not None
+        assert refreshed.remaining_amount > before
+        assert refreshed.accrued_interest > 0
+
+    run_async(_run())
+
+
+def test_undo_last_debt_payment(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="1000"))
+        debt = await container.create_debt.execute(
+            make_debt(amount="200"), account_id=acc.id
+        )
+        await container.repay_debt.execute(debt.id, Decimal("50"), account_id=acc.id)
+        mid = await container.debt_repository.get_by_id(debt.id)
+        assert mid is not None
+        assert mid.remaining_amount == Decimal("150.00")
+        assert await container.undo_last_debt_payment.execute(debt.id) is True
+        back = await container.debt_repository.get_by_id(debt.id)
+        assert back is not None
+        assert back.remaining_amount == Decimal("200.00")
+
+    run_async(_run())
+
+
+def test_update_debt_currency_converts_remaining(container) -> None:
+    async def _run() -> None:
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="USD",
+                quote="RUB",
+                rate=Decimal("100"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        debt = await container.create_debt.execute(
+            make_debt(amount="1000", currency="RUB")
+        )
+        updated = await container.update_debt.execute(
+            debt.model_copy(
+                update={
+                    "currency": "USD",
+                    "amount": Decimal("1000"),
+                    "remaining_amount": Decimal("1000"),
+                }
+            )
+        )
+        assert updated.currency == "USD"
+        assert updated.remaining_amount == Decimal("10.00")
+
+    run_async(_run())
+
+
+def test_next_payment_marks_overdue(container) -> None:
+    async def _run() -> None:
+        past = datetime.now(timezone.utc) - timedelta(days=2)
+        debt = await container.create_debt.execute(make_debt(amount="100"))
+        updated = await container.update_debt.execute(
+            debt.model_copy(update={"next_payment_date": past, "due_date": None})
+        )
+        assert updated.status == DebtStatus.OVERDUE
+        # Scheduler path still flips ACTIVE → OVERDUE for next-payment dates.
+        active = await container.create_debt.execute(
+            make_debt(amount="50", counterparty="B")
+        )
+        # Bypass resolve by writing ACTIVE + past next payment through repo.
+        raw = active.model_copy(
+            update={
+                "next_payment_date": past,
+                "due_date": None,
+                "status": DebtStatus.ACTIVE,
+            }
+        )
+        await container.debt_repository.update(raw)
+        changed = await container.mark_overdue_debts.execute()
+        assert any(d.id == active.id for d in changed)
 
     run_async(_run())

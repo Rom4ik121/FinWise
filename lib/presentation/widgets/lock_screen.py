@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Awaitable, Callable, Optional
 
 import flet as ft
@@ -9,7 +11,7 @@ import flet as ft
 from lib.infrastructure.services.biometric import BiometricResult, BiometricStatus
 from lib.infrastructure.services.encryption_service import EncryptionService
 from lib.presentation.theme import is_dark_mode, page_gradient
-from lib.presentation.utils import run_async, snack, tr
+from lib.presentation.utils import run_async, safe_update, snack, tr
 
 
 def _biometric_error_key(result: BiometricResult) -> str:
@@ -50,6 +52,9 @@ class LockScreen(ft.Container):
         self._on_unlocked = on_unlocked
         self._crypto = encryption or EncryptionService()
         self._biometric_busy = False
+        self._pin_fails = 0
+        self._pin_locked_until = 0.0
+        self._countdown_task: asyncio.Task[None] | None = None
         self._pin = ft.TextField(
             label=tr("settings.pin", language),
             password=True,
@@ -161,36 +166,82 @@ class LockScreen(ft.Container):
         """Probe OS support, then auto-open the Hello / biometric prompt."""
         status = await self._crypto.refresh_biometric_status()
         self._bio_btn.visible = self._biometric_enabled
-        try:
-            self._bio_btn.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(self._bio_btn)
         if status is BiometricStatus.AVAILABLE:
             await self._try_biometric()
 
     async def _finish(self) -> None:
+        self._stop_countdown()
         result = self._on_unlocked()
         if hasattr(result, "__await__"):
             await result  # type: ignore[misc]
 
+    def _stop_countdown(self) -> None:
+        task = self._countdown_task
+        self._countdown_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _start_countdown(self) -> None:
+        """Refresh the lockout message every second until the lock expires."""
+        self._stop_countdown()
+
+        async def _tick() -> None:
+            try:
+                while True:
+                    remaining = int(self._pin_locked_until - time.monotonic())
+                    if remaining <= 0:
+                        self._pin_locked_until = 0.0
+                        self._error.value = ""
+                        self._pin.disabled = False
+                        safe_update(self._error)
+                        safe_update(self._pin)
+                        safe_update(self)
+                        return
+                    self._error.value = tr(
+                        "lock.throttled", self._lang, seconds=remaining
+                    )
+                    self._pin.disabled = True
+                    safe_update(self._error)
+                    safe_update(self._pin)
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                return
+
+        self._countdown_task = asyncio.create_task(_tick())
+
     async def _try_pin(self) -> None:
+        now = time.monotonic()
+        if now < self._pin_locked_until:
+            # Ensure live timer is running even if user taps again.
+            if self._countdown_task is None or self._countdown_task.done():
+                self._start_countdown()
+            return
         pin = (self._pin.value or "").strip()
         if self._crypto.verify_pin(pin, self._pin_hash, self._pin_salt):
+            self._pin_fails = 0
+            self._pin_locked_until = 0.0
+            self._pin.disabled = False
             await self._finish()
+            return
+        self._pin_fails += 1
+        if self._pin_fails >= 5:
+            # 30s, then 60s, 120s… after every 5 failures.
+            lock_for = 30 * (2 ** max(0, (self._pin_fails // 5) - 1))
+            self._pin_locked_until = now + lock_for
+            self._pin.value = ""
+            self._start_countdown()
             return
         self._error.value = tr("lock.wrong_pin", self._lang)
         self._pin.value = ""
-        self.update()
+        safe_update(self)
 
     async def _try_biometric(self) -> None:
         if self._biometric_busy:
             return
         self._biometric_busy = True
         self._error.value = ""
-        try:
-            self.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(self)
         try:
             result = await self._crypto.authenticate_biometric(
                 message=tr("lock.biometric_prompt", self._lang),
@@ -204,9 +255,6 @@ class LockScreen(ft.Container):
             msg = tr(_biometric_error_key(result), self._lang)
             self._error.value = msg
             snack(self._page, msg, error=True)
-            try:
-                self.update()
-            except Exception:  # noqa: BLE001
-                pass
+            safe_update(self)
         finally:
             self._biometric_busy = False

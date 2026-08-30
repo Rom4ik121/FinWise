@@ -32,6 +32,7 @@ def dual_add_button(
             expand=True,
             bgcolor=bgcolor,
             ink=True,
+            ink_color=ft.Colors.TRANSPARENT,
             on_click=lambda _e: on_click() if on_click else None,
             padding=ft.Padding.symmetric(horizontal=14, vertical=14),
             content=ft.Row(

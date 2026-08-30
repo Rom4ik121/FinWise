@@ -14,13 +14,15 @@ from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.use_cases.transactions import FEE_CATEGORY, make_fee_expense
 from lib.presentation.money_input import (
+    format_amount_value,
     make_amount_field,
     parse_amount,
     parse_optional_amount,
 )
-from lib.presentation.utils import run_async, snack, tr
+from lib.presentation.utils import bind_dropdown_select, run_async, safe_update, snack, tr
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
+from lib.presentation.widgets.line_items_editor import LineItemsEditor
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -92,6 +94,15 @@ async def _show_form(
         expand=True,
         autofocus=True,
     )
+    items_editor = LineItemsEditor(
+        lang,
+        on_changed=lambda: _sync_amount_visibility(),
+    )
+
+    def _sync_amount_visibility() -> None:
+        amount_tf.visible = not items_editor.enabled
+        safe_update(amount_tf)
+
     fee_tf = make_amount_field(
         lang,
         label=tr("field.fee", lang),
@@ -124,17 +135,14 @@ async def _show_form(
         show = (type_dd.value or TransactionType.EXPENSE.value) == TransactionType.EXPENSE.value
         fee_tf.visible = show
         fee_hint.visible = show
-        try:
-            fee_tf.update()
-            fee_hint.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(fee_tf)
+        safe_update(fee_hint)
 
     def _on_type(_e: ft.ControlEvent) -> None:
         category_picker.set_tx_type(type_dd.value or TransactionType.EXPENSE.value)
         _sync_fee_visibility()
 
-    type_dd.on_select = _on_type
+    bind_dropdown_select(type_dd, _on_type)
     _sync_fee_visibility()
 
     comment_tf = ft.TextField(label=tr("field.comment", lang), expand=True)
@@ -153,35 +161,27 @@ async def _show_form(
             snack(page, tr("voice.unavailable", lang), error=True)
             return
         voice_status.value = tr("voice.listening", lang)
-        try:
-            voice_status.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(voice_status)
         spoken = await listen_speech(language=lang)
         if not spoken:
             voice_status.value = tr("voice.empty", lang)
-            try:
-                voice_status.update()
-            except Exception:  # noqa: BLE001
-                pass
+            safe_update(voice_status)
             snack(page, tr("voice.empty", lang), error=True)
             return
         draft = parse_voice_expense(spoken)
         type_dd.value = draft.tx_type.value
         category_picker.set_tx_type(draft.tx_type.value)
+        _sync_fee_visibility()
         if draft.amount is not None:
-            amount_tf.value = str(draft.amount)
+            amount_tf.value = format_amount_value(draft.amount, lang)
         if draft.category and draft.category != "Прочее":
             category_picker.select_name(draft.category)
         comment_tf.value = spoken
         voice_status.value = spoken
-        try:
-            type_dd.update()
-            amount_tf.update()
-            comment_tf.update()
-            voice_status.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(type_dd)
+        safe_update(amount_tf)
+        safe_update(comment_tf)
+        safe_update(voice_status)
         if draft.amount and draft.amount > 0 and category_picker.selected_name:
             await _save()
             return
@@ -194,19 +194,6 @@ async def _show_form(
     )
 
     async def _save() -> None:
-        try:
-            amount = parse_amount(amount_tf.value)
-            fee = parse_optional_amount(fee_tf.value)
-            if amount <= 0 or fee < 0:
-                raise InvalidOperation
-        except (InvalidOperation, ValueError):
-            snack(
-                page,
-                tr("invalid_amount", lang),
-                error=True,
-            )
-            return
-
         account = next((a for a in accounts if a.id == account_dd.value), accounts[0])
         tags = [
             part.strip().lstrip("#")
@@ -230,6 +217,30 @@ async def _show_form(
                     else CategoryKind.EXPENSE
                 ),
             )
+
+        line_items = items_editor.collect(default_category=category_name)
+        try:
+            fee = parse_optional_amount(fee_tf.value)
+            if fee < 0:
+                raise InvalidOperation
+            if line_items is None:
+                amount = parse_amount(amount_tf.value)
+                if amount <= 0:
+                    raise InvalidOperation
+                items = []
+            else:
+                if len(line_items) < 1:
+                    raise InvalidOperation
+                amount = sum((i.amount for i in line_items), Decimal("0"))
+                items = line_items
+        except (InvalidOperation, ValueError):
+            snack(
+                page,
+                tr("invalid_amount", lang),
+                error=True,
+            )
+            return
+
         tx = Transaction(
             account_id=account.id,
             amount=amount,
@@ -239,25 +250,30 @@ async def _show_form(
             comment=comment_tf.value or "",
             type=tx_type,
             currency=account.currency,
+            items=items,
         )
         try:
             saved = await state.container.add_transaction.execute(tx)
             if fee > 0 and tx_type == TransactionType.EXPENSE:
-                if state.container.find_or_create_category is not None:
-                    await state.container.find_or_create_category.execute(
-                        FEE_CATEGORY,
-                        kind=CategoryKind.EXPENSE,
-                        icon="receipt_long",
+                try:
+                    if state.container.find_or_create_category is not None:
+                        await state.container.find_or_create_category.execute(
+                            FEE_CATEGORY,
+                            kind=CategoryKind.EXPENSE,
+                            icon="receipt_long",
+                        )
+                    await state.container.add_transaction.execute(
+                        make_fee_expense(
+                            account_id=account.id,
+                            currency=account.currency,
+                            amount=fee,
+                            date=saved.date,
+                            comment=saved.comment or FEE_CATEGORY,
+                        )
                     )
-                await state.container.add_transaction.execute(
-                    make_fee_expense(
-                        account_id=account.id,
-                        currency=account.currency,
-                        amount=fee,
-                        date=saved.date,
-                        comment=saved.comment or FEE_CATEGORY,
-                    )
-                )
+                except Exception:
+                    await state.container.delete_transaction.execute(saved.id)
+                    raise
         except Exception as exc:  # noqa: BLE001
             snack(page, str(exc), error=True)
             return
@@ -276,6 +292,7 @@ async def _show_form(
         body=[
             type_dd,
             amount_tf,
+            items_editor,
             fee_tf,
             fee_hint,
             mic,

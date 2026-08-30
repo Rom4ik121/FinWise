@@ -12,7 +12,8 @@
 | [USE_CASES.md](USE_CASES.md) | Сценарии (транзакции, счета, цели, долги, подписки, бюджеты, экспорт) |
 | [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, API курсов, бэкап, push, биометрия, речь |
 | [PRESENTATION.md](PRESENTATION.md) | UI, навигация, скины, голосовой ввод, файлы |
-| [DATABASE.md](DATABASE.md) | SQLite, таблицы, миграции Alembic |
+| [DATABASE.md](DATABASE.md) | SQLite, таблицы, индексы, миграции Alembic 0001–0016 |
+| [PERFORMANCE.md](PERFORMANCE.md) | Оптимизация БД/FX/UI для телефонов и десктопа |
 | [TESTING.md](TESTING.md) | pytest, фикстуры, покрытие |
 | [CODEMAGIC.md](CODEMAGIC.md) | Сборка подписанного IPA |
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Callable, Optional
 
 import flet as ft
@@ -22,8 +23,11 @@ class GoalProgress(ft.Container):
         currency: str = "RUB",
         language: str = "ru",
         alert: bool = False,
+        required_monthly: Optional[Decimal] = None,
+        is_on_track: Optional[bool] = None,
         on_click: Optional[Callable[[Goal], None]] = None,
         on_contribute: Optional[Callable[[Goal], None]] = None,
+        on_alert: Optional[Callable[[Goal], None]] = None,
     ) -> None:
         ratio = float(goal.progress_ratio)
         ratio = max(0.0, min(ratio, 1.0))
@@ -64,14 +68,40 @@ class GoalProgress(ft.Container):
                 ),
             )
 
+        chips: list[ft.Control] = [
+            _chip(status_label, bgcolor=status_bg, color=status_fg),
+            _chip(
+                f"P{goal.priority}",
+                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                color=ft.Colors.ON_SURFACE,
+            ),
+        ]
+        if is_on_track is True:
+            chips.append(
+                _chip(
+                    tr("goal.on_track", language),
+                    bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                    color=ft.Colors.ON_PRIMARY_CONTAINER,
+                )
+            )
+        elif is_on_track is False:
+            chips.append(
+                _chip(
+                    tr("goal.off_track", language),
+                    bgcolor=ft.Colors.ERROR_CONTAINER,
+                    color=ft.Colors.ON_ERROR_CONTAINER,
+                )
+            )
+
         can_contribute = on_contribute is not None and status == GoalStatus.ACTIVE
+        alert_handler = on_alert or on_click
         if alert:
             action_btn: ft.Control = ft.IconButton(
                 icon=ft.Icons.PRIORITY_HIGH,
                 icon_color=ft.Colors.ON_ERROR,
                 bgcolor=ft.Colors.ERROR,
                 tooltip=tr("notify.goal_off_track_title", language),
-                on_click=lambda _e: on_contribute(goal) if can_contribute else None,
+                on_click=lambda _e: alert_handler(goal) if alert_handler else None,
                 style=ft.ButtonStyle(
                     shape=ft.CircleBorder(),
                     padding=10,
@@ -91,6 +121,16 @@ class GoalProgress(ft.Container):
             )
         else:
             action_btn = ft.Container(width=0, height=0)
+
+        footer_bits = [deadline]
+        if required_monthly is not None and status == GoalStatus.ACTIVE:
+            footer_bits.append(
+                tr(
+                    "goal.required_monthly_short",
+                    language,
+                    amount=format_money_compact(required_monthly, currency),
+                )
+            )
 
         body = ft.Column(
             spacing=12,
@@ -115,18 +155,7 @@ class GoalProgress(ft.Container):
                                 ft.Row(
                                     spacing=6,
                                     wrap=True,
-                                    controls=[
-                                        _chip(
-                                            status_label,
-                                            bgcolor=status_bg,
-                                            color=status_fg,
-                                        ),
-                                        _chip(
-                                            f"P{goal.priority}",
-                                            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                                            color=ft.Colors.ON_SURFACE,
-                                        ),
-                                    ],
+                                    controls=chips,
                                 ),
                             ],
                         ),
@@ -161,7 +190,7 @@ class GoalProgress(ft.Container):
                     bar_height=8,
                     border_radius=999,
                 ),
-                muted_text(deadline),
+                muted_text(" · ".join(footer_bits)),
             ],
         )
         card = card_surface(

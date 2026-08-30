@@ -13,7 +13,12 @@ from sqlalchemy import select
 from lib.domain.entities.account import Account
 from lib.domain.repositories.account_repository import AccountRepository
 from lib.infrastructure.db_models import AccountModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.account")
 
@@ -28,6 +33,7 @@ def _to_entity(model: AccountModel) -> Account:
         icon=model.icon,
         color=model.color,
         is_active=model.is_active,
+        include_in_total=bool(getattr(model, "include_in_total", True)),
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
     )
 
@@ -41,6 +47,7 @@ def _apply_entity(model: AccountModel, entity: Account) -> None:
     model.icon = entity.icon
     model.color = entity.color
     model.is_active = entity.is_active
+    model.include_in_total = bool(entity.include_in_total)
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
 
 
@@ -51,18 +58,28 @@ class SqlAlchemyAccountRepository(AccountRepository):
         self._session_factory = session_factory
 
     async def create(self, account: Account) -> Account:
+        if in_unit_of_work():
+            return self._create_sync(account)
         return await asyncio.to_thread(self._create_sync, account)
 
     async def update(self, account: Account) -> Account:
+        if in_unit_of_work():
+            return self._update_sync(account)
         return await asyncio.to_thread(self._update_sync, account)
 
     async def delete(self, account_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(account_id)
         return await asyncio.to_thread(self._delete_sync, account_id)
 
     async def get_by_id(self, account_id: str) -> Optional[Account]:
+        if in_unit_of_work():
+            return self._get_by_id_sync(account_id)
         return await asyncio.to_thread(self._get_by_id_sync, account_id)
 
     async def list(self, *, active_only: bool = False) -> list[Account]:
+        if in_unit_of_work():
+            return self._list_sync(active_only)
         return await asyncio.to_thread(self._list_sync, active_only)
 
     def _create_sync(self, entity: Account) -> Account:

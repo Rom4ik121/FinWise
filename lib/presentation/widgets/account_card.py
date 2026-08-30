@@ -33,6 +33,7 @@ class AccountCard(ft.Container):
         on_edit: Optional[Callable[[Account], None]] = None,
         on_delete: Optional[Callable[[Account], None]] = None,
         on_sync: Optional[Callable[[Account], None]] = None,
+        on_include_in_total: Optional[Callable[[Account, bool], None]] = None,
     ) -> None:
         from lib.presentation.utils import tr
 
@@ -83,70 +84,110 @@ class AccountCard(ft.Container):
         )
         icon_key = resolve_account_icon_key(account.icon, exchange_id)
 
+        include_sw = ft.Switch(
+            value=bool(getattr(account, "include_in_total", True)),
+            scale=0.85,
+            on_change=(
+                (
+                    lambda e, acc=account: on_include_in_total(
+                        acc, bool(getattr(e.control, "value", True))
+                    )
+                )
+                if on_include_in_total is not None
+                else None
+            ),
+        )
+        include_row = ft.Row(
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Text(
+                    tr("account.include_in_total", language),
+                    size=12,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    expand=True,
+                    max_lines=2,
+                ),
+                include_sw,
+            ],
+        )
+
+        header = ft.Row(
+            spacing=12,
+            expand=True,
+            controls=[
+                account_icon_badge(
+                    icon_key,
+                    color=accent,
+                    size=46,
+                    glyph_size=24,
+                    glyph_color=ft.Colors.WHITE,
+                ),
+                ft.Column(
+                    spacing=2,
+                    tight=True,
+                    expand=True,
+                    controls=[
+                        ft.Text(
+                            account.name,
+                            weight=ft.FontWeight.W_700,
+                            size=16,
+                            max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                        muted_text(subtitle),
+                    ],
+                ),
+            ],
+        )
+        open_handler = (
+            (lambda _e: on_click(account))
+            if on_click
+            else ((lambda _e: on_edit(account)) if on_edit else None)
+        )
+        header_tap = ft.Container(
+            expand=True,
+            ink=True,
+            on_click=open_handler,
+            content=header,
+        )
+
         body = ft.Column(
             spacing=12,
             tight=True,
             controls=[
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[
-                        ft.Row(
-                            spacing=12,
-                            expand=True,
-                            controls=[
-                                account_icon_badge(
-                                    icon_key,
-                                    color=accent,
-                                    size=46,
-                                    glyph_size=24,
-                                    glyph_color=ft.Colors.WHITE,
-                                ),
-                                ft.Column(
-                                    spacing=2,
-                                    tight=True,
-                                    expand=True,
-                                    controls=[
-                                        ft.Text(
-                                            account.name,
-                                            weight=ft.FontWeight.W_700,
-                                            size=16,
-                                            max_lines=2,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                        ),
-                                        muted_text(subtitle),
-                                    ],
-                                ),
-                            ],
-                        ),
-                        menu,
-                    ],
+                    controls=[header_tap, menu],
                 ),
-                ft.Text(
-                    native,
-                    size=20,
-                    weight=ft.FontWeight.W_700,
-                    max_lines=2,
-                    overflow=ft.TextOverflow.ELLIPSIS,
+                ft.Container(
+                    ink=bool(open_handler),
+                    on_click=open_handler,
+                    content=ft.Column(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            ft.Text(
+                                native,
+                                size=20,
+                                weight=ft.FontWeight.W_700,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            *converted_line,
+                        ],
+                    ),
                 ),
-                *converted_line,
+                include_row,
             ],
         )
-        card = card_surface(
-            body,
-            accent=accent,
-            ink=True,
-            on_click=lambda _e: on_click(account)
-            if on_click
-            else (on_edit(account) if on_edit else None),
-        )
+        card = card_surface(body, accent=accent)
         super().__init__(
             padding=12,
             border_radius=14,
             bgcolor=card.bgcolor,
             border=card.border,
             shadow=card.shadow,
-            ink=True,
-            on_click=card.on_click,
             content=body,
             margin=ft.Margin.only(bottom=8),
         )

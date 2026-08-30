@@ -210,6 +210,12 @@ async def _schedule_debt_alerts(
     """Overdue status sync + due-soon / overdue / idle notifications."""
     created: list[NotificationMessage] = []
     mark_overdue = getattr(container, "mark_overdue_debts", None)
+    accrue = getattr(container, "accrue_debt_interest", None)
+    if accrue is not None:
+        try:
+            await accrue.execute()
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to accrue debt interest")
     if mark_overdue is not None:
         try:
             overdue_debts = await mark_overdue.execute()
@@ -280,9 +286,15 @@ async def _schedule_debt_alerts(
             last_pay = last_pay.replace(tzinfo=timezone.utc)
         if last_pay > idle_cutoff:
             continue
-        # Skip if due soon / overdue already covering this debt recently.
-        if debt.due_date is not None:
-            due = debt.due_date
+        # Skip if due / next payment soon or overdue already covering this debt.
+        from lib.domain.entities.debt import effective_debt_due
+
+        effective = effective_debt_due(
+            due_date=debt.due_date,
+            next_payment_date=getattr(debt, "next_payment_date", None),
+        )
+        if effective is not None:
+            due = effective
             if due.tzinfo is None:
                 due = due.replace(tzinfo=timezone.utc)
             if due <= now + lead:

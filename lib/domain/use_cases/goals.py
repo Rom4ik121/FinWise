@@ -112,17 +112,37 @@ class CreateGoalUseCase:
 class UpdateGoalUseCase:
     """Update goal metadata (progress only changes via contributions)."""
 
-    def __init__(self, goals: GoalRepository) -> None:
+    def __init__(
+        self,
+        goals: GoalRepository,
+        currencies: Optional[CurrencyRepository] = None,
+    ) -> None:
         self._goals = goals
+        self._currencies = currencies
 
     async def execute(self, goal: Goal) -> Goal:
-        """Update name/target/deadline/priority/currency; keep ledger progress."""
+        """Update name/target/deadline/priority/currency; keep ledger progress.
+
+        Changing currency converts ``current_amount`` via RateBook, or refuses
+        when the rate is missing.
+        """
         existing = await self._goals.get_by_id(goal.id)
         if existing is None:
             raise ValueError(f"Goal not found: {goal.id}")
 
         target = quantize_money(goal.target_amount)
         current = quantize_money(existing.current_amount)
+        new_ccy = (goal.currency or existing.currency or "RUB").upper()
+        old_ccy = (existing.currency or "RUB").upper()
+        if new_ccy != old_ccy and current != 0:
+            if self._currencies is None:
+                raise ValueError(f"No exchange rate for {old_ccy}/{new_ccy}")
+            rates = await self._currencies.list_rates()
+            converted = RateBook(rates).convert(current, old_ccy, new_ccy)
+            if converted is None:
+                raise ValueError(f"No exchange rate for {old_ccy}/{new_ccy}")
+            current = quantize_money(converted)
+
         status = goal.status if isinstance(goal.status, GoalStatus) else GoalStatus(goal.status)
         if status == GoalStatus.ARCHIVED:
             pass
@@ -133,6 +153,7 @@ class UpdateGoalUseCase:
 
         updated = goal.model_copy(
             update={
+                "currency": new_ccy,
                 "current_amount": current,
                 "target_amount": target,
                 "status": status,
@@ -145,13 +166,24 @@ class UpdateGoalUseCase:
 
 
 class DeleteGoalUseCase:
-    """Delete a goal."""
+    """Delete a goal and unlink contribution transactions (cash stays on accounts)."""
 
-    def __init__(self, goals: GoalRepository) -> None:
+    def __init__(
+        self,
+        goals: GoalRepository,
+        transactions: Optional[TransactionRepository] = None,
+    ) -> None:
         self._goals = goals
+        self._transactions = transactions
 
     async def execute(self, goal_id: str) -> bool:
-        """Remove a goal by id."""
+        """Remove a goal; unlink txs without reversing cash.
+
+        Clears ``goal_id`` but keeps ``goal_credit_amount`` so budget
+        recalculate never treats former contributions as category spend.
+        """
+        if self._transactions is not None:
+            await self._transactions.clear_goal_links(goal_id)
         return await self._goals.delete(goal_id)
 
 
@@ -258,6 +290,8 @@ class ContributeToGoalUseCase:
         goal = await self._goals.get_by_id(goal_id)
         if goal is None:
             raise ValueError(f"Goal not found: {goal_id}")
+        if goal.status == GoalStatus.ARCHIVED:
+            raise ValueError("Goal is archived")
         if goal.status != GoalStatus.ACTIVE:
             raise ValueError("Goal is already completed")
 

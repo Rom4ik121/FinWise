@@ -10,7 +10,7 @@ from lib.core.config import CATEGORY_COLORS, CATEGORY_ICON_GROUPS, CATEGORY_ICON
 from lib.domain.entities.category import Category, CategoryKind
 from lib.domain.entities.transaction import TransactionType
 from lib.presentation.styles import page_header
-from lib.presentation.utils import category_icon, run_async, snack, tr
+from lib.presentation.utils import category_icon, run_async, safe_update, snack, tr
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, open_fullscreen_form
@@ -163,11 +163,8 @@ class CategoryPicker(ft.Column):
                 size=18,
                 color="#FFFFFF",
             )
-        try:
-            self._display.update()
-            self._icon_badge.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(self._display)
+        safe_update(self._icon_badge)
 
     async def reload(self) -> None:
         """Load categories for the current transaction type."""
@@ -190,10 +187,7 @@ class CategoryPicker(ft.Column):
         self._empty_hint.value = tr("category.empty_hint", lang)
         self._empty_hint.visible = not self._categories
         self._sync_display()
-        try:
-            self._empty_hint.update()
-        except Exception:  # noqa: BLE001
-            pass
+        safe_update(self._empty_hint)
 
     def select_name(self, name: str) -> None:
         """Select an existing category or keep a spoken name for create-on-save."""
@@ -372,7 +366,7 @@ class CategoryPicker(ft.Column):
             ),
         )
         self._page.overlay.append(overlay)
-        self._page.update()
+        safe_update(self._page)
 
     def _open_editor(self, *, existing_name: str | None) -> None:
         lang = self._state.language
@@ -463,11 +457,8 @@ class CategoryPicker(ft.Column):
             )
             icon_preview.border = ft.Border.all(2, selected_color["value"])
             color_swatch.bgcolor = selected_color["value"]
-            try:
-                icon_preview.update()
-                color_swatch.update()
-            except Exception:  # noqa: BLE001
-                pass
+            safe_update(icon_preview)
+            safe_update(color_swatch)
 
         def _select_icon(key: str) -> None:
             selected_icon["value"] = key

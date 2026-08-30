@@ -26,7 +26,7 @@ from lib.presentation.account_icons import (
     resolve_account_icon_key,
 )
 from lib.presentation.money_input import make_amount_field, parse_amount
-from lib.presentation.styles import ICON_CATALOG_GLYPH, page_header
+from lib.presentation.styles import ICON_CATALOG_GLYPH, labeled_switch, page_header
 from lib.presentation.utils import (
     bind_dropdown_select,
     load_rate_book,
@@ -47,6 +47,24 @@ from lib.presentation.widgets.transfer_sheet import open_transfer
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
+
+def _exchange_dropdown_option(spec) -> ft.DropdownOption:
+    """Dropdown row with exchange logo + title (single icon, not doubled)."""
+    src = exchange_icon_src(spec.id)
+    if src:
+        leading: ft.Control = ft.Image(
+            src=src,
+            width=22,
+            height=22,
+            fit=ft.BoxFit.CONTAIN,
+        )
+    else:
+        leading = ft.Icon(ft.Icons.TOKEN, size=20)
+    return ft.DropdownOption(
+        key=spec.id,
+        text=spec.title,
+        leading_icon=leading,
+    )
 
 class AccountsPage(ft.Column):
     """List and manage accounts."""
@@ -132,12 +150,17 @@ class AccountsPage(ft.Column):
         base = self._state.base_currency
         book = await load_rate_book(self._state.container)
         cards: list[ft.Control] = []
+        fx_ok = True
         for account in accounts:
             converted = book.convert(
                 account.balance,
                 account.currency,
                 base,
             )
+            if converted is None and normalize_currency_code(
+                account.currency
+            ) != normalize_currency_code(base):
+                fx_ok = False
             link = self._links.get(account.id)
             cards.append(
                 AccountCard(
@@ -151,13 +174,32 @@ class AccountsPage(ft.Column):
                     on_edit=self._open_editor,
                     on_delete=self._confirm_delete,
                     on_sync=self._sync_exchange if link else None,
+                    on_include_in_total=self._set_include_in_total,
                 )
             )
         self._list.controls = cards
         safe_update(self._list)
+        if not fx_ok:
+            snack(self._page, tr("fx.missing_rates", lang), error=True)
 
     def _open_stats(self, account: Account) -> None:
         self._state.open_secondary(f"account:{account.id}")
+
+    def _set_include_in_total(self, account: Account, include: bool) -> None:
+        """Persist home-total visibility without opening the editor."""
+
+        async def _do() -> None:
+            try:
+                await self._state.container.update_account.execute(
+                    account.model_copy(update={"include_in_total": include})
+                )
+            except Exception as exc:  # noqa: BLE001
+                snack(self._page, str(exc), error=True)
+                await self.reload()
+                return
+            self._state.bump_refresh("dashboard", "accounts")
+
+        run_async(self._page, _do)
 
     def _sync_exchange(self, account: Account) -> None:
         lang = self._state.language
@@ -271,10 +313,24 @@ class AccountsPage(ft.Column):
             label=tr("field.exchange", lang),
             value=provider_id["value"],
             disabled=linked,
-            options=[
-                ft.DropdownOption(key=spec.id, text=spec.title) for spec in EXCHANGES
-            ],
+            options=[_exchange_dropdown_option(spec) for spec in EXCHANGES],
             expand=True,
+        )
+
+        include_sw = ft.Switch(
+            value=bool(account.include_in_total) if account else True,
+        )
+        include_block = ft.Column(
+            spacing=4,
+            tight=True,
+            controls=[
+                labeled_switch(tr("account.include_in_total", lang), include_sw),
+                ft.Text(
+                    tr("account.include_in_total_hint", lang),
+                    size=11,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+            ],
         )
 
         icon_preview = ft.Container(
@@ -327,8 +383,8 @@ class AccountsPage(ft.Column):
             icon_preview.bgcolor = None if fills else selected_color["value"]
             color_preview.bgcolor = selected_color["value"]
             try:
-                icon_preview.update()
-                color_preview.update()
+                safe_update(icon_preview)
+                safe_update(color_preview)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -393,9 +449,9 @@ class AccountsPage(ft.Column):
                 secret_tf.label = tr("field.api_secret", lang)
             passphrase_tf.visible = bool(spec is not None and spec.needs_passphrase)
             try:
-                api_key_tf.update()
-                secret_tf.update()
-                passphrase_tf.update()
+                safe_update(api_key_tf)
+                safe_update(secret_tf)
+                safe_update(passphrase_tf)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -406,13 +462,15 @@ class AccountsPage(ft.Column):
             currency_picker.visible = not exchange
             balance_tf.visible = not exchange
             color_toggle.visible = not exchange
+            icon_toggle.visible = not exchange
             try:
-                exchange_block.update()
-                name_tf.update()
-                currency_picker.update()
-                balance_tf.update()
-                color_toggle.update()
-                type_row.update()
+                safe_update(exchange_block)
+                safe_update(name_tf)
+                safe_update(currency_picker)
+                safe_update(balance_tf)
+                safe_update(color_toggle)
+                safe_update(icon_toggle)
+                safe_update(type_row)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -465,7 +523,7 @@ class AccountsPage(ft.Column):
                 if account is None:
                     currency_picker.set_value("USDT")
                 try:
-                    name_tf.update()
+                    safe_update(name_tf)
                 except Exception:  # noqa: BLE001
                     pass
             _rebuild_type_row()
@@ -481,15 +539,12 @@ class AccountsPage(ft.Column):
                 if not current_name or current_name in known_titles:
                     name_tf.value = spec.title
                     try:
-                        name_tf.update()
+                        safe_update(name_tf)
                     except Exception:  # noqa: BLE001
                         pass
                 selected_color["value"] = spec.color
-                current_icon = selected_icon["value"]
-                if current_icon in {"wallet", "token"} or parse_exchange_icon_key(
-                    current_icon
-                ):
-                    selected_icon["value"] = exchange_icon_key(spec.id)
+                # Exchange accounts always use the venue logo — no manual pick.
+                selected_icon["value"] = exchange_icon_key(spec.id)
                 _refresh_previews()
             _refresh_credential_fields()
 
@@ -571,6 +626,12 @@ class AccountsPage(ft.Column):
             ),
         )
         color_toggle.visible = not is_exchange["value"]
+        icon_toggle.visible = not is_exchange["value"]
+        if is_exchange["value"]:
+            spec = _current_spec()
+            if spec is not None:
+                selected_icon["value"] = exchange_icon_key(spec.id)
+                _refresh_previews()
 
         save_label = ft.Text(tr("action.save", lang))
         save_btn = ft.FilledButton(
@@ -595,13 +656,13 @@ class AccountsPage(ft.Column):
             passphrase_tf.disabled = active
             save_label.value = tr("action.saving" if active else "action.save", lang)
             try:
-                save_label.update()
-                save_btn.update()
-                close_btn.update()
-                provider_dd.update()
-                api_key_tf.update()
-                secret_tf.update()
-                passphrase_tf.update()
+                safe_update(save_label)
+                safe_update(save_btn)
+                safe_update(close_btn)
+                safe_update(provider_dd)
+                safe_update(api_key_tf)
+                safe_update(secret_tf)
+                safe_update(passphrase_tf)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -630,11 +691,11 @@ class AccountsPage(ft.Column):
                 if not name:
                     _fail(tr("field.exchange", lang))
                     return
+                if is_exchange["value"]:
+                    selected_icon["value"] = exchange_icon_key(provider)
                 currency = normalize_currency_code(
                     account.currency if account else "USDT"
                 )
-                if selected_icon["value"] in {"wallet", "token"}:
-                    selected_icon["value"] = exchange_icon_key(provider)
             else:
                 name = (name_tf.value or "").strip()
                 if not name:
@@ -650,6 +711,7 @@ class AccountsPage(ft.Column):
                 icon=selected_icon["value"],
                 color=selected_color["value"],
                 is_active=account.is_active if account else True,
+                include_in_total=bool(include_sw.value),
                 created_at=account.created_at if account else Account(name="tmp").created_at,
             )
             try:
@@ -698,12 +760,18 @@ class AccountsPage(ft.Column):
             snack(self._page, tr("action.saved", lang))
 
         title = tr("action.edit", lang) if account else tr("action.add", lang)
+        page_w = getattr(self._page, "width", None) or None
+        page_h = getattr(self._page, "height", None) or None
         overlay = ft.Container(
             left=0,
             top=0,
             right=0,
             bottom=0,
+            width=page_w,
+            height=page_h,
+            expand=True,
             bgcolor=ft.Colors.SURFACE,
+            alignment=ft.Alignment.TOP_CENTER,
             content=ft.SafeArea(
                 expand=True,
                 content=ft.Column(
@@ -721,7 +789,7 @@ class AccountsPage(ft.Column):
                             content=ft.Column(
                                 expand=True,
                                 spacing=12,
-                                scroll=ft.ScrollMode.HIDDEN,
+                                scroll=ft.ScrollMode.AUTO,
                                 controls=[
                                     type_row,
                                     name_tf,
@@ -730,6 +798,7 @@ class AccountsPage(ft.Column):
                                     exchange_block,
                                     icon_toggle,
                                     color_toggle,
+                                    include_block,
                                     ft.Container(height=24),
                                 ],
                             ),
@@ -750,7 +819,7 @@ class AccountsPage(ft.Column):
             try:
                 if overlay in self._page.overlay:
                     self._page.overlay.remove(overlay)
-                self._page.update()
+                safe_update(self._page)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -763,5 +832,5 @@ class AccountsPage(ft.Column):
                     pass
         overlay.data = "account_editor"
         self._page.overlay.append(overlay)
-        self._page.update()
+        safe_update(self._page)
 

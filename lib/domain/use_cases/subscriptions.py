@@ -17,14 +17,17 @@ from lib.domain.entities.subscription import (
 )
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.repositories.account_repository import AccountRepository
+from lib.domain.repositories.currency_repository import CurrencyRepository
 from lib.domain.repositories.subscription_repository import SubscriptionRepository
 from lib.domain.repositories.transaction_repository import TransactionRepository
 from lib.domain.services.rate_book import RateBook
 
 if TYPE_CHECKING:
-    from lib.domain.repositories.currency_repository import CurrencyRepository
     from lib.domain.repositories.settings_repository import SettingsRepository
-    from lib.domain.use_cases.transactions import DeleteTransactionUseCase
+    from lib.domain.use_cases.transactions import (
+        AddTransactionUseCase,
+        DeleteTransactionUseCase,
+    )
 
 
 def _utc_now() -> datetime:
@@ -258,13 +261,15 @@ class ChargeSubscriptionNowUseCase:
     def __init__(
         self,
         subscriptions: SubscriptionRepository,
-        transactions: TransactionRepository,
         accounts: AccountRepository,
+        add_transaction: "AddTransactionUseCase",
+        currencies: CurrencyRepository,
         settings: Optional["SettingsRepository"] = None,
     ) -> None:
         self._subscriptions = subscriptions
-        self._transactions = transactions
         self._accounts = accounts
+        self._add = add_transaction
+        self._currencies = currencies
         self._settings = settings
 
     async def execute(
@@ -294,27 +299,32 @@ class ChargeSubscriptionNowUseCase:
             check_balance = True
 
         amount = quantize_money(sub.amount)
-        if check_balance and account.balance < amount:
+        sub_currency = sub.currency or account.currency
+        cash_amount = await _subscription_cash_amount(
+            self._currencies,
+            amount=amount,
+            from_currency=sub_currency,
+            to_currency=account.currency,
+        )
+        if check_balance and account.balance < cash_amount:
             raise ValueError("insufficient_funds")
 
         now = _utc_now()
-        currency = sub.currency or account.currency
-        tx = Transaction(
-            account_id=sub.account_id,
-            amount=amount,
-            category=sub.category,
-            tags=["subscription"],
-            date=now,
-            comment=sub.comment or f"Subscription: {sub.name}",
-            type=TransactionType.EXPENSE,
-            currency=currency,
-            subscription_id=sub.id,
-            created_at=now,
-            updated_at=now,
+        saved = await self._add.execute(
+            Transaction(
+                account_id=sub.account_id,
+                amount=cash_amount,
+                category=sub.category,
+                tags=["subscription"],
+                date=now,
+                comment=sub.comment or f"Subscription: {sub.name}",
+                type=TransactionType.EXPENSE,
+                currency=account.currency,
+                subscription_id=sub.id,
+                created_at=now,
+                updated_at=now,
+            )
         )
-        saved = await self._transactions.create(tx)
-        account.balance = quantize_money(account.balance - amount)
-        await self._accounts.update(account)
 
         next_date = advance_billing_date(
             _as_utc(sub.next_billing_date),
@@ -332,6 +342,23 @@ class ChargeSubscriptionNowUseCase:
         )
         await self._subscriptions.update(updated)
         return saved
+
+
+async def _subscription_cash_amount(
+    currencies: CurrencyRepository,
+    *,
+    amount: Decimal,
+    from_currency: str,
+    to_currency: str,
+) -> Decimal:
+    """Convert subscription amount into account currency."""
+    if from_currency.upper() == to_currency.upper():
+        return quantize_money(amount)
+    rates = await currencies.list_rates()
+    converted = RateBook(rates).convert(amount, from_currency, to_currency)
+    if converted is None:
+        raise ValueError(f"No exchange rate for {from_currency}/{to_currency}")
+    return quantize_money(converted)
 
 
 class DeleteSubscriptionChargeUseCase:
@@ -386,14 +413,16 @@ class ProcessDueSubscriptionsUseCase:
     def __init__(
         self,
         subscriptions: SubscriptionRepository,
-        transactions: TransactionRepository,
         accounts: AccountRepository,
         settings: Optional["SettingsRepository"] = None,
+        add_transaction: Optional["AddTransactionUseCase"] = None,
+        currencies: Optional[CurrencyRepository] = None,
     ) -> None:
         self._subscriptions = subscriptions
-        self._transactions = transactions
         self._accounts = accounts
         self._settings = settings
+        self._add = add_transaction
+        self._currencies = currencies
 
     async def execute(
         self,
@@ -409,6 +438,8 @@ class ProcessDueSubscriptionsUseCase:
         - optionally skip when account balance is insufficient
         - otherwise create an expense, debit the account, and advance the date
         """
+        if self._add is None or self._currencies is None:
+            raise RuntimeError("Subscription charging is not configured")
         as_of = _as_utc(as_of or _utc_now())
         check_balance = True
         if self._settings is not None:
@@ -439,7 +470,7 @@ class ProcessDueSubscriptionsUseCase:
                 continue
 
             amount = quantize_money(sub.amount)
-            currency = sub.currency or account.currency
+            sub_currency = sub.currency or account.currency
             next_date = _as_utc(sub.next_billing_date)
             payments_made = int(sub.payments_made or 0)
             charged_any = False
@@ -454,7 +485,24 @@ class ProcessDueSubscriptionsUseCase:
                     expired = True
                     break
 
-                if check_balance and account.balance < amount:
+                try:
+                    cash_amount = await _subscription_cash_amount(
+                        self._currencies,
+                        amount=amount,
+                        from_currency=sub_currency,
+                        to_currency=account.currency,
+                    )
+                except ValueError:
+                    sub = sub.model_copy(
+                        update={
+                            "last_skip_date": billing_day,
+                            "updated_at": _utc_now(),
+                        }
+                    )
+                    await self._subscriptions.update(sub)
+                    break
+
+                if check_balance and account.balance < cash_amount:
                     sub = sub.model_copy(
                         update={
                             "last_skip_date": billing_day,
@@ -472,23 +520,25 @@ class ProcessDueSubscriptionsUseCase:
                     break
 
                 now = _utc_now()
-                tx = Transaction(
-                    account_id=sub.account_id,
-                    amount=amount,
-                    category=sub.category,
-                    tags=["subscription"],
-                    date=next_date,
-                    comment=sub.comment or f"Subscription: {sub.name}",
-                    type=TransactionType.EXPENSE,
-                    currency=currency,
-                    subscription_id=sub.id,
-                    created_at=now,
-                    updated_at=now,
+                saved_tx = await self._add.execute(
+                    Transaction(
+                        account_id=sub.account_id,
+                        amount=cash_amount,
+                        category=sub.category,
+                        tags=["subscription"],
+                        date=next_date,
+                        comment=sub.comment or f"Subscription: {sub.name}",
+                        type=TransactionType.EXPENSE,
+                        currency=account.currency,
+                        subscription_id=sub.id,
+                        created_at=now,
+                        updated_at=now,
+                    )
                 )
-                saved_tx = await self._transactions.create(tx)
-                account.balance = quantize_money(account.balance - amount)
-                await self._accounts.update(account)
-                accounts_by_id[account.id] = account
+                refreshed = await self._accounts.get_by_id(account.id)
+                if refreshed is not None:
+                    account = refreshed
+                    accounts_by_id[account.id] = account
                 created_txs.append(saved_tx)
                 charged_any = True
                 payments_made += 1

@@ -340,7 +340,7 @@ class CurrenciesPage(ft.Column):
             self._result_hint,
         ):
             try:
-                control.update()
+                safe_update(control)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -408,7 +408,7 @@ class CurrenciesPage(ft.Column):
             rows.append(muted_text(tr("currencies.not_found", lang), size=12))
         self._rates_list.controls = rows
         try:
-            self._base_caption.update()
+            safe_update(self._base_caption)
             safe_update(self._rates_list)
         except Exception:  # noqa: BLE001
             pass
@@ -503,6 +503,9 @@ class CurrenciesPage(ft.Column):
             await self._state.container.update_exchange_rates.execute(
                 base=self._state.base_currency
             )
+            from lib.presentation.utils import invalidate_rate_book_cache
+
+            invalidate_rate_book_cache()
             snack(self._page, tr("action.saved", lang))
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)

@@ -175,3 +175,42 @@ def test_delete_category_removes_budgets(container) -> None:
         assert listed == []
 
     run_async(_run())
+
+
+def test_budget_spent_converts_to_base_currency(container) -> None:
+    async def _run() -> None:
+        from lib.domain.entities.currency import ExchangeRate
+
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="USD",
+                quote="RUB",
+                rate=Decimal("100"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        settings = await container.get_settings.execute()
+        settings.default_currency = "RUB"
+        await container.update_settings.execute(settings)
+
+        await container.create_category.execute(
+            make_category(name="Travel", kind=CategoryKind.EXPENSE)
+        )
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Travel", now.month, now.year, Decimal("1000"))
+        usd = await container.create_account.execute(
+            make_account(name="USD", currency="USD", balance="50")
+        )
+        await container.add_transaction.execute(
+            make_transaction(
+                usd.id,
+                amount="5",
+                category="Travel",
+                currency="USD",
+                tx_type=TransactionType.EXPENSE,
+            )
+        )
+        progress = await container.get_budgets_for_month.execute(now.month, now.year)
+        assert progress[0].spent == Decimal("500.00")
+
+    run_async(_run())

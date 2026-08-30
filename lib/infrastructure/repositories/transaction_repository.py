@@ -8,14 +8,51 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 
-from lib.domain.entities.transaction import Transaction, TransactionType
+from lib.domain.entities.transaction import Transaction, TransactionItem, TransactionType
 from lib.domain.repositories.transaction_repository import TransactionRepository
 from lib.infrastructure.db_models import TransactionModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.transaction")
+
+
+def _items_from_model(raw: object) -> list[TransactionItem]:
+    if not raw:
+        return []
+    rows = raw if isinstance(raw, list) else []
+    out: list[TransactionItem] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            out.append(
+                TransactionItem(
+                    name=str(row.get("name") or ""),
+                    amount=Decimal(str(row.get("amount") or "0")),
+                    category=str(row.get("category") or ""),
+                )
+            )
+        except (ValueError, TypeError, ArithmeticError):
+            continue
+    return out
+
+
+def _items_to_json(items: list[TransactionItem]) -> list[dict]:
+    return [
+        {
+            "name": item.name,
+            "amount": str(item.amount),
+            "category": item.category,
+        }
+        for item in items
+    ]
 
 
 def _to_entity(model: TransactionModel) -> Transaction:
@@ -45,6 +82,7 @@ def _to_entity(model: TransactionModel) -> Transaction:
         ),
         transfer_id=getattr(model, "transfer_id", None),
         transfer_peer_account_id=getattr(model, "transfer_peer_account_id", None),
+        items=_items_from_model(getattr(model, "items", None)),
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
@@ -67,6 +105,7 @@ def _apply_entity(model: TransactionModel, entity: Transaction) -> None:
     model.debt_credit_amount = entity.debt_credit_amount
     model.transfer_id = entity.transfer_id
     model.transfer_peer_account_id = entity.transfer_peer_account_id
+    model.items = _items_to_json(list(entity.items or []))
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 
@@ -78,15 +117,29 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         self._session_factory = session_factory
 
     async def create(self, transaction: Transaction) -> Transaction:
+        if in_unit_of_work():
+            return self._create_sync(transaction)
         return await asyncio.to_thread(self._create_sync, transaction)
 
     async def update(self, transaction: Transaction) -> Transaction:
+        if in_unit_of_work():
+            return self._update_sync(transaction)
         return await asyncio.to_thread(self._update_sync, transaction)
 
     async def delete(self, transaction_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(transaction_id)
         return await asyncio.to_thread(self._delete_sync, transaction_id)
 
+    async def clear_goal_links(self, goal_id: str) -> int:
+        """Bulk-clear ``goal_id`` on linked txs (keeps ``goal_credit_amount``)."""
+        if in_unit_of_work():
+            return self._clear_goal_links_sync(goal_id)
+        return await asyncio.to_thread(self._clear_goal_links_sync, goal_id)
+
     async def get_by_id(self, transaction_id: str) -> Optional[Transaction]:
+        if in_unit_of_work():
+            return self._get_by_id_sync(transaction_id)
         return await asyncio.to_thread(self._get_by_id_sync, transaction_id)
 
     async def list(
@@ -155,6 +208,18 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             logger.debug("Deleted transaction %s", transaction_id)
             return True
 
+    def _clear_goal_links_sync(self, goal_id: str) -> int:
+        with session_scope(self._session_factory) as session:
+            now = datetime.now(timezone.utc)
+            result = session.execute(
+                sa_update(TransactionModel)
+                .where(TransactionModel.goal_id == goal_id)
+                .values(goal_id=None, updated_at=now)
+            )
+            count = int(result.rowcount or 0)
+            logger.debug("Cleared goal_id on %s transactions for goal %s", count, goal_id)
+            return count
+
     def _get_by_id_sync(self, transaction_id: str) -> Optional[Transaction]:
         with session_scope(self._session_factory) as session:
             model = session.get(TransactionModel, transaction_id)
@@ -211,13 +276,24 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             elif has_transfer is False:
                 stmt = stmt.where(TransactionModel.transfer_id.is_(None))
             stmt = stmt.order_by(TransactionModel.date.desc())
+            # Tags live in JSON — filter in Python *before* limit/offset so
+            # pagination matches the filtered set (AUDIT #63).
+            if tags:
+                rows = session.scalars(stmt).all()
+                required = set(tags)
+                entities = [
+                    e
+                    for e in (_to_entity(r) for r in rows)
+                    if required.issubset(set(e.tags))
+                ]
+                if offset:
+                    entities = entities[offset:]
+                if limit is not None:
+                    entities = entities[:limit]
+                return entities
             if offset:
                 stmt = stmt.offset(offset)
             if limit is not None:
                 stmt = stmt.limit(limit)
             rows = session.scalars(stmt).all()
-            entities = [_to_entity(r) for r in rows]
-            if tags:
-                required = set(tags)
-                entities = [e for e in entities if required.issubset(set(e.tags))]
-            return entities
+            return [_to_entity(r) for r in rows]

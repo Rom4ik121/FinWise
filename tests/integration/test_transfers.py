@@ -76,6 +76,39 @@ def test_fx_transfer_converts_destination_amount(container) -> None:
     run_async(_run())
 
 
+def test_transfer_fee_is_separate_expense(container) -> None:
+    async def _run() -> None:
+        src = await container.create_account.execute(
+            make_account(name="Wallet", balance="1000")
+        )
+        dst = await container.create_account.execute(
+            make_account(name="Cash", balance="100")
+        )
+        await container.transfer_between_accounts.execute(
+            from_account_id=src.id,
+            to_account_id=dst.id,
+            amount=Decimal("250"),
+            fee=Decimal("15"),
+        )
+        src2 = await container.account_repository.get_by_id(src.id)
+        dst2 = await container.account_repository.get_by_id(dst.id)
+        assert src2.balance == Decimal("735.00")
+        assert dst2.balance == Decimal("350.00")
+
+        rows = await container.list_transactions.execute()
+        fees = [tx for tx in rows if tx.category == "Комиссия"]
+        assert len(fees) == 1
+        assert fees[0].amount == Decimal("15.00")
+        assert fees[0].type is TransactionType.EXPENSE
+        assert not fees[0].is_transfer
+        assert "fee" in fees[0].tags
+
+        stats = await container.get_transaction_stats.execute()
+        assert stats.total_expense == Decimal("15.00")
+
+    run_async(_run())
+
+
 def test_same_account_and_insufficient_funds(container) -> None:
     async def _run() -> None:
         src = await container.create_account.execute(
@@ -95,6 +128,20 @@ def test_same_account_and_insufficient_funds(container) -> None:
                 from_account_id=src.id,
                 to_account_id=dst.id,
                 amount=Decimal("80"),
+            )
+        with pytest.raises(ValueError, match="Insufficient"):
+            await container.transfer_between_accounts.execute(
+                from_account_id=src.id,
+                to_account_id=dst.id,
+                amount=Decimal("50"),
+                fee=Decimal("1"),
+            )
+        with pytest.raises(ValueError, match="Fee cannot be negative"):
+            await container.transfer_between_accounts.execute(
+                from_account_id=src.id,
+                to_account_id=dst.id,
+                amount=Decimal("10"),
+                fee=Decimal("-1"),
             )
         with pytest.raises(ValueError, match="exchange rate"):
             usd = await container.create_account.execute(
@@ -121,6 +168,31 @@ def test_delete_transfer_removes_both_legs(container) -> None:
             from_account_id=src.id,
             to_account_id=dst.id,
             amount=Decimal("200"),
+        )
+        assert await container.delete_transaction.execute(out.id) is True
+        remaining = await container.list_transactions.execute()
+        assert remaining == []
+        src2 = await container.account_repository.get_by_id(src.id)
+        dst2 = await container.account_repository.get_by_id(dst.id)
+        assert src2.balance == Decimal("1000.00")
+        assert dst2.balance == Decimal("100.00")
+
+    run_async(_run())
+
+
+def test_delete_transfer_removes_linked_fee(container) -> None:
+    async def _run() -> None:
+        src = await container.create_account.execute(
+            make_account(name="Wallet", balance="1000")
+        )
+        dst = await container.create_account.execute(
+            make_account(name="Cash", balance="100")
+        )
+        out, _incoming = await container.transfer_between_accounts.execute(
+            from_account_id=src.id,
+            to_account_id=dst.id,
+            amount=Decimal("200"),
+            fee=Decimal("10"),
         )
         assert await container.delete_transaction.execute(out.id) is True
         remaining = await container.list_transactions.execute()

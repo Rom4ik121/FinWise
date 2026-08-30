@@ -11,6 +11,7 @@ from lib.presentation.money_input import (
     format_amount_input,
     format_amount_value,
     parse_amount,
+    parse_optional_amount,
 )
 
 
@@ -53,6 +54,9 @@ def test_parse_grouped_amounts() -> None:
         parse_amount("")
     with pytest.raises(InvalidOperation):
         parse_amount("   ")
+    assert parse_optional_amount("") == Decimal("0")
+    assert parse_optional_amount("  ") == Decimal("0")
+    assert parse_optional_amount("1,50") == Decimal("1.50")
 
 
 def test_format_amount_value_from_decimal() -> None:

@@ -144,9 +144,16 @@ class NotificationService:
         created: list[NotificationMessage] = []
 
         for debt in debts:
-            if debt.status != DebtStatus.ACTIVE or debt.due_date is None:
+            if debt.status != DebtStatus.ACTIVE:
                 continue
-            due = debt.due_date
+            from lib.domain.entities.debt import effective_debt_due
+
+            due = effective_debt_due(
+                due_date=debt.due_date,
+                next_payment_date=getattr(debt, "next_payment_date", None),
+            )
+            if due is None:
+                continue
             if due.tzinfo is None:
                 due = due.replace(tzinfo=timezone.utc)
             # Include overdue and upcoming (within lead window).

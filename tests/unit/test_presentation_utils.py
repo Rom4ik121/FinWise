@@ -39,9 +39,14 @@ def test_format_money_compact() -> None:
 
 def test_format_date() -> None:
     dt = datetime(2024, 5, 1, 14, 30, tzinfo=timezone.utc)
-    assert format_date(dt) == "01.05.2024"
-    assert format_date(dt, with_time=True) == "01.05.2024 14:30"
+    local = dt.astimezone()
+    assert format_date(dt) == local.strftime("%d.%m.%Y")
+    assert format_date(dt, with_time=True) == local.strftime("%d.%m.%Y %H:%M")
     assert format_date(None) == "—"
+    naive = datetime(2024, 5, 1, 14, 30)
+    assert format_date(naive) == datetime(
+        2024, 5, 1, 14, 30, tzinfo=timezone.utc
+    ).astimezone().strftime("%d.%m.%Y")
 
 
 def test_tr_format_kwargs() -> None:

@@ -9,12 +9,16 @@ from typing import Callable, Optional, Protocol, Sequence
 
 from lib.domain.entities.budget import Budget, BudgetProgress
 from lib.domain.entities.category import CategoryKind
+from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.settings import AppSettings
 from lib.domain.entities.transaction import TransactionType
 from lib.domain.repositories.budget_repository import BudgetRepository
 from lib.domain.repositories.category_repository import CategoryRepository
+from lib.domain.repositories.currency_repository import CurrencyRepository
+from lib.domain.repositories.settings_repository import SettingsRepository
 from lib.domain.repositories.transaction_repository import TransactionRepository
+from lib.domain.services.rate_book import RateBook
 
 
 def _utc_now() -> datetime:
@@ -27,6 +31,48 @@ def month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
     last_day = monthrange(year, month)[1]
     end = datetime(year, month, last_day, 23, 59, 59, 999999, tzinfo=timezone.utc)
     return start, end
+
+
+async def _load_budget_fx(
+    currencies: Optional[CurrencyRepository],
+    settings: Optional[SettingsRepository | AppSettings],
+) -> tuple[Optional[RateBook], str]:
+    """Return ``(rate_book, base_currency)`` for budget spent normalization."""
+    base = "RUB"
+    if isinstance(settings, AppSettings):
+        base = normalize_currency_code(settings.default_currency)
+    elif settings is not None:
+        try:
+            cfg = await settings.get()
+            base = normalize_currency_code(cfg.default_currency)
+        except Exception:  # noqa: BLE001
+            pass
+    if currencies is None:
+        return None, base
+    try:
+        from lib.domain.services.rate_cache import get_cached_rate_book
+
+        return await get_cached_rate_book(currencies), base
+    except Exception:  # noqa: BLE001
+        return None, base
+
+
+def _to_base_amount(
+    book: Optional[RateBook],
+    amount: Decimal,
+    currency: str | None,
+    base: str,
+) -> Decimal | None:
+    """Convert ``amount`` to ``base``; ``None`` if the rate is missing."""
+    value = quantize_money(amount)
+    src = normalize_currency_code(currency or base)
+    dst = normalize_currency_code(base)
+    if src == dst:
+        return value
+    if book is None:
+        return None
+    converted = book.convert(value, src, dst)
+    return quantize_money(converted) if converted is not None else None
 
 
 class BudgetNotifier(Protocol):
@@ -53,10 +99,14 @@ class SetBudgetUseCase:
         budgets: BudgetRepository,
         categories: CategoryRepository,
         transactions: TransactionRepository,
+        currencies: Optional[CurrencyRepository] = None,
+        settings: Optional[SettingsRepository] = None,
     ) -> None:
         self._budgets = budgets
         self._categories = categories
         self._transactions = transactions
+        self._currencies = currencies
+        self._settings = settings
 
     async def execute(
         self,
@@ -81,7 +131,14 @@ class SetBudgetUseCase:
             raise ValueError("Budget category must be expense or both")
 
         existing = await self._budgets.get_by_category_and_month(name, month, year)
-        spent = await _sum_expenses(self._transactions, name, month, year)
+        spent = await _sum_expenses(
+            self._transactions,
+            name,
+            month,
+            year,
+            currencies=self._currencies,
+            settings=self._settings,
+        )
         now = _utc_now()
         if existing is None:
             budget = Budget(
@@ -169,9 +226,13 @@ class RecalculateBudgetSpentUseCase:
         self,
         budgets: BudgetRepository,
         transactions: TransactionRepository,
+        currencies: Optional[CurrencyRepository] = None,
+        settings: Optional[SettingsRepository] = None,
     ) -> None:
         self._budgets = budgets
         self._transactions = transactions
+        self._currencies = currencies
+        self._settings = settings
 
     async def execute(
         self,
@@ -194,9 +255,21 @@ class RecalculateBudgetSpentUseCase:
 
         updated: list[Budget] = []
         now = _utc_now()
+        # One month scan for all targets in the same calendar month.
+        spent_by_month: dict[tuple[int, int], dict[str, Decimal]] = {}
         for budget in targets:
-            spent = await _sum_expenses(
-                self._transactions, budget.category_id, budget.month, budget.year
+            key = (budget.month, budget.year)
+            if key not in spent_by_month:
+                spent_by_month[key] = await _month_category_spent(
+                    self._transactions,
+                    budget.month,
+                    budget.year,
+                    currencies=self._currencies,
+                    settings=self._settings,
+                )
+        for budget in targets:
+            spent = spent_by_month[(budget.month, budget.year)].get(
+                budget.category_id, Decimal("0.00")
             )
             saved = await self._budgets.save(
                 budget.model_copy(update={"spent": spent, "updated_at": now})
@@ -217,11 +290,13 @@ async def apply_expense_delta(
     translate: Optional[TranslateFn] = None,
     currency: str = "RUB",
     language: str = "ru",
+    amount_currency: Optional[str] = None,
+    rate_book: Optional[RateBook] = None,
 ) -> Optional[Budget]:
     """Adjust ``spent`` for the matching monthly budget and emit alerts.
 
     ``sign`` is ``+1`` when an expense is added and ``-1`` when reversed.
-    Non-expense callers should not invoke this helper.
+    ``amount`` is converted from ``amount_currency`` into settings base when needed.
     """
     name = (category or "").strip()
     if not name or amount <= 0:
@@ -230,7 +305,16 @@ async def apply_expense_delta(
     budget = await budgets.get_by_category_and_month(name, moment.month, moment.year)
     if budget is None:
         return None
-    delta = quantize_money(amount) * Decimal(sign)
+    base = normalize_currency_code(
+        settings.default_currency if settings is not None else currency
+    )
+    converted = _to_base_amount(
+        rate_book, amount, amount_currency or currency, base
+    )
+    if converted is None:
+        src = normalize_currency_code(amount_currency or currency)
+        raise ValueError(f"No exchange rate for {src}/{base}")
+    delta = converted * Decimal(sign)
     new_spent = quantize_money(max(Decimal("0"), budget.spent + delta))
     updated = await budgets.save(
         budget.model_copy(update={"spent": new_spent, "updated_at": _utc_now()})
@@ -241,7 +325,7 @@ async def apply_expense_delta(
         settings=settings,
         notifications=notifications,
         translate=translate,
-        currency=currency,
+        currency=base,
         language=language,
     )
     return updated
@@ -333,18 +417,71 @@ async def _maybe_notify(
     )
 
 
+def _allocate_expense_slices(tx) -> list[tuple[str, Decimal]]:
+    """Category/amount pairs for budget allocation (parity with Add path)."""
+    if tx.items:
+        return [
+            ((item.category or tx.category or "").strip(), item.amount)
+            for item in tx.items
+        ]
+    return [((tx.category or "").strip(), tx.amount)]
+
+
+async def _month_category_spent(
+    transactions: TransactionRepository,
+    month: int,
+    year: int,
+    *,
+    currencies: Optional[CurrencyRepository] = None,
+    settings: Optional[SettingsRepository | AppSettings] = None,
+) -> dict[str, Decimal]:
+    """One month expense scan → spent totals per category (base currency)."""
+    start, end = month_bounds(year, month)
+    rows = await transactions.list(
+        transaction_type=TransactionType.EXPENSE,
+        date_from=start,
+        date_to=end,
+    )
+    book, base = await _load_budget_fx(currencies, settings)
+    totals: dict[str, Decimal] = {}
+    for tx in rows:
+        if tx.transfer_id:
+            continue
+        if tx.goal_id or tx.goal_credit_amount is not None:
+            continue
+        for category, amount in _allocate_expense_slices(tx):
+            if not category:
+                continue
+            converted = _to_base_amount(book, amount, tx.currency, base)
+            if converted is None:
+                continue
+            totals[category] = totals.get(category, Decimal("0")) + converted
+    return {k: quantize_money(v) for k, v in totals.items()}
+
+
 async def _sum_expenses(
     transactions: TransactionRepository,
     category: str,
     month: int,
     year: int,
+    *,
+    currencies: Optional[CurrencyRepository] = None,
+    settings: Optional[SettingsRepository | AppSettings] = None,
 ) -> Decimal:
-    start, end = month_bounds(year, month)
-    rows = await transactions.list(
-        category=category,
-        transaction_type=TransactionType.EXPENSE,
-        date_from=start,
-        date_to=end,
+    """Sum base-currency spend for ``category`` in the month.
+
+    Mirrors :func:`lib.domain.use_cases.transactions._sync_budget_expense`:
+    skips transfers and goal contributions (``goal_id`` / ``goal_credit_amount``),
+    and allocates multi-line ``items[]`` by each line's category.
+    """
+    want = (category or "").strip()
+    if not want:
+        return quantize_money(Decimal("0"))
+    totals = await _month_category_spent(
+        transactions,
+        month,
+        year,
+        currencies=currencies,
+        settings=settings,
     )
-    total = sum((tx.amount for tx in rows if not tx.transfer_id), Decimal("0"))
-    return quantize_money(total)
+    return totals.get(want, quantize_money(Decimal("0")))

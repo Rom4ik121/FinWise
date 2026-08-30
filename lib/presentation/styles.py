@@ -292,6 +292,7 @@ def shortcut_chip(
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         **glass_layer(elevated=True),
         ink=True,
+        ink_color=ft.Colors.TRANSPARENT,
         on_click=on_click,
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,

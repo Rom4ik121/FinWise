@@ -67,32 +67,56 @@ def pending_messages(
     container: Any,
     settings: Any,
     kinds: Sequence[NotificationKind],
+    *,
+    pending: Optional[Sequence[NotificationMessage]] = None,
 ) -> list[NotificationMessage]:
     """Unread pending notifications filtered by kind and user settings."""
-    notifier = getattr(container, "notification_service", None)
-    if notifier is None:
-        return []
     allowed = set(_kinds_enabled(settings, kinds))
     if not allowed:
         return []
-    return [m for m in notifier.list_pending() if m.kind in allowed]
+    if pending is None:
+        notifier = getattr(container, "notification_service", None)
+        if notifier is None:
+            return []
+        pending = notifier.list_pending()
+    return [m for m in pending if m.kind in allowed]
 
 
 def pending_count(
     container: Any,
     settings: Any,
     kinds: Sequence[NotificationKind],
+    *,
+    pending: Optional[Sequence[NotificationMessage]] = None,
 ) -> int:
-    return len(pending_messages(container, settings, kinds))
+    return len(pending_messages(container, settings, kinds, pending=pending))
+
+
+def pending_counts(
+    container: Any,
+    settings: Any,
+    groups: dict[str, Sequence[NotificationKind]],
+) -> dict[str, int]:
+    """One ``list_pending`` pass → counts per named group (AUDIT #55)."""
+    notifier = getattr(container, "notification_service", None)
+    if notifier is None:
+        return {key: 0 for key in groups}
+    pending = notifier.list_pending()
+    return {
+        key: pending_count(container, settings, kinds, pending=pending)
+        for key, kinds in groups.items()
+    }
 
 
 def pending_related_ids(
     container: Any,
     settings: Any,
     kinds: Sequence[NotificationKind],
+    *,
+    pending: Optional[Sequence[NotificationMessage]] = None,
 ) -> set[str]:
     ids: set[str] = set()
-    for message in pending_messages(container, settings, kinds):
+    for message in pending_messages(container, settings, kinds, pending=pending):
         if message.related_id:
             ids.add(message.related_id)
     return ids

@@ -30,6 +30,25 @@ if TYPE_CHECKING:
 
 DEBT_CATEGORY = "Долг"
 DEBT_PRINCIPAL_CATEGORY = "Долг (выдача)"
+DEBT_PRINCIPAL_TAG = "debt_principal"
+DEBT_INTEREST_TAG_PREFIX = "debt_interest:"
+
+
+def is_debt_principal_tx(transaction: Transaction) -> bool:
+    """Cash movement that opens a debt — must not change ``remaining_amount``."""
+    return DEBT_PRINCIPAL_TAG in (transaction.tags or [])
+
+
+def debt_interest_from_tags(transaction: Transaction) -> Decimal:
+    """Parse interest portion recorded on a repayment (debt currency)."""
+    for tag in transaction.tags or []:
+        if tag.startswith(DEBT_INTEREST_TAG_PREFIX):
+            raw = tag[len(DEBT_INTEREST_TAG_PREFIX) :]
+            try:
+                return quantize_money(Decimal(raw))
+            except Exception:  # noqa: BLE001
+                return Decimal("0.00")
+    return Decimal("0.00")
 
 
 def _utc_now() -> datetime:
@@ -66,7 +85,10 @@ def _pace_divisor_months(
 
 
 def _monthly_interest(debt: Debt) -> Decimal:
-    """Simple monthly interest on remaining principal (annual percent / 12)."""
+    """Monthly share of annual interest on remaining principal (rate / 12).
+
+    Same annual % as :func:`compute_debt_interest` (display / projection only).
+    """
     if debt.interest_rate is None:
         return Decimal("0.00")
     remaining = quantize_money(max(Decimal("0"), debt.remaining_amount))
@@ -105,10 +127,12 @@ class CreateDebtUseCase:
         debts: DebtRepository,
         accounts: Optional[AccountRepository] = None,
         add_transaction: Optional["AddTransactionUseCase"] = None,
+        currencies: Optional[CurrencyRepository] = None,
     ) -> None:
         self._debts = debts
         self._accounts = accounts
         self._add_transaction = add_transaction
+        self._currencies = currencies
 
     async def execute(
         self,
@@ -123,6 +147,8 @@ class CreateDebtUseCase:
                 "amount": amount,
                 "remaining_amount": amount,
                 "status": DebtStatus.ACTIVE,
+                "account_id": (debt.account_id or account_id or "").strip() or None,
+                "accrued_interest": Decimal("0.00"),
                 "created_at": debt.created_at or _utc_now(),
                 "updated_at": _utc_now(),
                 "started_at": debt.started_at or _utc_now(),
@@ -130,10 +156,26 @@ class CreateDebtUseCase:
         )
         created = await self._debts.create(created)
 
-        if account_id and self._accounts is not None and self._add_transaction is not None:
-            account = await self._accounts.get_by_id(account_id)
+        cash_account_id = (account_id or "").strip() or None
+        if cash_account_id and self._accounts is not None and self._add_transaction is not None:
+            account = await self._accounts.get_by_id(cash_account_id)
             if account is None:
-                raise ValueError(f"Account not found: {account_id}")
+                raise ValueError(f"Account not found: {cash_account_id}")
+            cash_amount = amount
+            if account.currency.upper() != created.currency.upper():
+                if self._currencies is None:
+                    raise ValueError(
+                        f"No exchange rate for {created.currency}/{account.currency}"
+                    )
+                rates = await self._currencies.list_rates()
+                converted = RateBook(rates).convert(
+                    amount, created.currency, account.currency
+                )
+                if converted is None:
+                    raise ValueError(
+                        f"No exchange rate for {created.currency}/{account.currency}"
+                    )
+                cash_amount = quantize_money(converted)
             tx_type = (
                 TransactionType.INCOME
                 if created.direction == DebtDirection.I_OWE
@@ -142,33 +184,71 @@ class CreateDebtUseCase:
             await self._add_transaction.execute(
                 Transaction(
                     account_id=account.id,
-                    amount=amount,
+                    amount=cash_amount,
                     category=DEBT_PRINCIPAL_CATEGORY,
+                    tags=[DEBT_PRINCIPAL_TAG],
                     date=_utc_now(),
                     comment=created.counterparty,
                     type=tx_type,
                     currency=account.currency,
+                    debt_id=created.id,
+                    debt_credit_amount=Decimal("0.00"),
                 )
             )
         return created
 
 
 class UpdateDebtUseCase:
-    """Update debt metadata (remaining only via repayments)."""
+    """Update debt metadata; remaining stays ledger-driven except currency FX."""
 
-    def __init__(self, debts: DebtRepository) -> None:
+    def __init__(
+        self,
+        debts: DebtRepository,
+        currencies: Optional[CurrencyRepository] = None,
+    ) -> None:
         self._debts = debts
+        self._currencies = currencies
 
     async def execute(self, debt: Debt) -> Debt:
-        """Update counterparty / terms; keep ledger-based remaining amount."""
+        """Update terms; convert remaining when currency changes (or refuse)."""
         existing = await self._debts.get_by_id(debt.id)
         if existing is None:
             raise ValueError(f"Debt not found: {debt.id}")
 
         amount = quantize_money(debt.amount)
         remaining = quantize_money(existing.remaining_amount)
-        if amount < remaining:
+        accrued = quantize_money(existing.accrued_interest)
+        new_ccy = (debt.currency or existing.currency or "RUB").upper()
+        old_ccy = (existing.currency or "RUB").upper()
+        if new_ccy != old_ccy and remaining != 0:
+            if self._currencies is None:
+                raise ValueError(f"No exchange rate for {old_ccy}/{new_ccy}")
+            rates = await self._currencies.list_rates()
+            book = RateBook(rates)
+            converted = book.convert(remaining, old_ccy, new_ccy)
+            if converted is None:
+                raise ValueError(f"No exchange rate for {old_ccy}/{new_ccy}")
+            remaining = quantize_money(converted)
+            if accrued != 0:
+                accrued_fx = book.convert(accrued, old_ccy, new_ccy)
+                if accrued_fx is None:
+                    raise ValueError(f"No exchange rate for {old_ccy}/{new_ccy}")
+                accrued = quantize_money(accrued_fx)
+            amount_fx = book.convert(amount, old_ccy, new_ccy)
+            if amount_fx is not None:
+                amount = quantize_money(amount_fx)
+
+        if amount < remaining and not debt.accrue_interest:
+            # Shrinking principal target should not leave remaining above amount
+            # unless interest accrual is enabled (remaining can exceed principal).
             remaining = amount
+
+        next_pay_amt = debt.next_payment_amount
+        if next_pay_amt is not None:
+            next_pay_amt = quantize_money(next_pay_amt)
+            if next_pay_amt <= 0:
+                next_pay_amt = None
+
         requested = debt.status if isinstance(debt.status, DebtStatus) else DebtStatus(debt.status)
         if requested == DebtStatus.ARCHIVED:
             status = DebtStatus.ARCHIVED
@@ -176,27 +256,47 @@ class UpdateDebtUseCase:
             status = resolve_debt_status(
                 remaining_amount=remaining,
                 due_date=debt.due_date,
+                next_payment_date=debt.next_payment_date,
                 current=requested,
             )
         updated = debt.model_copy(
             update={
+                "currency": new_ccy,
                 "amount": amount,
                 "remaining_amount": remaining,
+                "accrued_interest": accrued,
+                "next_payment_amount": next_pay_amt,
+                "account_id": (debt.account_id or "").strip() or None,
                 "status": status,
                 "updated_at": _utc_now(),
                 "created_at": existing.created_at,
+                "last_interest_accrued_at": existing.last_interest_accrued_at
+                if debt.last_interest_accrued_at is None
+                else debt.last_interest_accrued_at,
             }
         )
         return await self._debts.update(updated)
 
 
 class DeleteDebtUseCase:
-    """Delete a debt."""
+    """Delete a debt and reverse linked principal cash movements."""
 
-    def __init__(self, debts: DebtRepository) -> None:
+    def __init__(
+        self,
+        debts: DebtRepository,
+        transactions: Optional[TransactionRepository] = None,
+        delete_transaction: Optional["DeleteTransactionUseCase"] = None,
+    ) -> None:
         self._debts = debts
+        self._transactions = transactions
+        self._delete_transaction = delete_transaction
 
     async def execute(self, debt_id: str) -> bool:
+        if self._transactions is not None and self._delete_transaction is not None:
+            linked = await self._transactions.list(debt_id=debt_id)
+            for tx in linked:
+                if is_debt_principal_tx(tx):
+                    await self._delete_transaction.execute(tx.id)
         return await self._debts.delete(debt_id)
 
 
@@ -255,6 +355,7 @@ class MarkOverdueDebtsUseCase:
             status = resolve_debt_status(
                 remaining_amount=debt.remaining_amount,
                 due_date=debt.due_date,
+                next_payment_date=debt.next_payment_date,
                 current=debt.status,
                 now=moment,
             )
@@ -293,9 +394,13 @@ class RepayDebtUseCase:
         """Move money and reduce ``remaining_amount``.
 
         ``amount`` is in the **account** currency (total cash movement).
-        Optional ``interest_amount`` is in the **debt** currency and is recorded
-        in the comment only — it does not reduce remaining. The principal
-        portion applied to remaining is ``converted(amount) - interest``.
+        Optional ``interest_amount`` is in the **debt** currency.
+
+        When ``accrue_interest`` is on, the full converted payment reduces
+        ``remaining_amount`` (capitalized interest lives there), and
+        ``accrued_interest`` is reduced by ``min(interest, accrued)``.
+        When accrual is off, only the principal portion
+        (``converted - interest``) reduces remaining; interest is cash-only.
         """
         amount = quantize_money(amount)
         if amount <= 0:
@@ -330,24 +435,37 @@ class RepayDebtUseCase:
             if interest > converted:
                 raise ValueError("Interest cannot exceed payment amount")
 
-        principal_credit = quantize_money(converted - interest)
-        if principal_credit > debt.remaining_amount:
-            # Clamp principal; keep interest as entered.
-            principal_credit = quantize_money(debt.remaining_amount)
-            # Recalculate account amount from clamped principal + interest.
-            debt_total = quantize_money(principal_credit + interest)
+        principal_portion = quantize_money(converted - interest)
+        if debt.accrue_interest:
+            credit_to_remaining = converted
+        else:
+            credit_to_remaining = principal_portion
+
+        if credit_to_remaining > debt.remaining_amount:
+            credit_to_remaining = quantize_money(debt.remaining_amount)
+            if debt.accrue_interest:
+                # Scale interest share to the clamped total when needed.
+                if converted > 0 and interest > 0:
+                    interest = quantize_money(
+                        interest * credit_to_remaining / converted
+                    )
+            debt_total = credit_to_remaining if debt.accrue_interest else quantize_money(
+                credit_to_remaining + interest
+            )
             account_amount = book.convert(debt_total, debt.currency, account.currency)
             if account_amount is None:
                 raise ValueError(
                     f"No exchange rate for {debt.currency}/{account.currency}"
                 )
             amount = quantize_money(account_amount)
-        elif principal_credit <= 0 and interest <= 0:
+        elif credit_to_remaining <= 0 and interest <= 0:
             raise ValueError("Payment amount must be positive")
 
         comment = debt.counterparty
+        tags: list[str] = []
         if interest > 0:
             comment = f"{debt.counterparty} · interest {interest} {debt.currency}"
+            tags.append(f"{DEBT_INTEREST_TAG_PREFIX}{interest}")
 
         tx_type = (
             TransactionType.EXPENSE
@@ -359,17 +477,45 @@ class RepayDebtUseCase:
                 account_id=account.id,
                 amount=amount,
                 category=DEBT_CATEGORY,
+                tags=tags,
                 date=_utc_now(),
                 comment=comment,
                 type=tx_type,
                 currency=account.currency,
                 debt_id=debt.id,
-                debt_credit_amount=principal_credit,
+                debt_credit_amount=credit_to_remaining,
             )
         )
         updated = await self._debts.get_by_id(debt_id)
         if updated is None:
             raise ValueError(f"Debt not found after payment: {debt_id}")
+
+        # Persist preferred repay account + roll installment schedule forward.
+        patch: dict = {}
+        if interest > 0 and debt.accrue_interest:
+            new_accrued = quantize_money(
+                max(Decimal("0"), updated.accrued_interest - interest)
+            )
+            if new_accrued != updated.accrued_interest:
+                patch["accrued_interest"] = new_accrued
+        if (account_id or "").strip():
+            patch["account_id"] = account_id.strip()
+        if (
+            updated.remaining_amount > 0
+            and updated.next_payment_date is not None
+            and updated.status
+            not in (DebtStatus.PAID, DebtStatus.ARCHIVED)
+        ):
+            patch["next_payment_date"] = _add_months(updated.next_payment_date, 1.0)
+            patch["status"] = resolve_debt_status(
+                remaining_amount=updated.remaining_amount,
+                due_date=updated.due_date,
+                next_payment_date=patch["next_payment_date"],
+                current=updated.status,
+            )
+        if patch:
+            patch["updated_at"] = _utc_now()
+            updated = await self._debts.update(updated.model_copy(update=patch))
         return updated
 
 
@@ -417,7 +563,14 @@ class GetDebtProjectionUseCase:
 
         lookback_start = now - timedelta(days=self._lookback_months * 30.4375)
         txs = await self._transactions.list(debt_id=debt.id, date_from=lookback_start)
-        total_paid = sum((debt_credit_amount(tx) for tx in txs), Decimal("0"))
+        total_paid = sum(
+            (
+                debt_credit_amount(tx)
+                for tx in txs
+                if not is_debt_principal_tx(tx)
+            ),
+            Decimal("0"),
+        )
         divisor = _pace_divisor_months(
             now,
             self._lookback_months,
@@ -504,7 +657,10 @@ def compute_debt_interest(
     *,
     as_of: Optional[datetime] = None,
 ) -> DebtInterestResult:
-    """Pure interest calculation from an already-loaded debt entity."""
+    """Display interest: remaining × annual% × days/365 (not accrued into ledger).
+
+    Payoff projections use the same annual rate as monthly = rate/12.
+    """
     if debt.interest_rate is None:
         raise ValueError(f"Debt {debt.id} has no interest_rate")
 
@@ -531,3 +687,99 @@ def compute_debt_interest(
         interest_amount=interest,
         total_with_interest=quantize_money(principal + interest),
     )
+
+
+class AccrueDebtInterestUseCase:
+    """Capitalize monthly interest into ``remaining_amount`` when enabled."""
+
+    def __init__(self, debts: DebtRepository) -> None:
+        self._debts = debts
+
+    async def execute(self, *, now: Optional[datetime] = None) -> list[Debt]:
+        moment = now or _utc_now()
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        changed: list[Debt] = []
+        open_statuses = (DebtStatus.ACTIVE, DebtStatus.OVERDUE)
+        for status in open_statuses:
+            for debt in await self._debts.list(status=status):
+                if not debt.accrue_interest or debt.interest_rate is None:
+                    continue
+                if debt.remaining_amount <= 0:
+                    continue
+                last = debt.last_interest_accrued_at or debt.started_at or debt.created_at
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                months = int(_months_between(last, moment))
+                if months < 1:
+                    continue
+                monthly = _monthly_interest(debt)
+                if monthly <= 0:
+                    continue
+                add = quantize_money(monthly * Decimal(months))
+                new_remaining = quantize_money(debt.remaining_amount + add)
+                new_accrued = quantize_money(debt.accrued_interest + add)
+                updated = debt.model_copy(
+                    update={
+                        "remaining_amount": new_remaining,
+                        "accrued_interest": new_accrued,
+                        "last_interest_accrued_at": moment,
+                        "status": resolve_debt_status(
+                            remaining_amount=new_remaining,
+                            due_date=debt.due_date,
+                            next_payment_date=debt.next_payment_date,
+                            current=debt.status,
+                            now=moment,
+                        ),
+                        "updated_at": moment,
+                    }
+                )
+                changed.append(await self._debts.update(updated))
+        return changed
+
+
+class UndoLastDebtPaymentUseCase:
+    """Delete the most recent non-principal payment for a debt."""
+
+    def __init__(
+        self,
+        transactions: TransactionRepository,
+        delete_debt_payment: DeleteDebtPaymentUseCase,
+    ) -> None:
+        self._transactions = transactions
+        self._delete_debt_payment = delete_debt_payment
+
+    async def execute(self, debt_id: str) -> bool:
+        txs = await self._transactions.list(debt_id=debt_id)
+        payments = [
+            tx
+            for tx in txs
+            if not is_debt_principal_tx(tx) and tx.debt_id == debt_id
+        ]
+        if not payments:
+            raise ValueError("No repayments to undo")
+        payments.sort(key=lambda t: t.date, reverse=True)
+        return await self._delete_debt_payment.execute(
+            payments[0].id, debt_id=debt_id
+        )
+
+
+class ListDebtCounterpartiesUseCase:
+    """Directory of known counterparty names (from existing debts)."""
+
+    def __init__(self, debts: DebtRepository) -> None:
+        self._debts = debts
+
+    async def execute(self) -> list[str]:
+        names: set[str] = set()
+        for status in (
+            DebtStatus.ACTIVE,
+            DebtStatus.OVERDUE,
+            DebtStatus.PAID,
+            DebtStatus.ARCHIVED,
+        ):
+            for debt in await self._debts.list(status=status):
+                name = (debt.counterparty or "").strip()
+                if name:
+                    names.add(name)
+        return sorted(names, key=str.casefold)

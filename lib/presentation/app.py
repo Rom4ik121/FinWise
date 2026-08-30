@@ -31,6 +31,10 @@ logger = logging.getLogger("finanse.presentation.app")
 
 _NAV_RADIUS = 22
 _NAV_MARGIN = ft.Margin.only(left=10, right=10, bottom=6, top=4)
+_NAV_PILL_W = 46.0
+_NAV_PILL_H = 30.0
+_NAV_BAR_H = 54.0
+_NAV_SLIDE = ft.Animation(380, ft.AnimationCurve.EASE_IN_OUT_CUBIC)
 
 
 class FinanseApp:
@@ -54,6 +58,50 @@ class FinanseApp:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[],
         )
+        # Sliding selection pill: flex spacers keep it centered in the active slot
+        # (no pixel math — that broke when host width was unknown).
+        self._nav_indicator = ft.Container(
+            width=_NAV_PILL_W,
+            height=_NAV_PILL_H,
+            border_radius=14,
+            bgcolor=ft.Colors.TRANSPARENT,
+            animate=_NAV_SLIDE,
+        )
+        self._nav_slide_lead = ft.Container(expand=0, animate=_NAV_SLIDE)
+        self._nav_slide_trail = ft.Container(expand=3, animate=_NAV_SLIDE)
+        self._nav_slide_slot = ft.Container(
+            expand=1,
+            alignment=ft.Alignment.CENTER,
+            content=self._nav_indicator,
+            animate=_NAV_SLIDE,
+        )
+        self._nav_stack = ft.Stack(
+            height=_NAV_BAR_H,
+            clip_behavior=ft.ClipBehavior.NONE,
+            controls=[
+                ft.Container(
+                    left=0,
+                    right=0,
+                    top=6,
+                    height=_NAV_PILL_H,
+                    content=ft.Row(
+                        spacing=0,
+                        controls=[
+                            self._nav_slide_lead,
+                            self._nav_slide_slot,
+                            self._nav_slide_trail,
+                        ],
+                    ),
+                ),
+                ft.Container(
+                    left=0,
+                    right=0,
+                    top=0,
+                    bottom=0,
+                    content=self._nav,
+                ),
+            ],
+        )
         self._nav_host = ft.Container(
             margin=_NAV_MARGIN,
             border_radius=_NAV_RADIUS,
@@ -69,7 +117,7 @@ class FinanseApp:
             ),
             content=ft.Container(
                 padding=ft.Padding.only(top=4, bottom=4),
-                content=self._nav,
+                content=self._nav_stack,
             ),
         )
         self._shell = ft.SafeArea(
@@ -214,11 +262,12 @@ class FinanseApp:
         for index, icon, selected_icon, label in self._nav_specs():
             glyph = ft.Icon(icon, size=22, color=ft.Colors.ON_SURFACE_VARIANT)
             pill = ft.Container(
-                padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+                width=_NAV_PILL_W,
+                height=_NAV_PILL_H,
+                alignment=ft.Alignment.CENTER,
                 border_radius=skin.chip_radius,
                 scale=1,
-                animate=ft.Animation(280, ft.AnimationCurve.EASE_OUT_CUBIC),
-                animate_scale=ft.Animation(320, ft.AnimationCurve.EASE_OUT_BACK),
+                animate_scale=ft.Animation(280, ft.AnimationCurve.EASE_OUT_BACK),
                 content=glyph,
             )
             caption = ft.Text(
@@ -234,9 +283,9 @@ class FinanseApp:
             )
             item = ft.Container(
                 expand=True,
-                ink=True,
+                ink=False,
                 on_click=lambda _e, i=index: self.state.set_tab(i),
-                padding=ft.Padding.symmetric(horizontal=2, vertical=4),
+                padding=ft.Padding.symmetric(horizontal=2, vertical=2),
                 content=ft.Column(
                     spacing=2,
                     tight=True,
@@ -248,6 +297,21 @@ class FinanseApp:
             self._nav_pills.append(pill)
             self._nav_icons.append(glyph)
             self._nav_labels.append(caption)
+
+    def _sync_nav_indicator(self, *, dark: bool) -> None:
+        """Move the selection pill into the active tab slot via flex spacers."""
+        skin = get_active_skin()
+        specs = self._nav_specs()
+        n = max(len(specs), 1)
+        selected_i = 0
+        for i, (index, *_rest) in enumerate(specs):
+            if self.state.selected_tab == index:
+                selected_i = i
+                break
+        self._nav_slide_lead.expand = selected_i
+        self._nav_slide_trail.expand = max(n - 1 - selected_i, 0)
+        self._nav_indicator.border_radius = skin.chip_radius
+        self._nav_indicator.bgcolor = skin.nav_selected_bg(dark=dark)
 
     def _sync_chrome(self) -> None:
         skin = get_active_skin()
@@ -284,8 +348,8 @@ class FinanseApp:
             glyph = self._nav_icons[i]
             caption = self._nav_labels[i]
             pill.border_radius = skin.chip_radius
-            pill.bgcolor = skin.nav_selected_bg(dark=dark) if selected else None
-            pill.scale = 1.12 if selected else 1.0
+            pill.bgcolor = None
+            pill.scale = 1.06 if selected else 1.0
             glyph.icon = selected_icon if selected else icon
             glyph.color = (
                 skin.nav_selected_fg(dark=dark)
@@ -297,6 +361,7 @@ class FinanseApp:
             caption.color = (
                 ft.Colors.ON_SURFACE if selected else ft.Colors.ON_SURFACE_VARIANT
             )
+        self._sync_nav_indicator(dark=dark)
         self._rendered_lang = lang
 
     def _on_state_changed(self, _state: AppState) -> None:

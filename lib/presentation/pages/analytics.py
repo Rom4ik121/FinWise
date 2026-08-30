@@ -82,12 +82,13 @@ def _status_value(value: object) -> str:
     return str(getattr(value, "value", value) or "")
 
 
-def _to_base(book: RateBook, amount: Decimal, currency: str, base: str) -> Decimal:
-    src = normalize_currency_code(currency)
-    converted = book.convert(amount, src, base)
-    if converted is not None:
-        return converted
-    return Decimal(str(amount))
+def _to_base(
+    book: RateBook, amount: Decimal, currency: str, base: str
+) -> Decimal | None:
+    """Convert to base currency; ``None`` when the rate is missing."""
+    from lib.presentation.utils import try_convert_amount
+
+    return try_convert_amount(book, amount, currency, base)
 
 
 class AnalyticsPage(ft.Column):
@@ -328,6 +329,8 @@ class AnalyticsPage(ft.Column):
         period_expense: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
 
         for account in accounts:
+            if not getattr(account, "include_in_total", True):
+                continue
             src = normalize_currency_code(account.currency)
             converted = book.convert(account.balance, src, base)
             if converted is not None:
@@ -720,6 +723,9 @@ class AnalyticsPage(ft.Column):
         if not fx_ok and c.update_exchange_rates is not None:
             try:
                 await c.update_exchange_rates.execute(base=base)
+                from lib.presentation.utils import invalidate_rate_book_cache
+
+                invalidate_rate_book_cache()
                 book = await load_rate_book(c)
                 (
                     total_balance,
@@ -761,11 +767,6 @@ class AnalyticsPage(ft.Column):
             except Exception:  # noqa: BLE001
                 debts = []
         budgets: list = []
-        if getattr(c, "recalculate_budget_spent", None) is not None:
-            try:
-                await c.recalculate_budget_spent.execute(month=now.month, year=now.year)
-            except Exception:  # noqa: BLE001
-                pass
         if getattr(c, "get_budgets_for_month", None) is not None:
             try:
                 budgets = await c.get_budgets_for_month.execute(now.month, now.year)
@@ -922,6 +923,7 @@ class AnalyticsPage(ft.Column):
                                 show_income=True,
                                 show_expense=True,
                                 page=self._page,
+                                animate=False,
                             ),
                         ],
                     ),
@@ -971,23 +973,30 @@ class AnalyticsPage(ft.Column):
                     on_action=lambda _e: self._state.open_secondary("goals"),
                 )
             ]
-        target = sum(
-            (_to_base(book, g.target_amount, g.currency, base) for g in visible),
-            Decimal("0"),
-        )
-        saved = sum(
-            (_to_base(book, g.current_amount, g.currency, base) for g in visible),
-            Decimal("0"),
-        )
-        remaining = sum(
-            (
-                _to_base(book, g.remaining_amount, g.currency, base)
-                for g in visible
-                if _status_value(g.status) == GoalStatus.ACTIVE.value
-            ),
-            Decimal("0"),
-        )
-        rows: list[ft.Control] = [
+        target = Decimal("0")
+        saved = Decimal("0")
+        remaining = Decimal("0")
+        fx_ok = True
+        for g in visible:
+            t = _to_base(book, g.target_amount, g.currency, base)
+            s = _to_base(book, g.current_amount, g.currency, base)
+            if t is None or s is None:
+                fx_ok = False
+                continue
+            target += t
+            saved += s
+            if _status_value(g.status) == GoalStatus.ACTIVE.value:
+                r = _to_base(book, g.remaining_amount, g.currency, base)
+                if r is None:
+                    fx_ok = False
+                    continue
+                remaining += r
+        rows: list[ft.Control] = []
+        if not fx_ok:
+            rows.append(
+                muted_text(tr("fx.missing_rates", lang))
+            )
+        rows.append(
             card_surface(
                 ft.Column(
                     spacing=8,
@@ -1009,7 +1018,7 @@ class AnalyticsPage(ft.Column):
                 ),
                 padding=12,
             )
-        ]
+        )
         for goal in visible:
             ratio = float(goal.progress_ratio)
             ratio = max(0.0, min(ratio, 1.0))
@@ -1073,14 +1082,21 @@ class AnalyticsPage(ft.Column):
             ]
         i_owe = Decimal("0")
         owed = Decimal("0")
+        fx_ok = True
         for debt in live:
             remaining = _to_base(book, debt.remaining_amount, debt.currency, base)
+            if remaining is None:
+                fx_ok = False
+                continue
             direction = _status_value(debt.direction)
             if direction == DebtDirection.I_OWE.value:
                 i_owe += remaining
             else:
                 owed += remaining
-        rows: list[ft.Control] = [
+        rows: list[ft.Control] = []
+        if not fx_ok:
+            rows.append(muted_text(tr("fx.missing_rates", lang)))
+        rows.append(
             card_surface(
                 ft.Column(
                     spacing=8,
@@ -1102,7 +1118,7 @@ class AnalyticsPage(ft.Column):
                 ),
                 padding=12,
             )
-        ]
+        )
         for debt in live:
             direction = _status_value(debt.direction)
             label = (

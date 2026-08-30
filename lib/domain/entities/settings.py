@@ -42,6 +42,9 @@ class AppSettings(BaseModel):
     reminder_days: int = 3  # days before subscription billing to remind
     check_balance_before_subscription: bool = True
     biometric_enabled: bool = False
+    # Home chart preferences (persisted across restarts).
+    dashboard_hide_chart: bool = False
+    dashboard_chart_days: int = 30
     updated_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("reminder_days")
@@ -76,6 +79,14 @@ class AppSettings(BaseModel):
         if key in KNOWN_UI_STYLES:
             return key
         return DEFAULT_UI_STYLE
+
+    @field_validator("dashboard_chart_days")
+    @classmethod
+    def _validate_chart_days(cls, value: int) -> int:
+        days = int(value or 30)
+        if days not in (7, 30, 90, 365):
+            return 30
+        return days
 
     @field_validator("updated_at", mode="before")
     @classmethod

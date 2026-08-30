@@ -22,12 +22,47 @@ APP_AUTHOR: Final[str] = "finanse"
 DEFAULT_CURRENCY: Final[str] = "RUB"
 DEFAULT_THEME: Final[str] = "dark"
 DEFAULT_LANGUAGE: Final[str] = "ru"
-DEFAULT_UI_STYLE: Final[str] = "classic"
+DEFAULT_UI_STYLE: Final[str] = "neon"
 KNOWN_UI_STYLES: Final[tuple[str, ...]] = ("classic", "neon")
 DEFAULT_EXCHANGE_UPDATE_INTERVAL_MINUTES: Final[int] = 60
 
 # Money precision
 MONEY_QUANTIZE: Final[str] = "0.01"
+CRYPTO_MONEY_QUANTIZE: Final[str] = "0.00000001"
+# Well-known crypto tickers (display / ledger precision).
+CRYPTO_CURRENCY_CODES: Final[frozenset[str]] = frozenset(
+    {
+        "BTC",
+        "ETH",
+        "USDT",
+        "USDC",
+        "BNB",
+        "XRP",
+        "SOL",
+        "ADA",
+        "DOGE",
+        "TON",
+        "TRX",
+        "LTC",
+        "DOT",
+        "MATIC",
+        "AVAX",
+        "SHIB",
+        "LINK",
+        "ATOM",
+        "UNI",
+        "XMR",
+        "BCH",
+        "NEAR",
+        "APT",
+        "ARB",
+        "OP",
+        "SUI",
+        "PEPE",
+        "WETH",
+        "WBTC",
+    }
+)
 # Exchange rates need many decimals (e.g. UZS→BTC can be ~1e-12).
 FIAT_RATE_QUANTIZE: Final[str] = "0.00000000000001"
 CRYPTO_RATE_QUANTIZE: Final[str] = "0.00000000000001"

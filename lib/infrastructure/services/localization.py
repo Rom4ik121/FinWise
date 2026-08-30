@@ -57,9 +57,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Turkumlar bo‘yicha xarajat",
     },
     "account.stats.spend_hint": {
-        "ru": "Без переводов между счетами",
-        "en": "Excluding transfers between accounts",
-        "uz": "Hisoblar o‘rtasidagi o‘tkazmalarsiz",
+        "ru": "Переводы между вашими счетами сюда не входят",
+        "en": "Transfers between your accounts are not included here",
+        "uz": "Hisoblaringiz o‘rtasidagi o‘tkazmalar bu yerga kirmaydi",
     },
     "account.stats.recent": {
         "ru": "Последние операции",
@@ -97,9 +97,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Birjadagi aktivlar",
     },
     "account.exchange.hint": {
-        "ru": "Название и валюта подтянутся с биржи. Нужен ключ только для чтения.",
-        "en": "Name and currency come from the exchange. Use a read-only API key.",
-        "uz": "Nomi va valyuta birjadan olinadi. Faqat o‘qish uchun kalit kerak.",
+        "ru": "Название и валюта подтянутся с биржи. Достаточно ключа только для чтения.",
+        "en": "We'll fill in the name and currency from the exchange. A read-only API key is enough.",
+        "uz": "Nomi va valyuta birjadan olinadi. Faqat o‘qish uchun kalit yetarli.",
     },
     "account.exchange.connecting": {
         "ru": "Подключаем биржу и загружаем баланс…",
@@ -107,9 +107,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Birja ulanmoqda, balans yuklanmoqda…",
     },
     "account.exchange.keys_hint": {
-        "ru": "Нужен ключ только для чтения. При изменении оставьте поля пустыми, чтобы сохранить текущие ключи.",
-        "en": "Use a read-only API key. Leave fields empty when editing to keep the stored keys.",
-        "uz": "Faqat o‘qish uchun kalit kerak. Tahrirlashda joriy kalitlarni saqlash uchun maydonlarni bo‘sh qoldiring.",
+        "ru": "Используйте ключ только для чтения. При правке оставьте поля пустыми — старые ключи сохранятся.",
+        "en": "Use a read-only key. When editing, leave the fields empty to keep your saved keys.",
+        "uz": "Faqat o‘qish uchun kalitdan foydalaning. Tahrirlashda maydonlarni bo‘sh qoldiring — eski kalitlar saqlanadi.",
     },
     "account.exchange.last_sync": {
         "ru": "Последняя синхронизация: {when}",
@@ -120,6 +120,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Ещё не синхронизировано",
         "en": "Not synced yet",
         "uz": "Hali sinxronlanmagan",
+    },
+    "account.include_in_total": {
+        "ru": "В общем балансе на главной",
+        "en": "Include in home total",
+        "uz": "Bosh sahifa umumiy balansida",
+    },
+    "account.include_in_total_hint": {
+        "ru": "Выключите, если этот счёт не нужно показывать в общем балансе на главной",
+        "en": "Turn off if you don’t want this account in the home total balance",
+        "uz": "Bu hisobni bosh sahifadagi umumiy balansda ko‘rsatmaslik uchun o‘chiring",
     },
     "field.exchange": {
         "ru": "Биржа",
@@ -374,14 +384,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Daromad va xarajat",
     },
     "category.create": {
-        "ru": "+ Новая категория",
-        "en": "+ New category",
-        "uz": "+ Yangi kategoriya",
+        "ru": "Новая категория",
+        "en": "New category",
+        "uz": "Yangi kategoriya",
     },
     "category.empty_hint": {
-        "ru": "Категорий пока нет — создайте свою первую, она сохранится для быстрого ввода",
-        "en": "No categories yet — create your first one; it will be saved for quick entry",
-        "uz": "Hali kategoriyalar yo‘q — birinchisini yarating, keyingi amaliyotlar uchun saqlanadi",
+        "ru": "Пока категорий нет — создайте первую, и она появится в быстром выборе",
+        "en": "No categories yet — create your first one and it will show up for quick pick",
+        "uz": "Hali kategoriyalar yo‘q — birinchisini yarating, tezkor tanlovda chiqadi",
     },
     "category.edit": {
         "ru": "Категория",
@@ -479,9 +489,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Valyutalarni solishtirish",
     },
     "currencies.compare_hint": {
-        "ru": "Введите сумму и выберите пару валют",
-        "en": "Enter an amount and pick a currency pair",
-        "uz": "Summani kiriting va valyuta juftligini tanlang",
+        "ru": "Введите сумму и выберите, из какой валюты в какую перевести",
+        "en": "Enter an amount and choose which currencies to convert between",
+        "uz": "Summani kiriting va qaysi valyutadan qaysiga o‘girishni tanlang",
     },
     "currencies.amount": {
         "ru": "Сумма",
@@ -549,24 +559,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Davr dinamikasi",
     },
     "dashboard.dynamics_hint": {
-        "ru": "Одна линия: приход поднимает, расход опускает",
-        "en": "One line: income lifts it, expense drops it",
-        "uz": "Bitta chiziq: kirim ko‘taradi, chiqim tushiradi",
+        "ru": "Одна линия баланса: доходы поднимают её, расходы — опускают",
+        "en": "One balance line: income lifts it, spending lowers it",
+        "uz": "Bitta balans chizig‘i: kirim ko‘taradi, xarajat tushiradi",
     },
     "dashboard.dynamics_hint_month": {
-        "ru": "Одна линия: приход поднимает, расход опускает",
-        "en": "One line: income lifts it, expense drops it",
-        "uz": "Bitta chiziq: kirim ko‘taradi, chiqim tushiradi",
+        "ru": "Одна линия баланса: доходы поднимают её, расходы — опускают",
+        "en": "One balance line: income lifts it, spending lowers it",
+        "uz": "Bitta balans chizig‘i: kirim ko‘taradi, xarajat tushiradi",
     },
     "dashboard.dynamics_hint_week": {
-        "ru": "Одна линия: приход поднимает, расход опускает",
-        "en": "One line: income lifts it, expense drops it",
-        "uz": "Bitta chiziq: kirim ko‘taradi, chiqim tushiradi",
+        "ru": "Одна линия баланса: доходы поднимают её, расходы — опускают",
+        "en": "One balance line: income lifts it, spending lowers it",
+        "uz": "Bitta balans chizig‘i: kirim ko‘taradi, xarajat tushiradi",
     },
     "dashboard.expense_hint": {
-        "ru": "Доли категорий в расходах за {period}",
-        "en": "Category share of expenses for {period}",
-        "uz": "{period} davrida xarajatlar bo‘yicha kategoriyalar ulushi",
+        "ru": "На что ушли деньги за {period}",
+        "en": "Where your money went for {period}",
+        "uz": "{period} davrida pul qayerga ketgani",
     },
     "dashboard.expense_for_period": {
         "ru": "Расходы · {period}",
@@ -668,6 +678,76 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Total balance",
         "uz": "Umumiy balans",
     },
+    "dashboard.today_expense": {
+        "ru": "Расход за день",
+        "en": "Today’s spending",
+        "uz": "Bugungi xarajat",
+    },
+    "dashboard.today_income": {
+        "ru": "Доход за день",
+        "en": "Today’s income",
+        "uz": "Bugungi daromad",
+    },
+    "dashboard.today_amount_tap": {
+        "ru": "Нажмите, чтобы увидеть полную сумму",
+        "en": "Tap to see the full amount",
+        "uz": "To‘liq summani ko‘rish uchun bosing",
+    },
+    "dashboard.month_dynamics": {
+        "ru": "Динамика за месяц",
+        "en": "Month dynamics",
+        "uz": "Oy dinamikasi",
+    },
+    "dashboard.chart_period": {
+        "ru": "Период графика",
+        "en": "Chart period",
+        "uz": "Grafik davri",
+    },
+    "dashboard.chart_period_hint": {
+        "ru": "Нажмите на график, чтобы выбрать другой период",
+        "en": "Tap the chart to choose another period",
+        "uz": "Boshqa davrni tanlash uchun grafikni bosing",
+    },
+    "dashboard.chart_period.week": {
+        "ru": "Неделя",
+        "en": "Week",
+        "uz": "Hafta",
+    },
+    "dashboard.chart_period.month": {
+        "ru": "Месяц",
+        "en": "Month",
+        "uz": "Oy",
+    },
+    "dashboard.chart_period.quarter": {
+        "ru": "3 месяца",
+        "en": "3 months",
+        "uz": "3 oy",
+    },
+    "dashboard.chart_period.year": {
+        "ru": "Год",
+        "en": "Year",
+        "uz": "Yil",
+    },
+    "dashboard.hide_balance": {
+        "ru": "Скрыть баланс",
+        "en": "Hide balance",
+        "uz": "Balansni yashirish",
+    },
+    "dashboard.show_balance": {
+        "ru": "Показать баланс",
+        "en": "Show balance",
+        "uz": "Balansni ko‘rsatish",
+    },
+    "dashboard.hide_chart": {
+        "ru": "Скрыть график",
+        "en": "Hide chart",
+        "uz": "Grafikni yashirish",
+    },
+    "dashboard.show_chart": {
+        "ru": "Показать график",
+        "en": "Show chart",
+        "uz": "Grafikni ko‘rsatish",
+    },
     "debt.due_by": {
         "ru": "До {date}",
         "en": "Due {date}",
@@ -702,6 +782,91 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Сразу провести по счёту",
         "en": "Post to account now",
         "uz": "Hisobga darhol o‘tkazish",
+    },
+    "debt.record_cash_hint": {
+        "ru": "Выключите, если хотите только запомнить долг — без списания или зачисления на счёт",
+        "en": "Turn off to only remember the debt — without moving money on an account",
+        "uz": "Faqat qarzni eslatib qo‘yish uchun o‘chiring — hisobdan pul yechilmaydi va tushmaydi",
+    },
+    "debt.default_account": {
+        "ru": "Счёт по умолчанию",
+        "en": "Default account",
+        "uz": "Standart hisob",
+    },
+    "debt.next_payment": {
+        "ru": "След. платёж: {date}",
+        "en": "Next payment: {date}",
+        "uz": "Keyingi to‘lov: {date}",
+    },
+    "debt.next_payment_date": {
+        "ru": "Дата следующего платежа",
+        "en": "Next payment date",
+        "uz": "Keyingi to‘lov sanasi",
+    },
+    "debt.next_payment_amount": {
+        "ru": "Сумма платежа по графику",
+        "en": "Scheduled payment amount",
+        "uz": "Jadvaldagi to‘lov summasi",
+    },
+    "debt.accrue_interest": {
+        "ru": "Добавлять проценты к сумме долга",
+        "en": "Add interest to the debt balance",
+        "uz": "Foizlarni qarz summasiga qo‘shish",
+    },
+    "debt.accrue_interest_hint": {
+        "ru": "Раз в месяц проценты прибавятся к сумме, которую нужно вернуть — не только для справки на экране",
+        "en": "Once a month, interest is added to what you still owe — not just shown for reference",
+        "uz": "Har oy foizlar qaytarilishi kerak bo‘lgan summaga qo‘shiladi — faqat ekranda ko‘rsatish uchun emas",
+    },
+    "debt.accrued_interest": {
+        "ru": "Начислено: {amount}",
+        "en": "Accrued: {amount}",
+        "uz": "Hisoblangan: {amount}",
+    },
+    "debt.undo_last": {
+        "ru": "Отменить последний платёж",
+        "en": "Undo last payment",
+        "uz": "Oxirgi to‘lovni bekor qilish",
+    },
+    "debt.currency_change_hint": {
+        "ru": "Если смените валюту, остаток долга пересчитается по текущему курсу",
+        "en": "If you change the currency, the outstanding amount is recalculated at the current rate",
+        "uz": "Valyutani o‘zgartirsangiz, qarz qoldig‘i joriy kurs bo‘yicha qayta hisoblanadi",
+    },
+    "debt.payment_split": {
+        "ru": "Тело {principal} · % {interest}",
+        "en": "Principal {principal} · interest {interest}",
+        "uz": "Asosiy {principal} · % {interest}",
+    },
+    "debt.preset.active": {
+        "ru": "Активные",
+        "en": "Active",
+        "uz": "Faol",
+    },
+    "debt.preset.i_owe": {
+        "ru": "Я должен",
+        "en": "I owe",
+        "uz": "Men qarzdorman",
+    },
+    "debt.preset.owed": {
+        "ru": "Мне должны",
+        "en": "Owed to me",
+        "uz": "Menga qarzdor",
+    },
+    "debt.preset.overdue": {
+        "ru": "Просрочка",
+        "en": "Overdue",
+        "uz": "Muddati o‘tgan",
+    },
+    "debt.preset.interest": {
+        "ru": "С %",
+        "en": "With %",
+        "uz": "% bilan",
+    },
+    "debt.counterparty_known": {
+        "ru": "Из справочника",
+        "en": "From directory",
+        "uz": "Ma’lumotnomadan",
     },
     "debt.repay": {
         "ru": "Погасить",
@@ -954,14 +1119,54 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Komissiya",
     },
     "field.fee_hint": {
-        "ru": "Необязательно. Учитывается отдельным расходом.",
-        "en": "Optional. Recorded as a separate expense.",
-        "uz": "Ixtiyoriy. Alohida xarajat sifatida hisobga olinadi.",
+        "ru": "Необязательно. Комиссия сохранится отдельным расходом",
+        "en": "Optional. The fee is saved as a separate expense",
+        "uz": "Ixtiyoriy. Komissiya alohida xarajat sifatida saqlanadi",
     },
     "field.amount": {
         "ru": "Сумма",
         "en": "Amount",
         "uz": "Summa",
+    },
+    "tx.multi_items": {
+        "ru": "Несколько позиций",
+        "en": "Multiple items",
+        "uz": "Bir nechta pozitsiya",
+    },
+    "tx.add_item": {
+        "ru": "Добавить позицию",
+        "en": "Add item",
+        "uz": "Pozitsiya qo‘shish",
+    },
+    "tx.item_name": {
+        "ru": "Название",
+        "en": "Name",
+        "uz": "Nomi",
+    },
+    "tx.items_total": {
+        "ru": "Итого: {amount}",
+        "en": "Total: {amount}",
+        "uz": "Jami: {amount}",
+    },
+    "lock.throttled": {
+        "ru": "Слишком много попыток. Подождите {seconds} с.",
+        "en": "Too many attempts. Wait {seconds}s.",
+        "uz": "Juda ko‘p urinish. {seconds} soniya kuting.",
+    },
+    "tx.detail_title": {
+        "ru": "Детали операции",
+        "en": "Transaction details",
+        "uz": "Amaliyot tafsilotlari",
+    },
+    "tx.items": {
+        "ru": "Позиции",
+        "en": "Items",
+        "uz": "Pozitsiyalar",
+    },
+    "tx.no_comment": {
+        "ru": "Без комментария",
+        "en": "No comment",
+        "uz": "Izoh yo‘q",
     },
     "field.category": {
         "ru": "Категория",
@@ -1139,9 +1344,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Jarayon",
     },
     "goal.progress_hint": {
-        "ru": "Прогресс меняется только взносами со счёта",
-        "en": "Progress changes only via account contributions",
-        "uz": "Jarayon faqat hisobdan badallar orqali o‘zgaradi",
+        "ru": "Прогресс растёт только когда вы вносите деньги со счёта",
+        "en": "Progress grows only when you contribute from an account",
+        "uz": "Jarayon faqat hisobdan pul qo‘shganingizda oshadi",
     },
     "goal.target": {
         "ru": "Цель",
@@ -1257,6 +1462,41 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Нужно в месяц",
         "en": "Required monthly",
         "uz": "Oyiga kerak",
+    },
+    "goal.required_monthly_short": {
+        "ru": "≈ {amount}/мес",
+        "en": "≈ {amount}/mo",
+        "uz": "≈ {amount}/oy",
+    },
+    "goal.overfund_warn": {
+        "ru": "Взнос больше остатка ({remaining}) — цель может переполниться",
+        "en": "Contribution exceeds remaining ({remaining}) — goal may overfund",
+        "uz": "Badal qolganidan ({remaining}) katta — maqsad ortiqcha to‘lishi mumkin",
+    },
+    "goal.archived_block": {
+        "ru": "Цель в архиве — взнос невозможен",
+        "en": "Goal is archived — cannot contribute",
+        "uz": "Maqsad arxivda — badal qo‘yib bo‘lmaydi",
+    },
+    "goal.completed_block": {
+        "ru": "Цель уже достигнута",
+        "en": "Goal is already completed",
+        "uz": "Maqsad allaqachon bajarilgan",
+    },
+    "goal.category_link": {
+        "ru": "Категория накопления",
+        "en": "Savings category",
+        "uz": "Jamg‘arma kategoriyasi",
+    },
+    "goal.currency_change_hint": {
+        "ru": "Если смените валюту, уже накопленная сумма пересчитается по текущему курсу",
+        "en": "If you change the currency, your saved amount is recalculated at the current rate",
+        "uz": "Valyutani o‘zgartirsangiz, jamg‘arilgan summa joriy kurs bo‘yicha qayta hisoblanadi",
+    },
+    "goal.delete_keep_txs": {
+        "ru": "Удалить «{name}»? Взносы останутся расходами на счетах, связь с целью снимется.",
+        "en": "Delete “{name}”? Contributions stay as account expenses; the goal link is cleared.",
+        "uz": "“{name}” o‘chirilsinmi? Badallar hisobdagi xarajat sifatida qoladi; bog‘lanish olib tashlanadi.",
     },
     "goal.projected_date": {
         "ru": "Прогноз завершения",
@@ -1856,9 +2096,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "PIN ni tozalash",
     },
     "settings.currency_hint": {
-        "ru": "Валюта отображения. Операции идут в валюте выбранного счёта.",
-        "en": "Display currency. Transactions use the selected account currency.",
-        "uz": "Ko‘rsatish valyutasi. Amaliyotlar tanlangan hisob valyutasida.",
+        "ru": "Валюта для итогов на экране. Сами операции по-прежнему идут в валюте выбранного счёта",
+        "en": "Currency for on-screen totals. Transactions still use the selected account’s currency",
+        "uz": "Ekrandagi jami uchun valyuta. Amaliyotlar tanlangan hisob valyutasida qoladi",
     },
     "settings.danger": {
         "ru": "Опасная зона",
@@ -1909,6 +2149,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Экспорт JSON",
         "en": "Export JSON",
         "uz": "JSON eksport",
+    },
+    "settings.export_json_encrypted": {
+        "ru": "Экспорт JSON (пароль)",
+        "en": "Export JSON (password)",
+        "uz": "JSON eksport (parol)",
+    },
+    "settings.export_password": {
+        "ru": "Пароль экспорта",
+        "en": "Export password",
+        "uz": "Eksport paroli",
+    },
+    "settings.export_password_short": {
+        "ru": "Пароль слишком короткий (мин. 4)",
+        "en": "Password too short (min 4)",
+        "uz": "Parol juda qisqa (min 4)",
     },
     "settings.export_pdf": {
         "ru": "Экспорт PDF",
@@ -2071,9 +2326,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Interfeys uslubi",
     },
     "settings.style.hint": {
-        "ru": "Цвета и формы всего приложения. Светлую или тёмную тему выбирайте отдельно ниже.",
-        "en": "Colors and shapes for the whole app. Light or dark is chosen separately below.",
-        "uz": "Butun ilova ranglari. Yorug‘ yoki qorong‘u mavzuni alohida tanlang.",
+        "ru": "Меняет цвета и оформление всего приложения. Светлую или тёмную тему выберите отдельно ниже",
+        "en": "Changes colors and look for the whole app. Pick light or dark separately below",
+        "uz": "Butun ilova ranglari va ko‘rinishini o‘zgartiradi. Yorug‘ yoki qorong‘u mavzuni pastda alohida tanlang",
     },
     "settings.style.classic": {
         "ru": "Классика",
@@ -2191,9 +2446,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Yechib olish tarixi",
     },
     "subscription.delete_charge_hint": {
-        "ru": "Списание будет удалено без пересчёта следующей даты.",
-        "en": "The charge will be deleted without recalculating the next billing date.",
-        "uz": "To‘lov keyingi sana qayta hisoblanmasdan o‘chiriladi.",
+        "ru": "Списание удалится из истории. Дата следующего платежа сама не сдвинется",
+        "en": "The charge is removed from history. The next payment date won’t move by itself",
+        "uz": "To‘lov tarixdan o‘chiriladi. Keyingi to‘lov sanasi o‘zi siljimaydi",
     },
     "subscription.insufficient_funds": {
         "ru": "Недостаточно средств на счёте",
@@ -2273,7 +2528,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "analytics.tap_hint": {
         "ru": "Нажмите на сумму, чтобы увидеть её полностью",
         "en": "Tap an amount to see the full figure",
-        "uz": "To‘liq summani ko‘rish uchun bosing",
+        "uz": "To‘liq summani ko‘rish uchun ustiga bosing",
     },
     "analytics.full_amount": {
         "ru": "Полная сумма",
@@ -2281,9 +2536,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "To‘liq summa",
     },
     "analytics.budget_month_hint": {
-        "ru": "Лимиты за текущий календарный месяц",
-        "en": "Limits for the current calendar month",
-        "uz": "Joriy kalendar oyi limitlari",
+        "ru": "Лимиты и траты за текущий календарный месяц",
+        "en": "Limits and spending for the current calendar month",
+        "uz": "Joriy kalendar oyi uchun limitlar va xarajatlar",
     },
     "analytics.i_owe": {
         "ru": "Я должен",
@@ -2446,9 +2701,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Manba hisobidan {total} yechiladi",
     },
     "transfer.edit_hint": {
-        "ru": "Сумму и счета перевода менять нельзя — только комментарий. Удаление снимает обе стороны.",
-        "en": "Transfer amount and accounts cannot be changed — only the comment. Deleting removes both legs.",
-        "uz": "O‘tkazma summasini va hisoblarni o‘zgartirib bo‘lmaydi — faqat izoh. O‘chirish ikkala tomonni ham olib tashlaydi.",
+        "ru": "Сумму и счета перевода менять нельзя — только комментарий. Удаление уберёт обе стороны перевода",
+        "en": "You can’t change the amount or accounts — only the comment. Deleting removes both sides of the transfer",
+        "uz": "O‘tkazma summasini va hisoblarni o‘zgartirib bo‘lmaydi — faqat izoh. O‘chirish ikkala tomonni ham olib tashlaydi",
     },
     "transfer.delete_pair": {
         "ru": "Будут удалены обе стороны перевода",

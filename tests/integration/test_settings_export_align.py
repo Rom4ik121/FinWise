@@ -74,12 +74,29 @@ def test_container_rebind_session_factory_after_reset(container) -> None:
 
 def test_export_data_use_case(container, tmp_path: Path) -> None:
     async def _run() -> None:
+        from lib.domain.entities.category import CategoryKind
+        from tests.factories import make_category
+
         await container.create_account.execute(make_account(name="Cash"))
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        from datetime import datetime, timezone
+        from decimal import Decimal
+
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Food", now.month, now.year, Decimal("100"))
         result = await container.export_data.execute(tmp_path / "exports")
         assert result.path.exists()
         payload = json.loads(result.path.read_text(encoding="utf-8"))
         assert result.counts["accounts"] >= 1
+        assert result.counts["categories"] >= 1
+        assert result.counts["budgets"] >= 1
         assert "accounts" in payload
+        assert "categories" in payload
+        assert "budgets" in payload
+        assert payload["version"] >= 2
+        assert "debt_payments" in payload or payload["version"] == 2
 
     run_async(_run())
 
@@ -98,6 +115,19 @@ def test_export_service_json_csv(tmp_path: Path) -> None:
 
 def test_align_sole_account_currency(container) -> None:
     async def _run() -> None:
+        from datetime import datetime, timezone
+        from decimal import Decimal
+
+        from lib.domain.entities.currency import ExchangeRate
+
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="RUB",
+                quote="UZS",
+                rate=Decimal("150"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
         acc = await container.create_account.execute(
             make_account(currency="RUB", balance="100")
         )
@@ -113,11 +143,28 @@ def test_align_sole_account_currency(container) -> None:
         updated = await container.account_repository.get_by_id(acc.id)
         assert updated is not None
         assert updated.currency == "UZS"
+        assert updated.initial_balance == Decimal("15000.00")
         txs = await container.list_transactions.execute(account_id=acc.id)
         assert all(t.currency == "UZS" for t in txs)
+        assert all(t.amount == Decimal("1500.00") for t in txs)
 
         # Second call is a no-op.
         assert await align_sole_account_currency(container) is False
+
+    run_async(_run())
+
+
+def test_align_sole_account_refuses_without_rate(container) -> None:
+    async def _run() -> None:
+        await container.create_account.execute(
+            make_account(currency="EUR", balance="100")
+        )
+        settings = await container.get_settings.execute()
+        settings.default_currency = "UZS"
+        await container.update_settings.execute(settings)
+        assert await align_sole_account_currency(container) is False
+        accounts = await container.list_accounts.execute(active_only=False)
+        assert accounts[0].currency == "EUR"
 
     run_async(_run())
 
@@ -132,5 +179,21 @@ def test_data_reset_wipes_accounts(container) -> None:
             get_session_factory(container.config)
         )
         assert await container.list_accounts.execute() == []
+
+    run_async(_run())
+
+
+def test_persist_dashboard_chart_prefs(container) -> None:
+    async def _run() -> None:
+        settings = await container.get_settings.execute()
+        updated = settings.model_copy(
+            update={"dashboard_hide_chart": True, "dashboard_chart_days": 90}
+        )
+        saved = await container.update_settings.execute(updated)
+        assert saved.dashboard_hide_chart is True
+        assert saved.dashboard_chart_days == 90
+        again = await container.get_settings.execute()
+        assert again.dashboard_hide_chart is True
+        assert again.dashboard_chart_days == 90
 
     run_async(_run())

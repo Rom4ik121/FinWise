@@ -22,6 +22,7 @@ from lib.presentation.notification_badges import (
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.styles import card_surface, muted_text, page_header, summary_strip
 from lib.presentation.utils import (
+    bind_dropdown_select,
     format_date,
     format_money,
     load_rate_book,
@@ -65,7 +66,6 @@ class SubscriptionsPage(ft.Column):
         self._page = page
         self._state = state
         self._accounts: list = []
-        self._calendar = ft.Column(spacing=6)
         self._list = make_v_scroll(spacing=12)
         self._alert_ids: set[str] = set()
         self._token = -1
@@ -87,19 +87,6 @@ class SubscriptionsPage(ft.Column):
                     ],
                 ),
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=16),
-                    content=ft.Column(
-                        spacing=8,
-                        controls=[
-                            ft.Text(
-                                tr("subscriptions.calendar", state.language),
-                                weight=ft.FontWeight.W_600,
-                            ),
-                            self._calendar,
-                        ],
-                    ),
-                ),
-                ft.Container(
                     expand=True,
                     padding=ft.Padding.symmetric(horizontal=16),
                     content=self._list,
@@ -114,7 +101,7 @@ class SubscriptionsPage(ft.Column):
             run_async(self._page, self.reload)
 
     async def reload(self) -> None:
-        """Reload subscriptions and build upcoming calendar."""
+        """Reload subscriptions list."""
         self._token = self._state.subscriptions_token
         lang = self._state.language
         fill_loading(self._list)
@@ -140,29 +127,6 @@ class SubscriptionsPage(ft.Column):
             self._list.controls = [EmptyState(tr("error.generic", lang))]
             safe_update(self._list)
             return
-
-        upcoming = sorted(
-            [s for s in items if s.status == SubscriptionStatus.ACTIVE],
-            key=lambda s: s.next_billing_date,
-        )[:8]
-        if upcoming:
-            self._calendar.controls = [
-                ft.ListTile(
-                    leading=ft.Icon(ft.Icons.EVENT, color=ft.Colors.TEAL_700),
-                    title=ft.Text(s.name),
-                    subtitle=ft.Text(format_date(s.next_billing_date)),
-                    trailing=ft.Text(
-                        format_money(s.amount, s.currency),
-                        weight=ft.FontWeight.W_600,
-                    ),
-                )
-                for s in upcoming
-            ]
-        else:
-            self._calendar.controls = [
-                ft.Text("—", color=ft.Colors.ON_SURFACE_VARIANT)
-            ]
-        safe_update(self._calendar)
 
         if not items:
             self._list.controls = [
@@ -259,7 +223,7 @@ class SubscriptionsPage(ft.Column):
         async def _load() -> None:
             body.controls = [loading_indicator()]
             try:
-                body.update()
+                safe_update(body)
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -323,8 +287,8 @@ class SubscriptionsPage(ft.Column):
                         )
                     )
                 load_more_btn.visible = more_has
-                charges_col.update()
-                load_more_btn.update()
+                safe_update(charges_col)
+                safe_update(load_more_btn)
 
             load_more_btn = ft.TextButton(
                 tr("action.load_more", lang),
@@ -456,7 +420,7 @@ class SubscriptionsPage(ft.Column):
                 charges_col,
                 load_more_btn,
             ]
-            body.update()
+            safe_update(body)
 
         close = open_fullscreen_form(
             self._page,
@@ -565,7 +529,8 @@ class SubscriptionsPage(ft.Column):
             label=tr("field.account", lang),
             value=sub.account_id if sub else self._accounts[0].id,
             options=[
-                ft.DropdownOption(key=a.id, text=a.name) for a in self._accounts
+                ft.DropdownOption(key=a.id, text=f"{a.name} ({a.currency})")
+                for a in self._accounts
             ],
         )
         period_dd = ft.Dropdown(
@@ -649,11 +614,11 @@ class SubscriptionsPage(ft.Column):
         def _on_period(_e: ft.ControlEvent) -> None:
             custom_tf.visible = period_dd.value == Periodicity.CUSTOM.value
             try:
-                custom_tf.update()
+                safe_update(custom_tf)
             except Exception:  # noqa: BLE001
                 pass
 
-        period_dd.on_select = _on_period
+        bind_dropdown_select(period_dd, _on_period)
 
         close_holder: dict[str, object] = {}
 

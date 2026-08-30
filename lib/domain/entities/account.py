@@ -28,6 +28,7 @@ class Account(BaseModel):
     icon: str = "wallet"
     color: str = "#2E7D32"
     is_active: bool = True
+    include_in_total: bool = True
     created_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("balance", "initial_balance", mode="before")

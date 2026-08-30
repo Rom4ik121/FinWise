@@ -86,3 +86,37 @@ def test_transaction_stats(container) -> None:
         _ = now
 
     run_async(_run())
+
+
+def test_stats_convert_mixed_currencies_to_base(container) -> None:
+    async def _run() -> None:
+        from lib.domain.entities.currency import ExchangeRate
+
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="USD",
+                quote="RUB",
+                rate=Decimal("90"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        settings = await container.get_settings.execute()
+        settings.default_currency = "RUB"
+        await container.update_settings.execute(settings)
+
+        rub = await container.create_account.execute(
+            make_account(name="RUB", currency="RUB", balance="1000")
+        )
+        usd = await container.create_account.execute(
+            make_account(name="USD", currency="USD", balance="100")
+        )
+        await container.add_transaction.execute(
+            make_transaction(rub.id, amount="100", currency="RUB")
+        )
+        await container.add_transaction.execute(
+            make_transaction(usd.id, amount="10", currency="USD")
+        )
+        stats = await container.get_transaction_stats.execute()
+        assert stats.total_expense == Decimal("1000.00")
+
+    run_async(_run())

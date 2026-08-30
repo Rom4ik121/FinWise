@@ -13,18 +13,23 @@ import flet as ft
 from lib.core.config import SAVINGS_CATEGORIES
 from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.transaction import Transaction, TransactionType
-from lib.domain.use_cases.transactions import StatsPeriod
+from lib.domain.use_cases.transactions import FEE_CATEGORY, StatsPeriod, make_fee_expense
 from lib.infrastructure.services.localization import localize_category_name
 from lib.infrastructure.services.notification_service import NotificationKind
 from lib.presentation.styles import page_header
-from lib.presentation.money_input import make_amount_field, parse_amount
-from lib.presentation.utils import format_date, format_money, run_async, safe_update, snack, tr
+from lib.presentation.money_input import (
+    make_amount_field,
+    parse_amount,
+    parse_optional_amount,
+)
+from lib.presentation.utils import format_date, format_money, run_async, safe_update, snack, tr, bind_dropdown_select
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.layout import make_v_scroll
+from lib.presentation.widgets.line_items_editor import LineItemsEditor
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.transaction_tile import TransactionTile
 
@@ -430,6 +435,7 @@ class TransactionsPage(ft.Column):
                         tx,
                         category=self._category_map.get(tx.category),  # type: ignore[arg-type]
                         language=lang,
+                        on_open=self._open_detail,
                         on_edit=lambda t: run_async(
                             self._page, self._open_editor_async, t
                         ),
@@ -531,6 +537,154 @@ class TransactionsPage(ft.Column):
 
         self._render_list(self._shown, lang=lang)
 
+    def _open_detail(self, tx: Transaction) -> None:
+        """Show a read-only detail sheet; edit/delete from actions."""
+        lang = self._state.language
+        account_name = next(
+            (a.name for a in self._accounts if a.id == tx.account_id),
+            tx.account_id,
+        )
+        is_income = tx.type == TransactionType.INCOME
+        type_label = tr(
+            "transaction.income" if is_income else "transaction.expense",
+            lang,
+        )
+        if tx.is_transfer:
+            type_label = tr("transaction.transfer", lang)
+        amount_text = format_money(tx.amount, tx.currency)
+        if not is_income:
+            amount_text = f"−{amount_text}"
+        else:
+            amount_text = f"+{amount_text}"
+
+        rows: list[ft.Control] = [
+            ft.Text(
+                amount_text,
+                size=28,
+                weight=ft.FontWeight.W_800,
+                color=ft.Colors.PRIMARY if is_income or tx.is_transfer else ft.Colors.ERROR,
+            ),
+            ft.Text(
+                localize_category_name(tx.category, lang),
+                size=18,
+                weight=ft.FontWeight.W_600,
+            ),
+            ft.Divider(height=16),
+            self._detail_row(tr("field.type", lang), type_label),
+            self._detail_row(tr("field.account", lang), account_name),
+            self._detail_row(
+                tr("field.date", lang),
+                format_date(tx.date, with_time=True),
+            ),
+            self._detail_row(
+                tr("field.comment", lang),
+                tx.comment or tr("tx.no_comment", lang),
+            ),
+        ]
+        if tx.tags:
+            rows.append(
+                self._detail_row(
+                    tr("field.tags", lang),
+                    ", ".join(f"#{t}" for t in tx.tags),
+                )
+            )
+        if tx.has_items:
+            rows.append(ft.Divider(height=12))
+            rows.append(
+                ft.Text(
+                    tr("tx.items", lang),
+                    weight=ft.FontWeight.W_700,
+                    size=14,
+                )
+            )
+            for item in tx.items:
+                rows.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                        border_radius=10,
+                        bgcolor=ft.Colors.SURFACE_CONTAINER,
+                        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Column(
+                                    spacing=2,
+                                    tight=True,
+                                    expand=True,
+                                    controls=[
+                                        ft.Text(
+                                            item.name or item.category,
+                                            weight=ft.FontWeight.W_600,
+                                            size=13,
+                                        ),
+                                        ft.Text(
+                                            localize_category_name(
+                                                item.category or tx.category, lang
+                                            ),
+                                            size=11,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                    ],
+                                ),
+                                ft.Text(
+                                    format_money(item.amount, tx.currency),
+                                    weight=ft.FontWeight.W_700,
+                                    size=13,
+                                ),
+                            ],
+                        ),
+                    )
+                )
+
+        def _edit(_e: ft.ControlEvent | None = None) -> None:
+            close()
+            run_async(self._page, self._open_editor_async, tx)
+
+        def _delete(_e: ft.ControlEvent | None = None) -> None:
+            close()
+            self._confirm_delete(tx)
+
+        rows.append(ft.Container(height=8))
+        rows.append(
+            ft.Row(
+                spacing=10,
+                controls=[
+                    ft.FilledButton(
+                        tr("action.edit", lang),
+                        icon=ft.Icons.EDIT_OUTLINED,
+                        expand=True,
+                        on_click=_edit,
+                    ),
+                    ft.OutlinedButton(
+                        tr("action.delete", lang),
+                        icon=ft.Icons.DELETE_OUTLINE,
+                        expand=True,
+                        on_click=_delete,
+                    ),
+                ],
+            )
+        )
+
+        close = open_fullscreen_form(
+            self._page,
+            title=tr("tx.detail_title", lang),
+            lang=lang,
+            overlay_key="transaction_detail",
+            show_save=False,
+            body=rows,
+        )
+
+    @staticmethod
+    def _detail_row(label: str, value: str) -> ft.Control:
+        return ft.Column(
+            spacing=2,
+            tight=True,
+            controls=[
+                ft.Text(label, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Text(value, size=14, weight=ft.FontWeight.W_500),
+            ],
+        )
+
     def _confirm_delete(self, tx: Transaction) -> None:
         lang = self._state.language
 
@@ -597,6 +751,38 @@ class TransactionsPage(ft.Column):
             label=tr("field.amount", lang),
             value=tx.amount if tx else "",
         )
+        items_editor = LineItemsEditor(lang)
+
+        def _sync_amount_visibility() -> None:
+            amount_tf.visible = not items_editor.enabled
+            safe_update(amount_tf)
+
+        items_editor.set_on_changed(_sync_amount_visibility)
+        if tx is not None and tx.has_items:
+            items_editor.set_items(list(tx.items))
+            amount_tf.visible = False
+
+        fee_tf = make_amount_field(
+            lang,
+            label=tr("field.fee", lang),
+        )
+        fee_hint = ft.Text(
+            tr("field.fee_hint", lang),
+            size=11,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+        )
+
+        def _sync_fee_visibility() -> None:
+            show = (
+                tx is None
+                and (type_dd.value or TransactionType.EXPENSE.value)
+                == TransactionType.EXPENSE.value
+            )
+            fee_tf.visible = show
+            fee_hint.visible = show
+            safe_update(fee_tf)
+            safe_update(fee_hint)
+
         account_dd = ft.Dropdown(
             label=tr("field.account", lang),
             value=tx.account_id if tx else accounts[0].id,
@@ -614,9 +800,14 @@ class TransactionsPage(ft.Column):
         await category_picker.reload()
         if category_picker.is_empty:
             category_picker.prompt_if_empty()
-        type_dd.on_select = lambda _e: category_picker.set_tx_type(
-            type_dd.value or TransactionType.EXPENSE.value
-        )
+        def _on_type(_e: ft.ControlEvent | None = None) -> None:
+            category_picker.set_tx_type(
+                type_dd.value or TransactionType.EXPENSE.value
+            )
+            _sync_fee_visibility()
+
+        bind_dropdown_select(type_dd, _on_type)
+        _sync_fee_visibility()
         goal_options = [
             ft.DropdownOption(key="", text=tr("none", lang)),
         ] + [
@@ -644,13 +835,6 @@ class TransactionsPage(ft.Column):
         )
 
         async def _save() -> None:
-            try:
-                amount = parse_amount(amount_tf.value)
-                if amount <= 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                snack(self._page, tr("invalid_amount", lang), error=True)
-                return
             occurred = date_field.value
             if occurred is None:
                 snack(self._page, tr("invalid_date", lang), error=True)
@@ -686,6 +870,26 @@ class TransactionsPage(ft.Column):
                 goal_id = None
             if goal_id and category not in SAVINGS_CATEGORIES:
                 category = tr("category.savings", lang)
+
+            line_items = items_editor.collect(default_category=category)
+            try:
+                fee = parse_optional_amount(fee_tf.value)
+                if fee < 0:
+                    raise InvalidOperation
+                if line_items is None:
+                    amount = parse_amount(amount_tf.value)
+                    if amount <= 0:
+                        raise InvalidOperation
+                    items: list = []
+                else:
+                    if len(line_items) < 1:
+                        raise InvalidOperation
+                    amount = sum((i.amount for i in line_items), Decimal("0"))
+                    items = line_items
+            except (InvalidOperation, ValueError):
+                snack(self._page, tr("invalid_amount", lang), error=True)
+                return
+
             entity = Transaction(
                 id=tx.id if tx else Transaction(
                     account_id=account.id,
@@ -704,13 +908,52 @@ class TransactionsPage(ft.Column):
                 currency=account.currency,
                 created_at=tx.created_at if tx else datetime.now(timezone.utc),
                 goal_id=goal_id,
+                items=items,
             )
             try:
                 if tx:
                     await self._state.container.update_transaction.execute(entity)
+                    if fee > 0 and tx_type == TransactionType.EXPENSE:
+                        if self._state.container.find_or_create_category is not None:
+                            await self._state.container.find_or_create_category.execute(
+                                FEE_CATEGORY,
+                                kind=CategoryKind.EXPENSE,
+                                icon="receipt_long",
+                            )
+                        await self._state.container.add_transaction.execute(
+                            make_fee_expense(
+                                account_id=account.id,
+                                currency=account.currency,
+                                amount=fee,
+                                date=entity.date,
+                                comment=entity.comment or FEE_CATEGORY,
+                            )
+                        )
                 else:
                     saved = await self._state.container.add_transaction.execute(entity)
                     await self._maybe_notify_goal(saved.goal_id)
+                    if fee > 0 and tx_type == TransactionType.EXPENSE:
+                        try:
+                            if self._state.container.find_or_create_category is not None:
+                                await self._state.container.find_or_create_category.execute(
+                                    FEE_CATEGORY,
+                                    kind=CategoryKind.EXPENSE,
+                                    icon="receipt_long",
+                                )
+                            await self._state.container.add_transaction.execute(
+                                make_fee_expense(
+                                    account_id=account.id,
+                                    currency=account.currency,
+                                    amount=fee,
+                                    date=saved.date,
+                                    comment=saved.comment or FEE_CATEGORY,
+                                )
+                            )
+                        except Exception:
+                            await self._state.container.delete_transaction.execute(
+                                saved.id
+                            )
+                            raise
             except Exception as exc:  # noqa: BLE001
                 snack(self._page, str(exc), error=True)
                 return
@@ -726,6 +969,9 @@ class TransactionsPage(ft.Column):
             body=[
                 type_dd,
                 amount_tf,
+                items_editor,
+                fee_tf,
+                fee_hint,
                 account_dd,
                 category_picker,
                 goal_dd,

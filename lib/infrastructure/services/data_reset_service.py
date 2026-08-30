@@ -29,4 +29,11 @@ class DataResetService:
             for table in reversed(Base.metadata.sorted_tables):
                 session.execute(delete(table))
                 logger.info("Cleared table %s", table.name)
+        try:
+            from lib.infrastructure.services.secret_box import delete_master_key
+
+            if delete_master_key(self._config):
+                logger.info("Removed secret_box master key")
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to remove secret_box master key")
         logger.info("All application data wiped")

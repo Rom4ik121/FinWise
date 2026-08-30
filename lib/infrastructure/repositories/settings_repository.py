@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+from lib.core.config import DEFAULT_UI_STYLE
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.settings import AppSettings
 from lib.domain.repositories.settings_repository import SettingsRepository
@@ -28,7 +29,7 @@ def _to_entity(model: SettingsModel) -> AppSettings:
         id=model.id,
         default_currency=normalize_currency_code(model.default_currency),
         theme=model.theme,
-        ui_style=getattr(model, "ui_style", None) or "classic",
+        ui_style=getattr(model, "ui_style", None) or DEFAULT_UI_STYLE,
         language=model.language,
         exchange_update_interval_minutes=model.exchange_update_interval_minutes,
         notifications_enabled=model.notifications_enabled,
@@ -43,6 +44,8 @@ def _to_entity(model: SettingsModel) -> AppSettings:
             getattr(model, "check_balance_before_subscription", True)
         ),
         biometric_enabled=bool(getattr(model, "biometric_enabled", False)),
+        dashboard_hide_chart=bool(getattr(model, "dashboard_hide_chart", False)),
+        dashboard_chart_days=int(getattr(model, "dashboard_chart_days", None) or 30),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
 
@@ -66,6 +69,8 @@ def _apply_entity(model: SettingsModel, entity: AppSettings) -> None:
         entity.check_balance_before_subscription
     )
     model.biometric_enabled = entity.biometric_enabled
+    model.dashboard_hide_chart = bool(getattr(entity, "dashboard_hide_chart", False))
+    model.dashboard_chart_days = int(getattr(entity, "dashboard_chart_days", 30) or 30)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 
 

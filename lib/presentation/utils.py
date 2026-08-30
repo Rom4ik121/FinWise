@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 import flet as ft
 
+from lib.domain.entities.currency_codes import normalize_currency_code
+from lib.domain.entities.money import is_crypto_currency, money_quantum
 from lib.infrastructure.services.localization import t
+
+if TYPE_CHECKING:
+    from lib.domain.services.rate_book import RateBook
 
 
 def tr(key: str, lang: str = "ru", *, default: str | None = None, **kwargs: Any) -> str:
@@ -52,9 +57,10 @@ def format_money(
     *,
     signed: bool = False,
 ) -> str:
-    """Format a monetary amount for display."""
+    """Format a monetary amount for display (8 dp for known crypto)."""
     value = Decimal(str(amount))
-    quantized = value.quantize(Decimal("0.01"))
+    q = money_quantum(currency)
+    quantized = value.quantize(q)
     prefix = ""
     if signed:
         if quantized > 0:
@@ -62,6 +68,11 @@ def format_money(
         elif quantized < 0:
             prefix = "−"
             quantized = abs(quantized)
+    if is_crypto_currency(currency):
+        body = f"{quantized:,.8f}".rstrip("0").rstrip(".")
+        if not body or body == "-":
+            body = "0"
+        return f"{prefix}{body.replace(',', ' ')} {currency}"
     return f"{prefix}{quantized:,.2f} {currency}".replace(",", " ")
 
 
@@ -110,12 +121,30 @@ def format_money_compact(
 
 
 def format_date(dt: datetime | None, *, with_time: bool = False) -> str:
-    """Format a UTC datetime for local-friendly display."""
+    """Format a datetime in the user's local timezone."""
     if dt is None:
         return "—"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local = dt.astimezone()
     if with_time:
-        return dt.strftime("%d.%m.%Y %H:%M")
-    return dt.strftime("%d.%m.%Y")
+        return local.strftime("%d.%m.%Y %H:%M")
+    return local.strftime("%d.%m.%Y")
+
+
+def try_convert_amount(
+    book: "RateBook",
+    amount: Decimal | float | int | str,
+    currency: str | None,
+    base: str,
+) -> Decimal | None:
+    """Convert ``amount`` to ``base``, or ``None`` when the rate is missing."""
+    value = Decimal(str(amount))
+    src = normalize_currency_code(currency or base)
+    dst = normalize_currency_code(base)
+    if src == dst:
+        return value
+    return book.convert(value, src, dst)
 
 
 def run_async(
@@ -196,39 +225,25 @@ def category_icon(name: str | None) -> ft.IconData:
     return resolve_icon(name, default="category")
 
 
-_RATE_BOOK_TTL_SECONDS = 90.0
-_rate_book_cache: dict[int, tuple[float, "RateBook"]] = {}
+_RATE_BOOK_TTL_SECONDS = 90.0  # kept for docs; cache lives in domain rate_cache
 
 
 def invalidate_rate_book_cache() -> None:
     """Drop cached FX books (call after rates update)."""
-    _rate_book_cache.clear()
+    from lib.domain.services.rate_cache import invalidate_rate_book_cache as _invalidate
+
+    _invalidate()
 
 
 async def load_rate_book(container: Any, *, force: bool = False) -> "RateBook":
     """Load stored FX rows with a short in-memory cache for UI screens."""
-    import time
-
     from lib.domain.services.rate_book import RateBook
+    from lib.domain.services.rate_cache import get_cached_rate_book
 
     repo = getattr(container, "currency_repository", None)
-    if repo is None or not hasattr(repo, "list_rates"):
+    if repo is None:
         return RateBook(())
-    cache_key = id(repo)
-    now = time.monotonic()
-    if not force:
-        cached = _rate_book_cache.get(cache_key)
-        if cached is not None:
-            stamp, book = cached
-            if now - stamp < _RATE_BOOK_TTL_SECONDS:
-                return book
-    try:
-        rates = await repo.list_rates()
-    except Exception:  # noqa: BLE001
-        return RateBook(())
-    book = RateBook(rates)
-    _rate_book_cache[cache_key] = (now, book)
-    return book
+    return await get_cached_rate_book(repo, force=force)
 
 
 async def safe_convert(

@@ -1,10 +1,18 @@
-"""Chart hit-testing helpers."""
+"""Chart hit-testing helpers and donut stroke style."""
 
 from __future__ import annotations
 
 import math
 
-from lib.presentation.widgets.charts import _donut_slice_index, _nearest_period_index
+import flet as ft
+
+from lib.presentation.widgets.charts import (
+    _arc_stroke,
+    _donut_slice_index,
+    _nearest_period_index,
+    _normalize_donut_sweeps,
+    _stroke,
+)
 
 
 def test_nearest_period_index_edges() -> None:
@@ -28,3 +36,22 @@ def test_donut_slice_index_quarters() -> None:
     assert _donut_slice_index(10, 5, sweeps) == 1
     assert _donut_slice_index(-5, 10, sweeps) == 2
     assert _donut_slice_index(-10, -5, sweeps) == 3
+
+
+def test_donut_arcs_use_butt_caps() -> None:
+    paint = _arc_stroke("#2DD4BF", 14)
+    assert paint.stroke_cap == ft.StrokeCap.BUTT
+    line = _stroke("#2DD4BF", 2.8)
+    assert line.stroke_cap == ft.StrokeCap.ROUND
+
+
+def test_normalize_donut_sweeps_fills_ring_with_tiny_shares() -> None:
+    sweeps = _normalize_donut_sweeps([1_000_000, 25_000, 25_000])
+    assert len(sweeps) == 3
+    assert abs(sum(sweeps) - 2 * math.pi) < 1e-9
+    assert all(s >= 0.05 for s in sweeps)
+
+
+def test_normalize_donut_sweeps_empty() -> None:
+    assert _normalize_donut_sweeps([]) == []
+    assert _normalize_donut_sweeps([0, 0]) == []

@@ -16,6 +16,7 @@ from lib.domain.entities.money import quantize_money
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.repositories.account_repository import AccountRepository
 from lib.domain.repositories.budget_repository import BudgetRepository
+from lib.domain.repositories.currency_repository import CurrencyRepository
 from lib.domain.repositories.debt_repository import DebtRepository
 from lib.domain.repositories.goal_repository import GoalRepository
 from lib.domain.repositories.settings_repository import SettingsRepository
@@ -38,6 +39,43 @@ def _balance_delta(tx_type: TransactionType, amount: Decimal) -> Decimal:
 
 def _is_goal_contribution(transaction: Transaction) -> bool:
     return transaction.type == TransactionType.EXPENSE and bool(transaction.goal_id)
+
+
+async def _with_goal_credit(
+    transaction: Transaction,
+    *,
+    goals: GoalRepository,
+    currencies: Optional[CurrencyRepository],
+    accounts: AccountRepository,
+) -> Transaction:
+    """Ensure ``goal_credit_amount`` is set in the goal's currency when linked."""
+    if not _is_goal_contribution(transaction):
+        return transaction.model_copy(
+            update={"goal_id": None, "goal_credit_amount": None}
+        )
+    if transaction.goal_credit_amount is not None:
+        return transaction
+    goal = await goals.get_by_id(transaction.goal_id or "")
+    if goal is None:
+        raise ValueError(f"Goal not found: {transaction.goal_id}")
+    account = await accounts.get_by_id(transaction.account_id)
+    src = (transaction.currency or (account.currency if account else "") or "RUB")
+    dst = goal.currency or "RUB"
+    if src.upper() == dst.upper():
+        return transaction.model_copy(
+            update={"goal_credit_amount": quantize_money(transaction.amount)}
+        )
+    if currencies is None:
+        raise ValueError(f"No exchange rate for {src}/{dst}")
+    from lib.domain.services.rate_cache import get_cached_rate_book
+
+    book = await get_cached_rate_book(currencies)
+    credit = book.convert(transaction.amount, src, dst)
+    if credit is None:
+        raise ValueError(f"No exchange rate for {src}/{dst}")
+    return transaction.model_copy(
+        update={"goal_credit_amount": quantize_money(credit)}
+    )
 
 
 def _mark_goal_progress(goal: object, current: Decimal) -> None:
@@ -65,20 +103,27 @@ def _mark_debt_remaining(debt: object, remaining: Decimal) -> None:
     if not isinstance(debt, Debt):
         return
     remaining = quantize_money(max(Decimal("0"), remaining))
-    if remaining > debt.amount:
-        remaining = quantize_money(debt.amount)
+    # Accrued interest may push remaining above original principal — do not clamp.
     debt.remaining_amount = remaining
     if debt.status != DebtStatus.ARCHIVED:
         debt.status = resolve_debt_status(
             remaining_amount=remaining,
             due_date=debt.due_date,
+            next_payment_date=getattr(debt, "next_payment_date", None),
             current=debt.status,
         )
     debt.updated_at = _utc_now()
 
 
 def _is_debt_payment(transaction: Transaction) -> bool:
-    return bool(transaction.debt_id)
+    """True for repayments that reduce remaining — not principal openers."""
+    if not transaction.debt_id:
+        return False
+    from lib.domain.use_cases.debts import is_debt_principal_tx
+
+    if is_debt_principal_tx(transaction):
+        return False
+    return True
 
 
 async def _sync_budget_expense(
@@ -88,17 +133,26 @@ async def _sync_budget_expense(
     sign: int,
     settings_repo: Optional[SettingsRepository] = None,
     notifications: object = None,
+    currencies: Optional[CurrencyRepository] = None,
 ) -> None:
-    """Apply or reverse an expense against the matching monthly budget."""
+    """Apply or reverse an expense against the matching monthly budget(s).
+
+    Multi-line transactions sync each line's category separately so a
+    supermarket basket can hit Food + Tobacco budgets in one receipt.
+    """
     if budgets is None or transaction.type != TransactionType.EXPENSE:
         return
     if transaction.transfer_id:
+        return
+    # Savings into a goal should not consume category budgets.
+    if transaction.goal_id or transaction.goal_credit_amount is not None:
         return
     from lib.domain.use_cases.budgets import apply_expense_delta
 
     settings = None
     language = "ru"
     currency = "RUB"
+    rate_book = None
     if settings_repo is not None:
         try:
             settings = await settings_repo.get()
@@ -106,17 +160,39 @@ async def _sync_budget_expense(
             currency = settings.default_currency
         except Exception:  # noqa: BLE001
             settings = None
-    await apply_expense_delta(
-        budgets,
-        category=transaction.category,
-        when=transaction.date,
-        amount=transaction.amount,
-        sign=sign,
-        settings=settings,
-        notifications=notifications,  # type: ignore[arg-type]
-        currency=currency,
-        language=language,
-    )
+    if currencies is not None:
+        try:
+            from lib.domain.services.rate_cache import get_cached_rate_book
+
+            rate_book = await get_cached_rate_book(currencies)
+        except Exception:  # noqa: BLE001
+            rate_book = None
+
+    slices: list[tuple[str, Decimal]]
+    if transaction.items:
+        slices = [
+            (item.category or transaction.category, item.amount)
+            for item in transaction.items
+        ]
+    else:
+        slices = [(transaction.category, transaction.amount)]
+
+    for category, amount in slices:
+        if not category:
+            continue
+        await apply_expense_delta(
+            budgets,
+            category=category,
+            when=transaction.date,
+            amount=amount,
+            sign=sign,
+            settings=settings,
+            notifications=notifications,  # type: ignore[arg-type]
+            currency=currency,
+            language=language,
+            amount_currency=transaction.currency,
+            rate_book=rate_book,
+        )
 
 
 class AddTransactionUseCase:
@@ -131,6 +207,7 @@ class AddTransactionUseCase:
         budgets: Optional[BudgetRepository] = None,
         settings: Optional[SettingsRepository] = None,
         notifications: object = None,
+        currencies: Optional[CurrencyRepository] = None,
     ) -> None:
         self._transactions = transactions
         self._accounts = accounts
@@ -139,6 +216,7 @@ class AddTransactionUseCase:
         self._budgets = budgets
         self._settings = settings
         self._notifications = notifications
+        self._currencies = currencies
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Persist ``transaction``, update account balance, sync goal/debt if linked."""
@@ -154,6 +232,12 @@ class AddTransactionUseCase:
                 "created_at": now,
                 "updated_at": now,
             }
+        )
+        transaction = await _with_goal_credit(
+            transaction,
+            goals=self._goals,
+            currencies=self._currencies,
+            accounts=self._accounts,
         )
 
         created = await self._transactions.create(transaction)
@@ -171,6 +255,7 @@ class AddTransactionUseCase:
             sign=1,
             settings_repo=self._settings,
             notifications=self._notifications,
+            currencies=self._currencies,
         )
         return created
 
@@ -207,6 +292,7 @@ class UpdateTransactionUseCase:
         budgets: Optional[BudgetRepository] = None,
         settings: Optional[SettingsRepository] = None,
         notifications: object = None,
+        currencies: Optional[CurrencyRepository] = None,
     ) -> None:
         self._transactions = transactions
         self._accounts = accounts
@@ -215,6 +301,7 @@ class UpdateTransactionUseCase:
         self._budgets = budgets
         self._settings = settings
         self._notifications = notifications
+        self._currencies = currencies
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Replace an existing transaction and fix derived balances."""
@@ -254,6 +341,12 @@ class UpdateTransactionUseCase:
                 "created_at": existing.created_at,
             }
         )
+        updated = await _with_goal_credit(
+            updated,
+            goals=self._goals,
+            currencies=self._currencies,
+            accounts=self._accounts,
+        )
         saved = await self._transactions.update(updated)
 
         await self._apply_account_delta(
@@ -268,6 +361,7 @@ class UpdateTransactionUseCase:
             sign=-1,
             settings_repo=self._settings,
             notifications=self._notifications,
+            currencies=self._currencies,
         )
         await _sync_budget_expense(
             self._budgets,
@@ -275,6 +369,7 @@ class UpdateTransactionUseCase:
             sign=1,
             settings_repo=self._settings,
             notifications=self._notifications,
+            currencies=self._currencies,
         )
         return saved
 
@@ -341,6 +436,7 @@ class DeleteTransactionUseCase:
         budgets: Optional[BudgetRepository] = None,
         settings: Optional[SettingsRepository] = None,
         notifications: object = None,
+        currencies: Optional[CurrencyRepository] = None,
     ) -> None:
         self._transactions = transactions
         self._accounts = accounts
@@ -349,6 +445,7 @@ class DeleteTransactionUseCase:
         self._budgets = budgets
         self._settings = settings
         self._notifications = notifications
+        self._currencies = currencies
 
     async def execute(self, transaction_id: str) -> bool:
         """Remove a transaction and undo account / goal / debt side effects."""
@@ -356,14 +453,36 @@ class DeleteTransactionUseCase:
         if existing is None:
             return False
         peer_ids: list[str] = []
+        fee_ids: list[str] = []
         if existing.transfer_id:
             peers = await self._transactions.list(transfer_id=existing.transfer_id)
             peer_ids = [p.id for p in peers if p.id != existing.id]
+            fee_tag = transfer_fee_tag(existing.transfer_id)
+            source = next(
+                (p for p in peers if p.type == TransactionType.EXPENSE),
+                existing if existing.type == TransactionType.EXPENSE else None,
+            )
+            if source is not None:
+                fees = await self._transactions.list(
+                    account_id=source.account_id,
+                    category=FEE_CATEGORY,
+                )
+                fee_ids = [
+                    f.id
+                    for f in fees
+                    if fee_tag in f.tags
+                    and f.id != existing.id
+                    and f.id not in peer_ids
+                ]
         ok = await self._delete_one(existing)
         for peer_id in peer_ids:
             peer = await self._transactions.get_by_id(peer_id)
             if peer is not None:
                 await self._delete_one(peer)
+        for fee_id in fee_ids:
+            fee = await self._transactions.get_by_id(fee_id)
+            if fee is not None:
+                await self._delete_one(fee)
         return ok
 
     async def _delete_one(self, existing: Transaction) -> bool:
@@ -398,6 +517,7 @@ class DeleteTransactionUseCase:
             sign=-1,
             settings_repo=self._settings,
             notifications=self._notifications,
+            currencies=self._currencies,
         )
         return await self._transactions.delete(existing.id)
 
@@ -478,13 +598,21 @@ class TransactionStats(BaseModel):
     net: Decimal
     by_period: list[TimeSeriesPoint]
     by_category: list[CategorySlice]
+    fx_ok: bool = True
 
 
 class GetTransactionStatsUseCase:
     """Compute income/expense stats for charts (time series + category pie)."""
 
-    def __init__(self, transactions: TransactionRepository) -> None:
+    def __init__(
+        self,
+        transactions: TransactionRepository,
+        currencies: Optional[CurrencyRepository] = None,
+        settings: Optional[SettingsRepository] = None,
+    ) -> None:
         self._transactions = transactions
+        self._currencies = currencies
+        self._settings = settings
 
     async def execute(
         self,
@@ -495,29 +623,73 @@ class GetTransactionStatsUseCase:
         group_by: StatsPeriod = StatsPeriod.MONTH,
     ) -> TransactionStats:
         """Aggregate transactions into period and category summaries."""
+        from lib.domain.entities.currency_codes import normalize_currency_code
+
         items = await self._transactions.list(
             account_id=account_id,
             date_from=date_from,
             date_to=date_to,
         )
 
+        base = "RUB"
+        book = None
+        if self._settings is not None:
+            try:
+                cfg = await self._settings.get()
+                base = normalize_currency_code(cfg.default_currency)
+            except Exception:  # noqa: BLE001
+                pass
+        if self._currencies is not None:
+            try:
+                from lib.domain.services.rate_cache import get_cached_rate_book
+
+                book = await get_cached_rate_book(self._currencies)
+            except Exception:  # noqa: BLE001
+                book = None
+
         total_income = Decimal("0.00")
         total_expense = Decimal("0.00")
         period_income: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
         period_expense: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
         category_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+        fx_ok = True
 
         for tx in items:
             if tx.transfer_id:
                 continue
+            src = normalize_currency_code(tx.currency or base)
+            amount = tx.amount
+            if src != base:
+                if book is None:
+                    fx_ok = False
+                    continue
+                converted = book.convert(amount, src, base)
+                if converted is None:
+                    fx_ok = False
+                    continue
+                amount = converted
+            amount = quantize_money(amount)
             key = self._period_key(tx.date, group_by)
             if tx.type == TransactionType.INCOME:
-                total_income += tx.amount
-                period_income[key] += tx.amount
+                total_income += amount
+                period_income[key] += amount
             else:
-                total_expense += tx.amount
-                period_expense[key] += tx.amount
-                category_totals[tx.category] += tx.amount
+                total_expense += amount
+                period_expense[key] += amount
+                if tx.items:
+                    for line in tx.items:
+                        line_amt = line.amount
+                        if src != base and book is not None:
+                            converted_line = book.convert(line_amt, src, base)
+                            if converted_line is None:
+                                fx_ok = False
+                                continue
+                            line_amt = converted_line
+                        category_totals[line.category or tx.category] += quantize_money(
+                            line_amt
+                        )
+                else:
+                    category_totals[tx.category] += amount
 
         total_income = quantize_money(total_income)
         total_expense = quantize_money(total_expense)
@@ -550,6 +722,7 @@ class GetTransactionStatsUseCase:
             net=quantize_money(total_income - total_expense),
             by_period=by_period,
             by_category=by_category,
+            fx_ok=fx_ok,
         )
 
     @staticmethod
@@ -566,6 +739,12 @@ class GetTransactionStatsUseCase:
 
 TRANSFER_CATEGORY = "Перевод"
 FEE_CATEGORY = "Комиссия"
+TRANSFER_FEE_TAG_PREFIX = "xfer_fee:"
+
+
+def transfer_fee_tag(transfer_id: str) -> str:
+    """Tag linking a fee expense to a transfer pair."""
+    return f"{TRANSFER_FEE_TAG_PREFIX}{transfer_id}"
 
 
 def make_fee_expense(
@@ -575,14 +754,18 @@ def make_fee_expense(
     amount: Decimal,
     date: Optional[datetime] = None,
     comment: str = "",
+    extra_tags: Optional[Sequence[str]] = None,
 ) -> Transaction:
     """Ordinary expense used for a bank/exchange fee."""
     extra = (comment or "").strip()
+    tags = ["fee"]
+    if extra_tags:
+        tags.extend(extra_tags)
     return Transaction(
         account_id=account_id,
         amount=quantize_money(amount),
         category=FEE_CATEGORY,
-        tags=["fee"],
+        tags=tags,
         date=date or _utc_now(),
         comment=extra or FEE_CATEGORY,
         type=TransactionType.EXPENSE,
@@ -600,12 +783,14 @@ class TransferAccountsUseCase:
         accounts: AccountRepository,
         currencies: object,
         find_or_create_category: object = None,
+        session_factory: object = None,
     ) -> None:
         self._add = add_transaction
         self._delete = delete_transaction
         self._accounts = accounts
         self._currencies = currencies
         self._find_or_create_category = find_or_create_category
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -624,7 +809,6 @@ class TransferAccountsUseCase:
         from uuid import uuid4
 
         from lib.domain.entities.category import CategoryKind
-        from lib.domain.services.rate_book import RateBook
 
         if from_account_id == to_account_id:
             raise ValueError("Cannot transfer to the same account")
@@ -646,8 +830,11 @@ class TransferAccountsUseCase:
 
         dest_amount = amount
         if source.currency.upper() != dest.currency.upper():
-            rates = await self._currencies.list_rates()
-            converted = RateBook(rates).convert(amount, source.currency, dest.currency)
+            from lib.domain.services.rate_cache import get_cached_rate_book
+
+            converted = (
+                await get_cached_rate_book(self._currencies)
+            ).convert(amount, source.currency, dest.currency)
             if converted is None:
                 raise ValueError("No exchange rate for this currency pair")
             dest_amount = converted
@@ -660,6 +847,12 @@ class TransferAccountsUseCase:
                 kind=CategoryKind.BOTH,
                 icon="sync_alt",
             )
+            if fee > 0:
+                await self._find_or_create_category.execute(
+                    FEE_CATEGORY,
+                    kind=CategoryKind.EXPENSE,
+                    icon="receipt_long",
+                )
 
         when = date or _utc_now()
         extra = (comment or "").strip()
@@ -692,16 +885,11 @@ class TransferAccountsUseCase:
             transfer_id=transfer_id,
             transfer_peer_account_id=source.id,
         )
-        created_out = await self._add.execute(outgoing)
-        try:
+
+        async def _persist() -> tuple[Transaction, Transaction]:
+            created_out = await self._add.execute(outgoing)
             created_in = await self._add.execute(incoming)
             if fee > 0:
-                if self._find_or_create_category is not None:
-                    await self._find_or_create_category.execute(
-                        FEE_CATEGORY,
-                        kind=CategoryKind.EXPENSE,
-                        icon="receipt_long",
-                    )
                 fee_comment = f"{FEE_CATEGORY} · → {dest.name}"
                 if extra:
                     fee_comment = f"{fee_comment} · {extra}"
@@ -712,6 +900,32 @@ class TransferAccountsUseCase:
                         amount=fee,
                         date=when,
                         comment=fee_comment,
+                        extra_tags=[transfer_fee_tag(transfer_id)],
+                    )
+                )
+            return created_out, created_in
+
+        if self._session_factory is not None:
+            from lib.infrastructure.repositories._base import unit_of_work
+
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _persist()
+
+        created_out = await self._add.execute(outgoing)
+        try:
+            created_in = await self._add.execute(incoming)
+            if fee > 0:
+                fee_comment = f"{FEE_CATEGORY} · → {dest.name}"
+                if extra:
+                    fee_comment = f"{fee_comment} · {extra}"
+                await self._add.execute(
+                    make_fee_expense(
+                        account_id=source.id,
+                        currency=source.currency,
+                        amount=fee,
+                        date=when,
+                        comment=fee_comment,
+                        extra_tags=[transfer_fee_tag(transfer_id)],
                     )
                 )
         except Exception:

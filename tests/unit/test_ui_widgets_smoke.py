@@ -113,7 +113,7 @@ def _find_canvases(ctrl: ft.Control) -> list:
     stack = [ctrl]
     while stack:
         cur = stack.pop()
-        if type(cur).__name__ == "Canvas":
+        if type(cur).__name__ in ("Canvas", "_SafeCanvas"):
             found.append(cur)
         content = getattr(cur, "content", None)
         if content is not None:

@@ -75,14 +75,14 @@ def h_scroll(
     )
 
 
-def h_chip_row(*chips: ft.Control) -> ft.ListView:
+def h_chip_row(*chips: ft.Control, height: int = 40) -> ft.ListView:
     """Horizontal chip strip that stays at the end instead of jumping back."""
     row = ft.ListView(
         horizontal=True,
-        spacing=4,
+        spacing=6,
         padding=ft.Padding.only(right=36),
         auto_scroll=False,
-        height=34,
+        height=height,
         adaptive=False,
         build_controls_on_demand=False,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,

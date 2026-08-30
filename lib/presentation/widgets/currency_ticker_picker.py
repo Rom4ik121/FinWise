@@ -12,7 +12,7 @@ from lib.presentation.currency_options import (
     _currency_display_name,
     load_currency_catalog,
 )
-from lib.presentation.utils import tr
+from lib.presentation.utils import safe_update, tr
 
 
 def currency_row_matches(row: dict[str, str], query: str) -> bool:
@@ -162,7 +162,7 @@ class CurrencyTickerPicker(ft.Container):
         )
         self._display.value = self._display_text()
         try:
-            self._display.update()
+            safe_update(self._display)
         except Exception:  # noqa: BLE001
             pass
 
@@ -170,7 +170,7 @@ class CurrencyTickerPicker(ft.Container):
         self._value = normalize_currency_code(code)
         self._display.value = self._display_text()
         try:
-            self._display.update()
+            safe_update(self._display)
         except Exception:  # noqa: BLE001
             pass
         if notify and self._on_changed is not None:
@@ -234,7 +234,7 @@ class CurrencyTickerPicker(ft.Container):
                     for row in rows
                 ]
             try:
-                list_col.update()
+                safe_update(list_col)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -298,4 +298,4 @@ class CurrencyTickerPicker(ft.Container):
             ),
         )
         self._page.overlay.append(overlay)
-        self._page.update()
+        safe_update(self._page)

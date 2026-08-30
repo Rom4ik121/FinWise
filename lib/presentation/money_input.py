@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 import flet as ft
 
 from lib.infrastructure.services.localization import normalize_lang
+from lib.presentation.utils import safe_update
 
 
 def amount_separators(lang: str) -> tuple[str, str]:
@@ -88,10 +89,7 @@ def attach_grouped_digits(
         formatted = format_amount_input(current, lang)
         if formatted != current:
             field.value = formatted
-            try:
-                field.update()
-            except Exception:  # noqa: BLE001
-                pass
+            safe_update(field)
         if extra_on_change is not None:
             extra_on_change(e)
 

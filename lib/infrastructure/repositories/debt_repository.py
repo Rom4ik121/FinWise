@@ -33,6 +33,18 @@ def _to_entity(model: DebtModel) -> Debt:
         due_date=ensure_utc(model.due_date),
         started_at=ensure_utc(model.started_at) or datetime.now(timezone.utc),
         comment=model.comment or "",
+        account_id=getattr(model, "account_id", None) or None,
+        next_payment_date=ensure_utc(getattr(model, "next_payment_date", None)),
+        next_payment_amount=(
+            Decimal(str(model.next_payment_amount))
+            if getattr(model, "next_payment_amount", None) is not None
+            else None
+        ),
+        accrue_interest=bool(getattr(model, "accrue_interest", False)),
+        accrued_interest=Decimal(str(getattr(model, "accrued_interest", 0) or 0)),
+        last_interest_accrued_at=ensure_utc(
+            getattr(model, "last_interest_accrued_at", None)
+        ),
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
@@ -56,6 +68,12 @@ def _apply_entity(model: DebtModel, entity: Debt) -> None:
     model.due_date = ensure_utc(entity.due_date)
     model.started_at = ensure_utc(entity.started_at) or datetime.now(timezone.utc)
     model.comment = entity.comment or ""
+    model.account_id = (entity.account_id or "").strip() or None
+    model.next_payment_date = ensure_utc(entity.next_payment_date)
+    model.next_payment_amount = entity.next_payment_amount
+    model.accrue_interest = bool(entity.accrue_interest)
+    model.accrued_interest = entity.accrued_interest
+    model.last_interest_accrued_at = ensure_utc(entity.last_interest_accrued_at)
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 

@@ -86,6 +86,9 @@ class Container:
     archive_debt: Any = None
     delete_debt_payment: Any = None
     mark_overdue_debts: Any = None
+    accrue_debt_interest: Any = None
+    undo_last_debt_payment: Any = None
+    list_debt_counterparties: Any = None
 
     # Use cases — subscriptions
     create_subscription: Any = None
@@ -331,15 +334,18 @@ def build_container(
         UpdateExchangeRatesUseCase,
     )
     from lib.domain.use_cases.debts import (
+        AccrueDebtInterestUseCase,
         ArchiveDebtUseCase,
         CalculateDebtInterestUseCase,
         CreateDebtUseCase,
         DeleteDebtPaymentUseCase,
         DeleteDebtUseCase,
         GetDebtProjectionUseCase,
+        ListDebtCounterpartiesUseCase,
         ListDebtsUseCase,
         MarkOverdueDebtsUseCase,
         RepayDebtUseCase,
+        UndoLastDebtPaymentUseCase,
         UpdateDebtUseCase,
     )
     from lib.domain.use_cases.export_data import ExportDataUseCase
@@ -429,6 +435,7 @@ def build_container(
                     budgets=container.budget_repository,
                     settings=container.settings_repository,
                     notifications=container.notification_service,
+                    currencies=container.currency_repository,
                 ),
             )
         except Exception as exc:  # pragma: no cover
@@ -443,10 +450,18 @@ def build_container(
         "get_transaction_stats",
         GetTransactionStatsUseCase,
         "transaction_repository",
+        "currency_repository",
+        "settings_repository",
     )
 
     _wire("create_account", CreateAccountUseCase, "account_repository")
-    _wire("update_account", UpdateAccountUseCase, "account_repository")
+    _wire(
+        "update_account",
+        UpdateAccountUseCase,
+        "account_repository",
+        "currency_repository",
+        "transaction_repository",
+    )
     _wire("delete_account", DeleteAccountUseCase, "account_repository")
     _wire("list_accounts", ListAccountsUseCase, "account_repository")
     _wire(
@@ -476,6 +491,7 @@ def build_container(
                     container.transaction_repository,
                     container.exchange_connection_repository,
                     config=cfg,
+                    add_transaction=container.add_transaction,
                 )
         except Exception as exc:  # pragma: no cover
             container.missing.append("connect_exchange_account")
@@ -485,8 +501,18 @@ def build_container(
         container.errors["connect_exchange_account"] = "missing exchange dependencies"
 
     _wire("create_goal", CreateGoalUseCase, "goal_repository")
-    _wire("update_goal", UpdateGoalUseCase, "goal_repository")
-    _wire("delete_goal", DeleteGoalUseCase, "goal_repository")
+    _wire(
+        "update_goal",
+        UpdateGoalUseCase,
+        "goal_repository",
+        "currency_repository",
+    )
+    _wire(
+        "delete_goal",
+        DeleteGoalUseCase,
+        "goal_repository",
+        "transaction_repository",
+    )
     _wire("list_goals", ListGoalsUseCase, "goal_repository")
     _wire("archive_goal", ArchiveGoalUseCase, "goal_repository")
     _wire("duplicate_goal", DuplicateGoalUseCase, "goal_repository")
@@ -518,12 +544,30 @@ def build_container(
         "debt_repository",
         "account_repository",
         "add_transaction",
+        "currency_repository",
     )
-    _wire("update_debt", UpdateDebtUseCase, "debt_repository")
-    _wire("delete_debt", DeleteDebtUseCase, "debt_repository")
+    _wire(
+        "update_debt",
+        UpdateDebtUseCase,
+        "debt_repository",
+        "currency_repository",
+    )
+    _wire(
+        "delete_debt",
+        DeleteDebtUseCase,
+        "debt_repository",
+        "transaction_repository",
+        "delete_transaction",
+    )
     _wire("list_debts", ListDebtsUseCase, "debt_repository")
     _wire("archive_debt", ArchiveDebtUseCase, "debt_repository")
     _wire("mark_overdue_debts", MarkOverdueDebtsUseCase, "debt_repository")
+    _wire("accrue_debt_interest", AccrueDebtInterestUseCase, "debt_repository")
+    _wire(
+        "list_debt_counterparties",
+        ListDebtCounterpartiesUseCase,
+        "debt_repository",
+    )
     _wire(
         "get_debt_projection",
         GetDebtProjectionUseCase,
@@ -535,6 +579,12 @@ def build_container(
         DeleteDebtPaymentUseCase,
         "transaction_repository",
         "delete_transaction",
+    )
+    _wire(
+        "undo_last_debt_payment",
+        UndoLastDebtPaymentUseCase,
+        "transaction_repository",
+        "delete_debt_payment",
     )
     _wire(
         "repay_debt",
@@ -560,16 +610,18 @@ def build_container(
         "process_due_subscriptions",
         ProcessDueSubscriptionsUseCase,
         "subscription_repository",
-        "transaction_repository",
         "account_repository",
         "settings_repository",
+        "add_transaction",
+        "currency_repository",
     )
     _wire(
         "charge_subscription_now",
         ChargeSubscriptionNowUseCase,
         "subscription_repository",
-        "transaction_repository",
         "account_repository",
+        "add_transaction",
+        "currency_repository",
         "settings_repository",
     )
     _wire(
@@ -628,7 +680,15 @@ def build_container(
         "category_repository",
     )
 
-    _wire("set_budget", SetBudgetUseCase, "budget_repository", "category_repository", "transaction_repository")
+    _wire(
+        "set_budget",
+        SetBudgetUseCase,
+        "budget_repository",
+        "category_repository",
+        "transaction_repository",
+        "currency_repository",
+        "settings_repository",
+    )
     _wire("delete_budget", DeleteBudgetUseCase, "budget_repository")
     _wire("get_budget_progress", GetBudgetProgressUseCase, "budget_repository")
     _wire("get_budgets_for_month", GetBudgetsForMonthUseCase, "budget_repository")
@@ -637,6 +697,8 @@ def build_container(
         RecalculateBudgetSpentUseCase,
         "budget_repository",
         "transaction_repository",
+        "currency_repository",
+        "settings_repository",
     )
 
     _wire(
@@ -649,6 +711,8 @@ def build_container(
         "subscription_repository",
         "currency_repository",
         "settings_repository",
+        "category_repository",
+        "budget_repository",
     )
 
     if (
@@ -664,6 +728,7 @@ def build_container(
                 container.account_repository,
                 container.currency_repository,
                 container.find_or_create_category,
+                session_factory,
             )
         except Exception as exc:  # pragma: no cover
             container.missing.append("transfer_between_accounts")

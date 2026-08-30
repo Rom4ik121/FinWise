@@ -20,8 +20,9 @@ python -m pytest tests/integration -q
 Деньги и ввод, бюджет, биометрия (в т.ч. «сервис не в page.add», пропуск web),
 шифрование PIN, локализация (все ключи ru/en/uz), бэкап файлов, валюты,
 проекции целей/долгов, биллинг подписок, reminder scheduler, notification
-queue, push (`reminder_fire_at`), RateBook, AppState, иконки, аналитика
-периодов, скины, smoke виджетов, **file_transfer** (безопасное имя, sqlite
+queue, push (`reminder_fire_at`), RateBook, AppState, иконки, аналитика периодов, **performance** (tags paging,
+rate cache, budget batch, pending_counts, goal unlink), скины, smoke виджетов,
+ **file_transfer** (безопасное имя, sqlite
 magic, копия в выбранный путь), **flet_services** (web skip / builtin),
 **voice_parse** / **voice_capture**, пути iOS/Android.
 
@@ -31,7 +32,7 @@ magic, копия в выбранный путь), **flet_services** (web skip /
 цели, долги, подписки, бюджеты, категории, курсы, upsert, safe convert,
 настройки и JSON-экспорт.
 
-На прогоне репозитория: **203 теста, все зелёные**.
+На прогоне репозитория: **262 passed, 2 skipped**.
 
 ## Правила
 

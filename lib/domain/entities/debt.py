@@ -34,14 +34,36 @@ class DebtStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+def effective_debt_due(
+    *,
+    due_date: Optional[datetime],
+    next_payment_date: Optional[datetime],
+) -> Optional[datetime]:
+    """Earliest of installment date and final due (for overdue / reminders)."""
+    candidates: list[datetime] = []
+    for value in (next_payment_date, due_date):
+        if value is None:
+            continue
+        due = value
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        else:
+            due = due.astimezone(timezone.utc)
+        candidates.append(due)
+    if not candidates:
+        return None
+    return min(candidates)
+
+
 def resolve_debt_status(
     *,
     remaining_amount: Decimal,
     due_date: Optional[datetime],
     current: DebtStatus | str | None = None,
     now: Optional[datetime] = None,
+    next_payment_date: Optional[datetime] = None,
 ) -> DebtStatus:
-    """Derive status from remaining balance and due date.
+    """Derive status from remaining balance and due / next payment dates.
 
     ``ARCHIVED`` is sticky until the caller changes it explicitly.
     """
@@ -53,12 +75,11 @@ def resolve_debt_status(
     if remaining <= 0:
         return DebtStatus.PAID
     moment = now or _utc_now()
-    if due_date is not None:
-        due = due_date
-        if due.tzinfo is None:
-            due = due.replace(tzinfo=timezone.utc)
-        if due < moment:
-            return DebtStatus.OVERDUE
+    effective = effective_debt_due(
+        due_date=due_date, next_payment_date=next_payment_date
+    )
+    if effective is not None and effective < moment:
+        return DebtStatus.OVERDUE
     return DebtStatus.ACTIVE
 
 
@@ -78,12 +99,35 @@ class Debt(BaseModel):
     due_date: Optional[datetime] = None
     started_at: datetime = Field(default_factory=_utc_now)
     comment: str = ""
+    account_id: Optional[str] = None  # default account for repay / cash
+    next_payment_date: Optional[datetime] = None
+    next_payment_amount: Optional[Decimal] = None
+    accrue_interest: bool = False
+    accrued_interest: Decimal = Decimal("0.00")
+    last_interest_accrued_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 
-    @field_validator("amount", "remaining_amount", mode="before")
+    @property
+    def progress_ratio(self) -> float:
+        """Share of original principal already paid (0..1)."""
+        principal = quantize_money(self.amount)
+        if principal <= 0:
+            return 1.0 if self.remaining_amount <= 0 else 0.0
+        paid = principal - min(quantize_money(self.remaining_amount), principal)
+        ratio = float(paid / principal)
+        return max(0.0, min(1.0, ratio))
+
+    @field_validator("amount", "remaining_amount", "accrued_interest", mode="before")
     @classmethod
     def _quantize_money_fields(cls, value: object) -> Decimal:
+        return quantize_money(value)  # type: ignore[arg-type]
+
+    @field_validator("next_payment_amount", mode="before")
+    @classmethod
+    def _quantize_optional_amount(cls, value: object) -> object:
+        if value is None or value == "":
+            return None
         return quantize_money(value)  # type: ignore[arg-type]
 
     @field_validator("currency", mode="before")
@@ -109,6 +153,8 @@ class Debt(BaseModel):
 
     @field_validator(
         "due_date",
+        "next_payment_date",
+        "last_interest_accrued_at",
         "started_at",
         "created_at",
         "updated_at",

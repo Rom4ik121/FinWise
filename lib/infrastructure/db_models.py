@@ -50,6 +50,7 @@ class AccountModel(Base):
     icon: Mapped[str] = mapped_column(String(64), nullable=False, default="wallet")
     color: Mapped[str] = mapped_column(String(16), nullable=False, default="#2E7D32")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_in_total: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -106,6 +107,7 @@ class TransactionModel(Base):
     )
     transfer_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     transfer_peer_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -170,6 +172,20 @@ class DebtModel(Base):
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
     comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    next_payment_date: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    next_payment_amount: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    accrue_interest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    accrued_interest: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
+    last_interest_accrued_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -293,7 +309,7 @@ class SettingsModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default="default")
     default_currency: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
     theme: Mapped[str] = mapped_column(String(32), nullable=False, default="dark")
-    ui_style: Mapped[str] = mapped_column(String(32), nullable=False, default="classic")
+    ui_style: Mapped[str] = mapped_column(String(32), nullable=False, default="neon")
     language: Mapped[str] = mapped_column(String(8), nullable=False, default="ru")
     exchange_update_interval_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=60
@@ -312,6 +328,8 @@ class SettingsModel(Base):
     pin_salt: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     biometric_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     budget_alerts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    dashboard_hide_chart: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    dashboard_chart_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

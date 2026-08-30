@@ -12,18 +12,11 @@ from lib.presentation.styles import (
     ICON_CATALOG_BADGE_SELECTED,
     page_header,
 )
-from lib.presentation.utils import tr
+from lib.presentation.utils import safe_update, tr
 from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen
 
 IconRenderer = Callable[[str], ft.Control]
 SelectStr = Callable[[str], None]
-
-
-def _safe_update(page: ft.Page) -> None:
-    try:
-        page.update()
-    except Exception:  # noqa: BLE001
-        pass
 
 
 def build_icon_catalog(
@@ -69,11 +62,8 @@ def build_icon_catalog(
         for new in tiles_by_key.get(key, ()):
             _style_tile(key, new)
             to_refresh.append(new)
-        try:
-            for tile in to_refresh:
-                tile.update()
-        except Exception:  # noqa: BLE001
-            pass
+        for tile in to_refresh:
+            safe_update(tile)
         if on_change is not None:
             on_change(key)
 
@@ -203,7 +193,7 @@ def open_icon_picker(
         ),
     )
     page.overlay.append(overlay)
-    _safe_update(page)
+    safe_update(page)
 
 
 def open_color_picker(
@@ -245,13 +235,10 @@ def open_color_picker(
             _apply_border(previous, old)
         if new is not None:
             _apply_border(color, new)
-        try:
-            if old is not None:
-                old.update()
-            if new is not None:
-                new.update()
-        except Exception:  # noqa: BLE001
-            pass
+        if old is not None:
+            safe_update(old)
+        if new is not None:
+            safe_update(new)
 
     def _confirm(_e: object = None) -> None:
         on_select(current["value"])
@@ -319,4 +306,4 @@ def open_color_picker(
         ),
     )
     page.overlay.append(overlay)
-    _safe_update(page)
+    safe_update(page)

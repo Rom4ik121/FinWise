@@ -8,7 +8,7 @@ from typing import Any
 import flet as ft
 
 from lib.presentation.styles import page_header
-from lib.presentation.utils import run_async, tr
+from lib.presentation.utils import run_async, safe_update, tr
 
 CloseFn = Callable[[], None]
 SaveFn = Callable[[], Awaitable[None]]
@@ -23,7 +23,7 @@ def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
             except Exception:  # noqa: BLE001
                 pass
     try:
-        page.update()
+        safe_update(page)
     except Exception:  # noqa: BLE001
         pass
 
@@ -68,7 +68,11 @@ def open_fullscreen_form(
         top=0,
         right=0,
         bottom=0,
+        width=getattr(page, "width", None) or None,
+        height=getattr(page, "height", None) or None,
+        expand=True,
         bgcolor=ft.Colors.SURFACE,
+        alignment=ft.Alignment.TOP_CENTER,
         data=overlay_key,
         content=ft.SafeArea(
             expand=True,
@@ -101,5 +105,5 @@ def open_fullscreen_form(
         ),
     )
     page.overlay.append(overlay)
-    page.update()
+    safe_update(page)
     return _close

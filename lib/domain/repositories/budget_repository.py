@@ -32,6 +32,10 @@ class BudgetRepository(ABC):
         """List budgets for a month, optionally filtered by category names."""
 
     @abstractmethod
+    async def list_all(self) -> list[Budget]:
+        """List every budget row (for export / admin)."""
+
+    @abstractmethod
     async def save(self, budget: Budget) -> Budget:
         """Insert or update a budget."""
 

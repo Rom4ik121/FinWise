@@ -4,16 +4,40 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from lib.core.config import CRYPTO_RATE_QUANTIZE, FIAT_RATE_QUANTIZE, MONEY_QUANTIZE
+from lib.core.config import (
+    CRYPTO_CURRENCY_CODES,
+    CRYPTO_MONEY_QUANTIZE,
+    CRYPTO_RATE_QUANTIZE,
+    FIAT_RATE_QUANTIZE,
+    MONEY_QUANTIZE,
+)
 
 _MONEY_Q = Decimal(MONEY_QUANTIZE)
+_CRYPTO_MONEY_Q = Decimal(CRYPTO_MONEY_QUANTIZE)
 _FIAT_RATE_Q = Decimal(FIAT_RATE_QUANTIZE)
 _CRYPTO_Q = Decimal(CRYPTO_RATE_QUANTIZE)
 
 
-def quantize_money(value: Decimal | int | float | str) -> Decimal:
-    """Quantize a monetary amount to 2 decimal places (HALF_UP)."""
-    return Decimal(str(value)).quantize(_MONEY_Q, rounding=ROUND_HALF_UP)
+def is_crypto_currency(code: str | None) -> bool:
+    """True for well-known crypto tickers (case-insensitive)."""
+    if not code:
+        return False
+    return code.strip().upper() in CRYPTO_CURRENCY_CODES
+
+
+def money_quantum(currency: str | None = None) -> Decimal:
+    """Return the quantization step for ``currency`` (8 dp crypto, else 2 dp)."""
+    return _CRYPTO_MONEY_Q if is_crypto_currency(currency) else _MONEY_Q
+
+
+def quantize_money(
+    value: Decimal | int | float | str,
+    *,
+    currency: str | None = None,
+) -> Decimal:
+    """Quantize a monetary amount (2 dp fiat / 8 dp known crypto)."""
+    q = money_quantum(currency)
+    return Decimal(str(value)).quantize(q, rounding=ROUND_HALF_UP)
 
 
 def quantize_rate(value: Decimal | int | float | str, *, crypto: bool = False) -> Decimal:

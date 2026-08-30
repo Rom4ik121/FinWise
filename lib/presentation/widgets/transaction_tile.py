@@ -22,6 +22,7 @@ class TransactionTile(ft.Container):
         transaction: Transaction,
         *,
         category: Optional[Category] = None,
+        on_open: Optional[Callable[[Transaction], None]] = None,
         on_edit: Optional[Callable[[Transaction], None]] = None,
         on_delete: Optional[Callable[[Transaction], None]] = None,
         language: str = "ru",
@@ -46,7 +47,9 @@ class TransactionTile(ft.Container):
 
         tags = ", ".join(f"#{tag}" for tag in (transaction.tags or [])[:3])
         subtitle_parts = [format_date(transaction.date, with_time=True)]
-        if transaction.comment:
+        if transaction.has_items:
+            subtitle_parts.append(transaction.items_summary(limit=3))
+        elif transaction.comment:
             subtitle_parts.append(transaction.comment)
         if tags:
             subtitle_parts.append(tags)
@@ -150,7 +153,11 @@ class TransactionTile(ft.Container):
             bgcolor=ft.Colors.SURFACE_CONTAINER,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             ink=True,
-            on_click=lambda _e: on_edit(transaction) if on_edit else None,
+            on_click=lambda _e: (
+                on_open(transaction)
+                if on_open
+                else (on_edit(transaction) if on_edit else None)
+            ),
             margin=ft.Margin.only(bottom=6),
             content=body,
         )

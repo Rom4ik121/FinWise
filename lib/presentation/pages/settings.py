@@ -21,7 +21,7 @@ from lib.infrastructure.services.push_notifier import request_push_permissions
 from lib.presentation.styles import card_surface, labeled_field, labeled_switch, page_header, section_title
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
-from lib.presentation.utils import dropdown_select_kwargs, run_async, snack, tr
+from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 
@@ -54,8 +54,8 @@ def _settings_section(
         body.visible = open_
         chevron.icon = ft.Icons.EXPAND_LESS if open_ else ft.Icons.EXPAND_MORE
         try:
-            body.update()
-            chevron.update()
+            safe_update(body)
+            safe_update(chevron)
         except Exception:  # noqa: BLE001
             pass
 
@@ -164,10 +164,9 @@ class SettingsPage(ft.Column):
         )
         self._ui_style = normalize_skin_id(getattr(s, "ui_style", None))
         self._style_host = ft.Row(
-            wrap=True,
-            spacing=10,
-            run_spacing=10,
-            vertical_alignment=ft.CrossAxisAlignment.START,
+            spacing=8,
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[],
         )
         self._rebuild_style_cards(lang)
@@ -474,6 +473,14 @@ class SettingsPage(ft.Column):
                                     ),
                                 ),
                                 ft.OutlinedButton(
+                                    tr("settings.export_json_encrypted", lang),
+                                    icon=ft.Icons.LOCK_OUTLINE,
+                                    style=btn_style,
+                                    on_click=lambda _e: run_async(
+                                        page, self.export_json_encrypted
+                                    ),
+                                ),
+                                ft.OutlinedButton(
                                     tr("settings.export_csv", lang),
                                     icon=ft.Icons.TABLE_VIEW,
                                     style=btn_style,
@@ -565,80 +572,70 @@ class SettingsPage(ft.Column):
         run_async(page, self._refresh_biometric_hint)
 
     def _rebuild_style_cards(self, lang: str) -> None:
-        """Refresh style preview tiles after a selection change."""
+        """Refresh compact style chips after a selection change."""
         self._style_host.controls = [
             self._style_preview_card(skin, skin.id == self._ui_style, lang)
             for skin in list_skins()
         ]
 
     def _style_preview_card(self, skin, selected: bool, lang: str) -> ft.Container:
-        """Compact adaptive preview of one look (wraps on narrow screens)."""
+        """One-line style chip: color dots + name (matches dropdown density)."""
 
         def _select(_e: ft.ControlEvent, skin_id: str = skin.id) -> None:
             self._ui_style = skin_id
             self._rebuild_style_cards(self._state.language)
             try:
-                self._style_host.update()
+                safe_update(self._style_host)
             except Exception:  # noqa: BLE001
                 pass
             self._autosave()
 
+        border = skin.dark_primary if selected else skin.dark_border
         return ft.Container(
-            width=156,
-            padding=12,
-            border_radius=skin.card_radius,
+            expand=True,
+            height=44,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=12,
             bgcolor=skin.dark_surface,
-            border=ft.Border.all(
-                2,
-                skin.dark_primary if selected else skin.dark_border,
-            ),
+            border=ft.Border.all(1.5 if selected else 1, border),
             ink=True,
             on_click=_select,
-            shadow=ft.BoxShadow(
-                spread_radius=0,
-                blur_radius=18,
-                color=skin.glow if selected else "#00000000",
-                offset=ft.Offset(0, 4),
-            ),
-            content=ft.Column(
+            content=ft.Row(
                 spacing=8,
                 tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Row(
-                        spacing=6,
-                        controls=[
-                            ft.Container(
-                                width=22,
-                                height=22,
-                                border_radius=6,
-                                bgcolor=skin.dark_primary,
-                            ),
-                            ft.Container(
-                                width=22,
-                                height=22,
-                                border_radius=6,
-                                bgcolor=skin.dark_expense,
-                            ),
-                            ft.Container(
-                                width=22,
-                                height=22,
-                                border_radius=6,
-                                bgcolor=skin.dark_surface_3,
-                            ),
-                        ],
+                    ft.Container(
+                        width=10,
+                        height=10,
+                        border_radius=3,
+                        bgcolor=skin.dark_primary,
+                    ),
+                    ft.Container(
+                        width=10,
+                        height=10,
+                        border_radius=3,
+                        bgcolor=skin.dark_expense,
                     ),
                     ft.Text(
                         tr(f"settings.style.{skin.id}", lang),
                         size=13,
-                        weight=ft.FontWeight.W_700,
+                        weight=ft.FontWeight.W_700 if selected else ft.FontWeight.W_500,
                         color=skin.dark_text,
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
+                        expand=True,
                     ),
-                    ft.Container(
-                        height=6,
-                        border_radius=3,
-                        bgcolor=skin.dark_primary,
+                    *(
+                        [
+                            ft.Icon(
+                                ft.Icons.CHECK_CIRCLE,
+                                size=16,
+                                color=skin.dark_primary,
+                            )
+                        ]
+                        if selected
+                        else []
                     ),
                 ],
             ),
@@ -661,7 +658,7 @@ class SettingsPage(ft.Column):
         for ctrl in self._notification_sub_controls():
             ctrl.disabled = not enabled
             try:
-                ctrl.update()
+                safe_update(ctrl)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -745,7 +742,7 @@ class SettingsPage(ft.Column):
         status = await crypto.refresh_biometric_status()
         self._biometric_hint.value = self._hint_for_status(status)
         try:
-            self._biometric_hint.update()
+            safe_update(self._biometric_hint)
         except Exception:  # noqa: BLE001
             pass
 
@@ -763,7 +760,7 @@ class SettingsPage(ft.Column):
         if not has_pin:
             self._biometric.value = False
             try:
-                self._biometric.update()
+                safe_update(self._biometric)
             except Exception:  # noqa: BLE001
                 pass
             snack(self._page, tr("settings.biometric_need_pin", lang), error=True)
@@ -772,13 +769,13 @@ class SettingsPage(ft.Column):
         status = await crypto.refresh_biometric_status()
         self._biometric_hint.value = self._hint_for_status(status)
         try:
-            self._biometric_hint.update()
+            safe_update(self._biometric_hint)
         except Exception:  # noqa: BLE001
             pass
         if status is not BiometricStatus.AVAILABLE:
             self._biometric.value = False
             try:
-                self._biometric.update()
+                safe_update(self._biometric)
             except Exception:  # noqa: BLE001
                 pass
             snack(self._page, self._hint_for_status(status), error=True)
@@ -789,7 +786,7 @@ class SettingsPage(ft.Column):
         if result is not BiometricResult.VERIFIED:
             self._biometric.value = False
             try:
-                self._biometric.update()
+                safe_update(self._biometric)
             except Exception:  # noqa: BLE001
                 pass
             if result is BiometricResult.CANCELED:
@@ -853,6 +850,12 @@ class SettingsPage(ft.Column):
                 reminder_days=max(0, min(365, reminder_days)),
                 check_balance_before_subscription=bool(self._check_balance_sub.value),
                 biometric_enabled=bool(self._biometric.value),
+                dashboard_hide_chart=bool(
+                    getattr(self._state.settings, "dashboard_hide_chart", False)
+                ),
+                dashboard_chart_days=int(
+                    getattr(self._state.settings, "dashboard_chart_days", 30) or 30
+                ),
             )
         except Exception as exc:  # noqa: BLE001
             snack(self._page, str(exc), error=True)
@@ -870,7 +873,7 @@ class SettingsPage(ft.Column):
                     )
                     self._biometric.value = False
                     try:
-                        self._biometric.update()
+                        safe_update(self._biometric)
                     except Exception:  # noqa: BLE001
                         pass
                     saved = await self._state.container.update_settings.execute(
@@ -982,6 +985,63 @@ class SettingsPage(ft.Column):
                 self._state.container.config.export_dir
             )
             await self._offer_file(result.path, kind="JSON")
+        except Exception as exc:  # noqa: BLE001
+            self._io_error_snack(exc)
+
+    async def export_json_encrypted(self) -> None:
+        """Export JSON wrapped in AES-GCM with a user password."""
+        import asyncio
+
+        lang = self._state.language
+        pwd = ft.TextField(
+            label=tr("settings.export_password", lang),
+            password=True,
+            can_reveal_password=True,
+            autofocus=True,
+        )
+        done: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
+
+        def _close(password: str | None) -> None:
+            dlg.open = False
+            safe_update(self._page)
+            if not done.done():
+                done.set_result(password)
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(tr("settings.export_json_encrypted", lang)),
+            content=pwd,
+            actions=[
+                ft.TextButton(
+                    tr("action.cancel", lang),
+                    on_click=lambda _e: _close(None),
+                ),
+                ft.FilledButton(
+                    tr("action.export", lang),
+                    on_click=lambda _e: _close((pwd.value or "").strip()),
+                ),
+            ],
+        )
+        self._page.overlay.append(dlg)
+        dlg.open = True
+        safe_update(self._page)
+        password = await done
+        try:
+            self._page.overlay.remove(dlg)
+        except ValueError:
+            pass
+        safe_update(self._page)
+        if password is None:
+            return
+        if len(password) < 4:
+            snack(self._page, tr("settings.export_password_short", lang), error=True)
+            return
+        try:
+            result = await self._state.container.export_data.execute(
+                self._state.container.config.export_dir,
+                password=password,
+            )
+            await self._offer_file(result.path, kind="Encrypted")
         except Exception as exc:  # noqa: BLE001
             self._io_error_snack(exc)
 
@@ -1146,7 +1206,7 @@ class SettingsPage(ft.Column):
             return
         creds = EncryptionService().hash_pin(pin)
         self._pin_tf.value = ""
-        self._pin_tf.update()
+        safe_update(self._pin_tf)
 
         async def _persist() -> None:
             repo = self._state.container.settings_repository
@@ -1168,7 +1228,7 @@ class SettingsPage(ft.Column):
             await repo.clear_pin_credentials()
         self._biometric.value = False
         try:
-            self._biometric.update()
+            safe_update(self._biometric)
         except Exception:  # noqa: BLE001
             pass
         if self._state.settings.biometric_enabled:

@@ -406,7 +406,8 @@ class AccountDetailPage(ft.Column):
                 base_line = f"≈ {format_money(converted, base)}"
 
         stats = aggregate_account_period(txs, period_cfg.group_by)
-        net = stats.income - stats.expense
+        # KPIs exclude transfers (match analytics); transfers shown separately below.
+        net = stats.ops_income - stats.ops_expense
         net_accent = amount_color(net >= 0, dark=dark)
 
         controls: list[ft.Control] = [
@@ -432,7 +433,7 @@ class AccountDetailPage(ft.Column):
                 controls=[
                     SummaryCard(
                         title=tr("dashboard.period_income", lang, period=period_label),
-                        value=format_money(stats.income, currency),
+                        value=format_money(stats.ops_income, currency),
                         icon=ft.Icons.TRENDING_UP,
                         accent=amount_color(True, dark=dark),
                         expand=True,
@@ -440,7 +441,7 @@ class AccountDetailPage(ft.Column):
                     ),
                     SummaryCard(
                         title=tr("dashboard.period_expense", lang, period=period_label),
-                        value=format_money(stats.expense, currency),
+                        value=format_money(stats.ops_expense, currency),
                         icon=ft.Icons.TRENDING_DOWN,
                         accent=amount_color(False, dark=dark),
                         expand=True,
@@ -565,6 +566,7 @@ class AccountDetailPage(ft.Column):
             dark=dark,
             language=lang,
             page=self._page,
+            animate=False,
         )
 
         palette = list(get_active_skin().chart_colors) or [

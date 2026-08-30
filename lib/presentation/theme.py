@@ -77,12 +77,37 @@ def dark_color_scheme() -> ft.ColorScheme:
     return get_active_skin().dark_color_scheme()
 
 
+def _no_ink_overlay() -> ft.ButtonStyle:
+    """Kill Material grey hover / focus / press ripples on buttons."""
+    clear = ft.Colors.TRANSPARENT
+    return ft.ButtonStyle(
+        overlay_color={
+            ft.ControlState.HOVERED: clear,
+            ft.ControlState.FOCUSED: clear,
+            ft.ControlState.PRESSED: clear,
+            ft.ControlState.DRAGGED: clear,
+            ft.ControlState.DEFAULT: clear,
+        }
+    )
+
+
 def build_theme(*, dark: bool = False, page: ft.Page | None = None) -> ft.Theme:
     """Build a Material theme for the active skin."""
     skin = get_active_skin()
+    clear = ft.Colors.TRANSPARENT
+    no_overlay = _no_ink_overlay()
     kwargs: dict = {
         "color_scheme_seed": skin.seed,
         "color_scheme": skin.color_scheme(dark=dark),
+        # No grey glow when hovering / focusing any Material control.
+        "hover_color": clear,
+        "splash_color": clear,
+        "highlight_color": clear,
+        "icon_button_theme": ft.IconButtonTheme(style=no_overlay),
+        "text_button_theme": ft.TextButtonTheme(style=no_overlay),
+        "button_theme": ft.ButtonTheme(style=no_overlay),
+        "outlined_button_theme": ft.OutlinedButtonTheme(style=no_overlay),
+        "filled_button_theme": ft.FilledButtonTheme(style=no_overlay),
         # Hide the grey Material thumb on every scrollable (pages, lists, sheets).
         "scrollbar_theme": ft.ScrollbarTheme(
             thumb_visibility=False,

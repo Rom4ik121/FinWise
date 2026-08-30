@@ -171,8 +171,6 @@ class BudgetsPage(ft.Column):
         total_limit = sum((item.limit for item in items), Decimal("0"))
         total_spent = sum((item.spent for item in items), Decimal("0"))
         remaining = total_limit - total_spent
-        if remaining < 0:
-            remaining = Decimal("0")
         period = (
             f"{tr(f'budgets.month.{self._month}', lang)} {self._year}"
         )
@@ -192,8 +190,8 @@ class BudgetsPage(ft.Column):
                     ),
                     (
                         tr("budgets.remaining", lang),
-                        format_money_compact(remaining, currency),
-                        ft.Colors.ERROR if total_spent > total_limit else None,
+                        format_money_compact(remaining, currency, signed=remaining < 0),
+                        ft.Colors.ERROR if remaining < 0 else None,
                     ),
                 ]
             ),

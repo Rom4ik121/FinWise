@@ -153,7 +153,7 @@ class AppState:
     @property
     def ui_style(self) -> str:
         """Visual style id: classic / neon."""
-        return self.settings.ui_style or "classic"
+        return self.settings.ui_style or "neon"
 
     def set_settings(self, settings: AppSettings, *, notify: bool = True) -> None:
         """Replace settings snapshot and optionally notify listeners."""

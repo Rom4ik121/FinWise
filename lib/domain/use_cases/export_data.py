@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from lib.domain.repositories.account_repository import AccountRepository
+from lib.domain.repositories.budget_repository import BudgetRepository
+from lib.domain.repositories.category_repository import CategoryRepository
 from lib.domain.repositories.currency_repository import CurrencyRepository
 from lib.domain.repositories.debt_repository import DebtRepository
 from lib.domain.repositories.goal_repository import GoalRepository
@@ -45,6 +47,8 @@ class ExportDataUseCase:
     This is an interface-level helper: it aggregates repository reads and
     writes a portable JSON snapshot. Presentation / file-picker UI lives
     outside the domain layer.
+
+    Exchange API credentials are never exported.
     """
 
     def __init__(
@@ -56,6 +60,8 @@ class ExportDataUseCase:
         subscriptions: SubscriptionRepository,
         currencies: CurrencyRepository,
         settings: SettingsRepository,
+        categories: Optional[CategoryRepository] = None,
+        budgets: Optional[BudgetRepository] = None,
     ) -> None:
         self._accounts = accounts
         self._transactions = transactions
@@ -64,18 +70,23 @@ class ExportDataUseCase:
         self._subscriptions = subscriptions
         self._currencies = currencies
         self._settings = settings
+        self._categories = categories
+        self._budgets = budgets
 
     async def execute(
         self,
         export_dir: Path,
         *,
         filename: Optional[str] = None,
+        password: Optional[str] = None,
     ) -> ExportResult:
         """Write a JSON dump of domain data into ``export_dir``.
 
         Args:
             export_dir: Target directory (created if missing).
             filename: Optional file name; defaults to a UTC timestamped name.
+            password: When set, write an AES-GCM encrypted ``.fwexport`` blob
+                instead of plaintext JSON (PBKDF2-HMAC-SHA256 key derivation).
 
         Returns:
             :class:`ExportResult` with path and entity counts.
@@ -83,7 +94,12 @@ class ExportDataUseCase:
         export_dir.mkdir(parents=True, exist_ok=True)
         exported_at = _utc_now()
         if filename is None:
-            filename = f"finanse_export_{exported_at.strftime('%Y%m%dT%H%M%SZ')}.json"
+            stamp = exported_at.strftime("%Y%m%dT%H%M%SZ")
+            filename = (
+                f"finanse_export_{stamp}.fwexport"
+                if password
+                else f"finanse_export_{stamp}.json"
+            )
 
         accounts = await self._accounts.list(active_only=False)
         transactions = await self._transactions.list()
@@ -93,25 +109,55 @@ class ExportDataUseCase:
         currencies = await self._currencies.list_currencies(include_crypto=True)
         rates = await self._currencies.list_rates()
         settings = await self._settings.get()
+        categories = (
+            await self._categories.list(active_only=False)
+            if self._categories is not None
+            else []
+        )
+        budgets = await self._budgets.list_all() if self._budgets is not None else []
+
+        from lib.domain.use_cases.debts import (
+            debt_credit_amount,
+            debt_interest_from_tags,
+            is_debt_principal_tx,
+        )
+
+        debt_payments = []
+        for tx in transactions:
+            if not tx.debt_id or is_debt_principal_tx(tx):
+                continue
+            debt_payments.append(
+                {
+                    **tx.model_dump(mode="json"),
+                    "principal_credit": str(debt_credit_amount(tx)),
+                    "interest_credit": str(debt_interest_from_tags(tx)),
+                }
+            )
 
         payload = {
             "exported_at": exported_at.isoformat(),
-            "version": 1,
+            "version": 3,
             "accounts": [a.model_dump(mode="json") for a in accounts],
             "transactions": [t.model_dump(mode="json") for t in transactions],
             "goals": [g.model_dump(mode="json") for g in goals],
             "debts": [d.model_dump(mode="json") for d in debts],
+            "debt_payments": debt_payments,
             "subscriptions": [s.model_dump(mode="json") for s in subscriptions],
+            "categories": [c.model_dump(mode="json") for c in categories],
+            "budgets": [b.model_dump(mode="json") for b in budgets],
             "currencies": [c.model_dump(mode="json") for c in currencies],
             "exchange_rates": [r.model_dump(mode="json") for r in rates],
             "settings": settings.model_dump(mode="json"),
         }
 
         path = export_dir / filename
-        path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default),
-            encoding="utf-8",
-        )
+        raw = json.dumps(
+            payload, ensure_ascii=False, indent=2, default=_json_default
+        ).encode("utf-8")
+        if password:
+            path.write_bytes(_encrypt_export(raw, password))
+        else:
+            path.write_text(raw.decode("utf-8"), encoding="utf-8")
 
         return ExportResult(
             path=path,
@@ -121,8 +167,40 @@ class ExportDataUseCase:
                 "transactions": len(transactions),
                 "goals": len(goals),
                 "debts": len(debts),
+                "debt_payments": len(debt_payments),
                 "subscriptions": len(subscriptions),
+                "categories": len(categories),
+                "budgets": len(budgets),
                 "currencies": len(currencies),
                 "exchange_rates": len(rates),
             },
         )
+
+
+def _encrypt_export(raw: bytes, password: str) -> bytes:
+    """AES-GCM encrypt export bytes; format ``FWEX`` + salt + nonce + cipher."""
+    import hashlib
+    import secrets
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    salt = secrets.token_bytes(16)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120_000, dklen=32)
+    nonce = secrets.token_bytes(12)
+    cipher = AESGCM(key).encrypt(nonce, raw, b"FWEX")
+    return b"FWEX" + salt + nonce + cipher
+
+
+def decrypt_export_blob(blob: bytes, password: str) -> bytes:
+    """Decrypt a blob from :func:`_encrypt_export`."""
+    import hashlib
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    if not blob.startswith(b"FWEX") or len(blob) < 4 + 16 + 12 + 16:
+        raise ValueError("Invalid encrypted export")
+    salt = blob[4:20]
+    nonce = blob[20:32]
+    cipher = blob[32:]
+    key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120_000, dklen=32)
+    return AESGCM(key).decrypt(nonce, cipher, b"FWEX")

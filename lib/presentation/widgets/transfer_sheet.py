@@ -15,7 +15,15 @@ from lib.presentation.money_input import (
     parse_amount,
     parse_optional_amount,
 )
-from lib.presentation.utils import format_money, load_rate_book, run_async, snack, tr
+from lib.presentation.utils import (
+    bind_dropdown_select,
+    format_money,
+    load_rate_book,
+    run_async,
+    safe_update,
+    snack,
+    tr,
+)
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 
 if TYPE_CHECKING:
@@ -26,6 +34,7 @@ _DOMAIN_ERROR_KEYS = {
     "Insufficient funds": "transfer.insufficient",
     "No exchange rate for this currency pair": "transfer.no_rate",
     "Transfer amount must be positive": "invalid_amount",
+    "Fee cannot be negative": "invalid_amount",
 }
 
 
@@ -115,16 +124,16 @@ async def _show_form(
             fee = parse_optional_amount(fee_tf.value)
         except (InvalidOperation, ValueError):
             convert_hint.value = ""
-            convert_hint.update()
+            safe_update(convert_hint)
             return
         if amount <= 0 or fee < 0:
             convert_hint.value = ""
-            convert_hint.update()
+            safe_update(convert_hint)
             return
         if source.id == dest.id:
             convert_hint.value = tr("transfer.same_account", lang)
             convert_hint.color = ft.Colors.ERROR
-            convert_hint.update()
+            safe_update(convert_hint)
             return
         credit = amount
         if source.currency.upper() != dest.currency.upper():
@@ -136,7 +145,7 @@ async def _show_form(
                     default="Нет курса для этой пары валют",
                 )
                 convert_hint.color = ft.Colors.ERROR
-                convert_hint.update()
+                safe_update(convert_hint)
                 return
             credit = converted
         lines = [
@@ -157,12 +166,12 @@ async def _show_form(
             )
         convert_hint.value = "\n".join(lines)
         convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
-        convert_hint.update()
+        safe_update(convert_hint)
 
     attach_grouped_digits(amount_tf, lang, extra_on_change=_refresh_hint)
     attach_grouped_digits(fee_tf, lang, extra_on_change=_refresh_hint)
-    from_dd.on_select = _refresh_hint
-    to_dd.on_select = _refresh_hint
+    bind_dropdown_select(from_dd, _refresh_hint)
+    bind_dropdown_select(to_dd, _refresh_hint)
 
     async def _save() -> None:
         try:

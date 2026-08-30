@@ -8,12 +8,13 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.domain.entities.debt import Debt, DebtDirection, DebtStatus
+from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import amount_color, card_surface, muted_text
-from lib.presentation.utils import format_date, format_money
+from lib.presentation.utils import format_date, format_money, format_money_compact
 
 
 class DebtCard(ft.Container):
-    """Card for a personal debt with optional interest line."""
+    """Card for a personal debt with progress and optional interest line."""
 
     def __init__(
         self,
@@ -21,6 +22,7 @@ class DebtCard(ft.Container):
         *,
         language: str = "ru",
         interest_amount: Optional[Decimal] = None,
+        projected_payoff_date=None,
         alert: bool = False,
         on_click: Optional[Callable[[Debt], None]] = None,
         on_edit: Optional[Callable[[Debt], None]] = None,
@@ -51,6 +53,18 @@ class DebtCard(ft.Container):
             if interest_amount is not None:
                 text += f" · {format_money(interest_amount, debt.currency)}"
             interest_line.append(muted_text(text))
+        if getattr(debt, "accrued_interest", None) and debt.accrued_interest > 0:
+            interest_line.append(
+                muted_text(
+                    tr(
+                        "debt.accrued_interest",
+                        language,
+                        amount=format_money_compact(
+                            debt.accrued_interest, debt.currency
+                        ),
+                    )
+                )
+            )
 
         menu_items = [
             ft.PopupMenuItem(
@@ -97,7 +111,7 @@ class DebtCard(ft.Container):
                     icon_color=ft.Colors.ON_ERROR,
                     bgcolor=ft.Colors.ERROR,
                     tooltip=tr("notify.debt_due", language),
-                    on_click=lambda _e: on_repay(debt) if can_repay else None,
+                    on_click=lambda _e: on_click(debt) if on_click else None,
                     style=ft.ButtonStyle(
                         shape=ft.CircleBorder(),
                         padding=10,
@@ -115,6 +129,37 @@ class DebtCard(ft.Container):
                     else tr("debt.receive", language),
                     on_click=lambda _e: on_repay(debt),
                 ),
+            )
+
+        ratio = float(getattr(debt, "progress_ratio", 0.0) or 0.0)
+        pct = int(round(ratio * 100))
+        due_line = (
+            tr("debt.due_by", language, date=format_date(debt.due_date))
+            if debt.due_date
+            else tr("debt.no_due_date", language)
+        )
+        schedule_line: list[ft.Control] = []
+        if debt.next_payment_date is not None:
+            amt = ""
+            if debt.next_payment_amount is not None:
+                amt = f" · {format_money_compact(debt.next_payment_amount, debt.currency)}"
+            schedule_line.append(
+                muted_text(
+                    tr(
+                        "debt.next_payment",
+                        language,
+                        date=format_date(debt.next_payment_date),
+                    )
+                    + amt
+                )
+            )
+        eta_line: list[ft.Control] = []
+        if projected_payoff_date is not None:
+            eta_line.append(
+                muted_text(
+                    f"{tr('debt.projected_date', language)}: "
+                    f"{format_date(projected_payoff_date)}"
+                )
             )
 
         body = ft.Column(
@@ -161,10 +206,20 @@ class DebtCard(ft.Container):
                     overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 muted_text(
-                    tr("debt.due_by", language, date=format_date(debt.due_date))
-                    if debt.due_date
-                    else tr("debt.no_due_date", language)
+                    f"{format_money_compact(debt.amount - min(debt.remaining_amount, debt.amount), debt.currency)}"
+                    f" / {format_money_compact(debt.amount, debt.currency)}"
+                    f" · {pct}%"
                 ),
+                ft.ProgressBar(
+                    value=ratio,
+                    color=get_active_skin().primary_hex(dark=True),
+                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                    bar_height=6,
+                    border_radius=999,
+                ),
+                muted_text(due_line),
+                *schedule_line,
+                *eta_line,
                 *interest_line,
             ],
         )

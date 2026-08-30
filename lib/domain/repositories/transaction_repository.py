@@ -28,6 +28,22 @@ class TransactionRepository(ABC):
     async def delete(self, transaction_id: str) -> bool:
         """Delete a transaction. Returns ``True`` if a row was removed."""
 
+    async def clear_goal_links(self, goal_id: str) -> int:
+        """Clear ``goal_id`` on linked txs; keep ``goal_credit_amount``.
+
+        Default: list + update. SQL adapter overrides with a bulk UPDATE.
+        """
+        from datetime import timezone
+
+        stamp = datetime.now(timezone.utc)
+        count = 0
+        for tx in await self.list(goal_id=goal_id):
+            await self.update(
+                tx.model_copy(update={"goal_id": None, "updated_at": stamp})
+            )
+            count += 1
+        return count
+
     @abstractmethod
     async def list(
         self,

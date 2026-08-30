@@ -131,11 +131,18 @@ class SyncExchangeAccountUseCase:
         connections: ExchangeConnectionRepository,
         *,
         config: Optional[AppConfig] = None,
+        add_transaction: Any = None,
     ) -> None:
         self._accounts = accounts
         self._transactions = transactions
         self._connections = connections
         self._config = config
+        self._add = add_transaction
+
+    async def _create_tx(self, tx: Transaction) -> Transaction:
+        if self._add is not None:
+            return await self._add.execute(tx)
+        return await self._transactions.create(tx)
 
     async def execute(self, account_id: str) -> SyncResult:
         account = await self._accounts.get_by_id(account_id)
@@ -188,7 +195,7 @@ class SyncExchangeAccountUseCase:
             if trade.kind == "withdrawal":
                 tx_type = TransactionType.EXPENSE
             category = _CAT.get(trade.kind, _CAT["trade"])
-            await self._transactions.create(
+            await self._create_tx(
                 Transaction(
                     account_id=account_id,
                     amount=trade.amount,
@@ -205,7 +212,7 @@ class SyncExchangeAccountUseCase:
             if trade.fee > 0 and trade.fee_currency in {"", account.currency.upper()}:
                 fee_tag = ext_tag(link.provider, "fee", trade.external_id)
                 if fee_tag not in known:
-                    await self._transactions.create(
+                    await self._create_tx(
                         Transaction(
                             account_id=account_id,
                             amount=trade.fee if trade.fee > 0 else Decimal("0.01"),
