@@ -1,57 +1,181 @@
 # Доменные сущности
 
-Pydantic v2, `from_attributes=True`. Деньги — `quantize_money` (2 знака).
-Даты — UTC.
+Все модели — **Pydantic v2** в `lib/domain/entities/`. Persistence-слой маппит их на SQLAlchemy (`lib/infrastructure/db_models.py`).
 
-## Account
+---
 
-Счёт: `name`, `currency`, `balance`, `initial_balance`, `icon`, `color`,
-`is_active`. Баланс = начальный + доходы − расходы (включая переводы).
+## Деньги и коды валют
 
-## Transaction
+### `money.py`
 
-`amount > 0`, `type` income|expense, `category` (имя), теги, связи
-`goal_id` / `debt_id` / `subscription_id`, для FX-целей/долгов —
-`goal_credit_amount` / `debt_credit_amount`.  
-Перевод: общий `transfer_id` и `transfer_peer_account_id`.  
-`is_transfer` — есть `transfer_id`. Сумму перевода через update менять нельзя.
+- **`quantize_money(amount, currency)`** — фиат обычно до 2 знаков; известные криптокоды — до 8.
+- Используется во всех записях операций и пересчётах баланса.
 
-## Category
+### `currency_codes.py`
 
-Уникальное `name`, `kind` income|expense|both, иконка/цвет.  
-`matches_type(tx_type)` — подходит ли категория типу операции.
+- Нормализация кода валюты (регистр, алиасы).
+- Хелперы «это крипта?» для формата отображения.
 
-## Currency / ExchangeRate
+---
 
-Код ISO, имена, символ, `is_crypto`. Курс `base`→`quote`, Numeric(24,12).
+## Account (`account.py`)
 
-## Goal
+Счёт пользователя.
 
-`target_amount` / `current_amount`, валюта, дедлайн, приоритет 1–5,
-`status` active|completed|archived, кэш проекции JSON.
+| Поле | Смысл |
+|------|--------|
+| `id` | UUID-строка |
+| `name` | Название |
+| `currency` | Код валюты счёта |
+| `balance` | Текущий баланс |
+| `initial_balance` | Стартовый баланс (до операций) |
+| `icon`, `color` | Оформление |
+| `is_active` | Активен ли в списках |
+| `include_in_total` | Участвует ли в «общем балансе» на главной |
 
-## Debt
+Биржевой счёт дополнительно связан с `ExchangeConnection` (отдельная сущность).
 
-Контрагент, `amount` / `remaining_amount`, `direction` i_owe|owed_to_me,
-`status` active|overdue|paid|archived, `interest_rate` % годовых, `due_date`.
+---
 
-## Subscription
+## Transaction (`transaction.py`)
 
-Сумма, счёт, категория, `periodicity` (+ `custom_interval_days`),
-`next_billing_date`, `auto_charge`, лимиты платежей и дат, `status`.
+Одна операция по счёту.
 
-## Budget / BudgetProgress
+| Поле | Смысл |
+|------|--------|
+| `type` | `income` / `expense` (`TransactionType`) |
+| `amount`, `currency` | Сумма и валюта строки |
+| `account_id` | Счёт |
+| `category` | Имя категории (строка) |
+| `comment`, `tags` | Комментарий и теги |
+| `date` | Дата/время (UTC-aware) |
+| `goal_id`, `debt_id`, `subscription_id` | Опциональные связи |
+| `goal_credit_amount`, `debt_credit_amount` | Суммы вклада в цель/долг (с учётом FX) |
+| `transfer_id` | Общий id пары перевода |
+| `transfer_peer_account_id` | Счёт второй ноги |
+| `items` | Список `TransactionItem` (позиции чека) |
 
-Лимит категории на месяц/год, `spent`, `last_alert_level`. Progress —
-доля и флаги порогов.
+**`TransactionItem`:** `name`, `category`, `amount` — сумма позиций должна согласовываться с итогом операции.
 
-## AppSettings
+Свойство **`is_transfer`** — true, если задан `transfer_id`.
 
-`default_currency`, `theme` light|dark, `ui_style` classic|neon, `language`
-ru|en|uz, интервал курсов, флаги уведомлений, `reminder_time` (HH:MM),
-`reminder_days`, `budget_alerts`, `check_balance_before_subscription`,
-PIN hash/salt, `biometric_enabled`.
+---
 
-## Money
+## Category (`category.py`)
 
-`quantize_money` — 2 знака. `quantize_rate` — мелкие курсы (UZS и крипто).
+| Поле | Смысл |
+|------|--------|
+| `name` | Уникальное отображаемое имя |
+| `kind` | `income` / `expense` / `both` (`CategoryKind`) |
+| `icon`, `color` | UI |
+
+Системные имена (перевод, комиссия, накопление) задаются в конфиге/коде use cases.
+
+---
+
+## Currency / ExchangeRate (`currency.py`)
+
+- **`Currency`** — код, имена (ru/en), символ, флаг крипты.
+- **`ExchangeRate`** — пара `base`/`quote`, курс, источник, время обновления.
+
+Каталог при старте сидится из `assets/data/currencies.json`.
+
+---
+
+## Goal (`goal.py`)
+
+Цель накопления.
+
+| Поле | Смысл |
+|------|--------|
+| `name`, `target_amount`, `currency` | Цель |
+| `current_amount` | Накоплено |
+| `status` | active / completed / archived |
+| `deadline`, `priority` | Опционально |
+| `category_link` | По умолчанию категория накопления |
+| `cached_projection` | Кэш прогноза |
+
+Пополнения идут через связанные транзакции (`goal_id`), не прямым «магическим» изменением баланса цели в обход ledger.
+
+---
+
+## Debt (`debt.py`)
+
+| Поле | Смысл |
+|------|--------|
+| `direction` | мне должны / я должен |
+| `status` | open / paid / … |
+| `principal`, `currency`, `remaining` | Суммы |
+| `counterparty` | Контрагент |
+| `interest_rate`, `schedule` | Проценты / график |
+| `accrue_interest`, `accrued_interest` | Начисление |
+| `account_id` | Предпочитаемый счёт для операций |
+| `due_date` | Срок |
+
+Платежи отражаются транзакциями с `debt_id`.
+
+---
+
+## Subscription (`subscription.py`)
+
+Регулярный платёж.
+
+| Поле | Смысл |
+|------|--------|
+| `name`, `amount`, `currency` | Платёж |
+| `account_id` | Счёт списания |
+| `periodicity` | day / week / month / year / … |
+| `status` | active / paused / cancelled |
+| `next_billing_date` | Следующее списание |
+| `auto_charge` | Автосписание при due |
+| `max_payments` / счётчики | Ограничение числа платежей |
+
+---
+
+## Budget (`budget.py`)
+
+- **`Budget`** — лимит на категорию (или набор) за месяц/год, валюта базы.
+- **`BudgetProgress`** — лимит, потрачено, остаток, доля (для UI).
+
+Расходы без цели накопления двигают прогресс через `apply_expense_delta` в use cases бюджетов.
+
+---
+
+## AppSettings (`settings.py`)
+
+Пользовательские настройки (сущность без PIN-хеша — хеш лежит в ORM `settings`):
+
+| Поле | Смысл |
+|------|--------|
+| `default_currency` | Базовая валюта отчётов |
+| `theme`, `ui_style`, `language` | Внешний вид и язык |
+| `exchange_update_interval_minutes` | Как часто тянуть курсы |
+| `notifications_enabled`, флаги reminder’ов | Пуши / in-app |
+| `reminder_time`, `reminder_days` | Когда напоминать о подписках/долгах |
+| `biometric_enabled` | Face ID вместе с PIN |
+| `dashboard_hide_chart`, `dashboard_chart_days` | График на главной |
+| `low_balance_threshold` | Опциональный порог |
+| `check_balance_before_subscription` | Проверка баланса перед списанием |
+
+---
+
+## ExchangeConnection (`exchange_connection.py`)
+
+Связка счёта с биржей:
+
+| Поле | Смысл |
+|------|--------|
+| `account_id` | Локальный счёт |
+| `provider` | id из каталога `exchanges.py` |
+| `credentials_encrypted` | Зашифрованный blob ключей |
+| `holdings_json` | Снимок активов |
+| `last_sync_at`, `last_error` | Статус синка |
+
+Провайдеры (фрагмент): Binance, Coinbase, OKX, Bybit, Kraken, KuCoin, Gate.io, Bitget, MEXC, BitMart, HTX, Hyperliquid, BitMEX, WOO, Crypto.com, Bitfinex, Bitstamp, BingX, HashKey, CEX.IO.
+
+---
+
+## Связанные документы
+
+- Сценарии работы с сущностями — [USE_CASES.md](USE_CASES.md)  
+- Таблицы БД — [DATABASE.md](DATABASE.md)  

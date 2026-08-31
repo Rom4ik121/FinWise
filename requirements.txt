@@ -10,8 +10,9 @@ greenlet>=3.1.0
 platformdirs>=4.0.0
 alembic>=1.14.0
 cryptography>=42,<50
-# Exchange sync via ccxt (also packaged into APK; coincurve skipped on Python 3.14).
-ccxt>=4.4.0,<4.5.65
+# Prefer the mobile-safe local wheel (no aiodns/pycares). Regenerate via:
+#   python scripts/vendor_ccxt_mobile.py
+ccxt @ file:./vendor/wheels/ccxt-4.5.64-py2.py3-none-any.whl
 -e ./extensions/flet_local_auth
 -e ./extensions/flet_local_notifications
 -e ./extensions/flet_speech

@@ -18,12 +18,10 @@ dependencies = [
   "greenlet>=3.1.0",
   "platformdirs>=4.0.0",
   "alembic>=1.14.0",
-  # Flet mobile index (pypi.flet.dev) currently ships cryptography 43.x only.
-  # Pin ccxt below 4.5.65 so it does not require cryptography>=50.
-  # coincurve is only required for Python <=3.13; Android/iOS Serious Python
-  # is 3.14 so the marker skips it and packaging succeeds.
+  # Flet mobile index (pypi.flet.dev) ships limited native wheels (e.g. cryptography).
   "cryptography>=42,<50",
-  "ccxt>=4.4.0,<4.5.65",
+  # Mobile-safe ccxt wheel (scripts/vendor_ccxt_mobile.py): no aiodns/pycares/coincurve.
+  "ccxt @ file:./vendor/wheels/ccxt-4.5.64-py2.py3-none-any.whl",
   "flet-local-auth",
   "flet-local-notifications",
   "flet-speech",
@@ -32,8 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0"]
 exchange = [
-  # Alias of the core pin (desktop / docs that still reference the extra).
-  "ccxt>=4.4.0,<4.5.65",
+  "ccxt @ file:./vendor/wheels/ccxt-4.5.64-py2.py3-none-any.whl",
 ]
 windows = [
   "winrt-runtime>=3.0.0",

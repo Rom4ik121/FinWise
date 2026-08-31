@@ -1,55 +1,64 @@
-# Finanse — сборка IPA через Codemagic (бесплатно до 500 мин/мес)
+# FinWise — сборка IPA через Codemagic
 
-Проект уже содержит `codemagic.yaml` в корне. После push на GitHub остаётся настроить Apple-подпись и запустить workflow **`ios-ipa`**.
+Сборка подписанного **Ad Hoc IPA** для iPhone. Конфиг: корневой `codemagic.yaml`.  
+Репозиторий: [github.com/Rom4ik121/FinWise](https://github.com/Rom4ik121/FinWise).
 
-В сборку должны попасть editable-пакеты из `requirements.txt`
-(`flet_local_auth`, `flet_local_notifications`, `flet_speech`) и deep link
-`finwise://voice` из `pyproject.toml`. Биржи: **`ccxt>=4.4.0,<4.5.65`** в
-core-deps (Python 3.14 на mobile пропускает `coincurve`; `cryptography` держим
-`<50` из‑за `pypi.flet.dev`). Без новой IPA биометрия, пуши и голос на iPhone
-не обновятся.
-Info.plist: Face ID, микрофон, распознавание речи.
+Бесплатный личный план Codemagic: до **~500 мин/мес** на macOS (актуальные лимиты — на сайте Codemagic).
+
+---
+
+## Что попадает в IPA
+
+| Компонент | Зачем |
+|-----------|--------|
+| Editable-пакеты из `requirements.txt` (`flet_local_auth`, `flet_local_notifications`, `flet_speech`) | Face ID, локальные пуши, речь |
+| Deep link `finwise://voice` (`pyproject.toml` / Flet config) | Голосовой ярлык |
+| Mobile-safe **ccxt** wheel `vendor/wheels/ccxt-4.5.64-…whl` | Биржи по API на iOS/Android без `aiodns`/`pycares` |
+| `cryptography` **&lt; 50** | Совместимость с `pypi.flet.dev` wheels |
+| Splash `#0B1220` | Бренд (как в `flet.toml` / Codemagic scripts) |
+
+Wheel пересобирается так: `python scripts/vendor_ccxt_mobile.py` (должен быть закоммичен в git).
+
+Info.plist должен запрашивать Face ID, микрофон, распознавание речи.
+
+Без **новой** IPA правки плагинов / Python на устройстве не появятся.
+
+**Не** ставить `flet-android-notifications` в iOS-сборку: конфликт версий Flutter-пакета `timezone` с `flet_local_notifications`.
+
+---
 
 ## Что нужно заранее
 
 | Требование | Зачем |
 |------------|--------|
-| Репозиторий на **GitHub** | Codemagic подключается к Git |
-| **Apple Developer Program** (~$99/год) | Подпись IPA для iPhone |
-| **UDID iPhone 12** | В Ad Hoc профиле |
-| App ID `com.finanse.app` | Совпадает с `flet.toml` / `pyproject.toml` |
+| Репозиторий на **GitHub** (FinWise) | Codemagic подключается к Git |
+| **Apple Developer Program** (~$99/год) | Подпись IPA |
+| **UDID** тестового iPhone | В Ad Hoc профиле |
+| App ID **`com.finanse.app`** | Совпадает с `flet.toml` / `pyproject.toml` |
 | **Team ID** (10 символов) | Membership в Apple Developer |
 
 ---
 
-## Шаг 1. Залить проект на GitHub (Windows)
+## Шаг 1. Код на GitHub
 
-В PowerShell из корня проекта:
-
-```powershell
-.\scripts\push_github.ps1
-```
-
-Или вручную:
+Убедитесь, что remote указывает на FinWise и есть `codemagic.yaml`, `main.py`, `requirements.txt`:
 
 ```powershell
 cd C:\Users\Admin\Desktop\Projects\finanse
-gh auth login
-gh repo create finanse --private --source=. --remote=origin --push
+git remote -v
+git push -u origin main
 ```
 
-Проверьте на github.com, что в репозитории есть `codemagic.yaml`, `main.py`, `requirements.txt`.
+(Опционально: `.\scripts\push_github.ps1`, если скрипт актуален для вашего remote.)
 
 ---
 
 ## Шаг 2. Регистрация Codemagic
 
-1. Откройте [codemagic.io](https://codemagic.io) → **Sign up with GitHub**.
-2. Разрешите доступ к репозиторию **finanse** (или ко всем).
-3. **Add application** → выберите репозиторий **finanse**.
-4. Тип конфигурации: **codemagic.yaml** (не Flutter workflow editor).
-
-> Бесплатно: **500 минут/мес** на macOS M2 для **личного** аккаунта Codemagic.
+1. [codemagic.io](https://codemagic.io) → **Sign up with GitHub**.
+2. Разрешите доступ к репозиторию **FinWise**.
+3. **Add application** → выберите **FinWise**.
+4. Тип конфигурации: **codemagic.yaml** (не визуальный Flutter editor).
 
 ---
 
@@ -57,86 +66,95 @@ gh repo create finanse --private --source=. --remote=origin --push
 
 1. [developer.apple.com](https://developer.apple.com/account) → **Certificates, Identifiers & Profiles**.
 2. **Identifiers** → **+** → App → Bundle ID: **`com.finanse.app`**.
-3. **Devices** → **+** → добавьте iPhone 12 (UDID):
-   - Подключите iPhone к Mac → Xcode → Window → Devices and Simulators, или
-   - На iPhone: Settings → General → About (UDID через Finder на Mac).
-4. Запишите **Team ID**: Membership details (10 символов, например `AB12CD34EF`).
+3. **Devices** → **+** → UDID iPhone (Xcode → Devices, или Finder).
+4. Запишите **Team ID** (Membership details).
 
 ---
 
 ## Шаг 4. Сертификат и Ad Hoc профиль
 
-### Сертификат (Distribution)
+### Certificate (Distribution)
 
-1. На Mac: Keychain Access → Certificate Assistant → **Request a Certificate** → сохраните `.certSigningRequest`.
-2. Developer Portal → **Certificates** → **+** → **Apple Distribution** → загрузите CSR → скачайте `.cer` → двойной клик (в Keychain).
-3. Keychain → сертификат **Apple Distribution** → Export → **.p12** (задайте пароль).
+1. На Mac: Keychain Access → Certificate Assistant → **Request a Certificate** → `.certSigningRequest`.
+2. Developer Portal → **Certificates** → **+** → **Apple Distribution** → CSR → `.cer` → установить в Keychain.
+3. Export **Apple Distribution** → **`.p12`** (с паролем).
 
 ### Provisioning Profile (Ad Hoc)
 
 1. **Profiles** → **+** → **Ad Hoc** → App ID `com.finanse.app`.
-2. Выберите Distribution certificate.
-3. Отметьте **iPhone 12** (UDID).
-4. Скачайте `.mobileprovision`.
+2. Distribution certificate + нужные устройства (UDID).
+3. Скачать `.mobileprovision`.
 
 ---
 
-## Шаг 5. Загрузка подписи в Codemagic
+## Шаг 5. Подпись в Codemagic
 
-1. Codemagic → **Teams** → ваш team → **codemagic.yaml settings** → **Code signing identities**.
-2. Вкладка **iOS certificates** → загрузите `.p12`, пароль, reference name: `finanse_distribution`.
-3. Вкладка **iOS provisioning profiles** → загрузите `.mobileprovision`, reference: `finanse_adhoc`.
-4. У профиля тип **ad_hoc**, Bundle ID **`com.finanse.app`**.
+1. Codemagic → **Teams** → **Code signing identities**.
+2. **iOS certificates** → загрузить `.p12` (reference, напр. `finanse_distribution`).
+3. **iOS provisioning profiles** → `.mobileprovision` (напр. `finanse_adhoc`), тип **ad_hoc**, Bundle ID **`com.finanse.app`**.
 
-**Альтернатива (без ручного .p12):** подключить **App Store Connect API key** в Integrations и использовать `app-store-connect fetch-signing-files` — см. [доку Codemagic](https://docs.codemagic.io/yaml-code-signing/signing-ios/).
+Альтернатива: App Store Connect API key + `app-store-connect fetch-signing-files` — см. [доку Codemagic](https://docs.codemagic.io/yaml-code-signing/signing-ios/).
+
+В `codemagic.yaml` уже указано:
+
+```yaml
+ios_signing:
+  distribution_type: ad_hoc
+  bundle_identifier: com.finanse.app
+```
 
 ---
 
 ## Шаг 6. Переменные окружения
 
-1. Codemagic → **Environment variables** → группа **`finanse_ios`** (имя из `codemagic.yaml`).
-2. Добавьте:
+Группа **`finanse_ios`** (имя из yaml):
 
 | Variable | Value | Secure |
 |----------|--------|--------|
-| `APPLE_TEAM_ID` | ваш Team ID | нет |
+| `APPLE_TEAM_ID` | ваш 10-символьный Team ID | по желанию |
 
-3. В workflow **ios-ipa** укажите группу `finanse_ios` (уже в yaml).
+Workflow `ios-ipa` подключает группу `finanse_ios`.
 
 ---
 
 ## Шаг 7. Запуск сборки
 
-1. В приложении **finanse** → **Start new build**.
-2. Workflow: **`ios-ipa`** (Finanse iOS IPA Ad Hoc).
-3. Branch: **main** → **Start build**.
+1. Приложение **FinWise** в Codemagic → **Start new build**.
+2. Workflow: **`ios-ipa`** (FinWise iOS IPA Ad Hoc).
+3. Branch: **main** → Start.
 
-Первая сборка может занять **30–60+ минут** (зависимости Flet + Xcode).
+Первая сборка часто **30–60+ минут** (Flet + Xcode).
 
-### Если подпись ещё не готова
+### Без готовой подписи
 
-Запустите **`ios-smoke`** — проверка, что проект собирается на macOS (без гарантии IPA).
+Workflow **`ios-smoke`** — проверка, что проект собирается на macOS (IPA не гарантируется).
 
----
-
-## Шаг 8. Скачать IPA
-
-1. После успешного билда → **Artifacts** → скачайте `*.ipa`.
-2. Установка на iPhone 12:
-   - **Mac + Apple Configurator**: USB → перетащить IPA на устройство;
-   - или **TestFlight** (нужен workflow с `app-store-connect` export).
-
-На iPhone: **Settings → General → VPN & Device Management** → Trust developer.
+Оба workflow задают `--splash-color "#0B1220"` / `--splash-dark-color "#0B1220"`.
 
 ---
 
-## Установка IPA без Mac
+## Шаг 8. Установка IPA
 
-Codemagic только **собирает** IPA. На Windows без Mac:
+1. **Artifacts** → скачать `*.ipa`.
+2. Установка:
+   - Mac + **Apple Configurator** (USB);
+   - или **TestFlight** (нужен publish / Transporter).
+3. На iPhone: **Settings → General → VPN & Device Management** → Trust.
 
-1. **TestFlight** — загрузите IPA через Transporter (нужен Mac один раз или CI step `app-store-connect publish`).
-2. **AltStore / Sideloadly** — для Ad Hoc, если IPA подписан под ваш UDID (ограничения Apple).
-3. Попросить друга с Mac установить через Apple Configurator.
+### Без Mac
+
+Codemagic только **собирает**. На Windows: TestFlight / Sideloadly / AltStore (ограничения Apple и Ad Hoc UDID) или попросить установить с Mac.
+
+---
+
+## Workflows в `codemagic.yaml`
+
+| ID | Назначение |
+|----|------------|
+| `ios-ipa` | Подписанный Ad Hoc IPA, артефакты `build/ipa/*.ipa` |
+| `ios-smoke` | Smoke без полной подписи / simulator fallback |
+
+Исключения из бандла: `build`, `tests`, `docs`, `.cursor`, venv, кэши и т.д. (см. `--exclude` в yaml).
 
 ---
 
@@ -144,13 +162,21 @@ Codemagic только **собирает** IPA. На Windows без Mac:
 
 | Ошибка | Решение |
 |--------|---------|
-| `APPLE_TEAM_ID is missing` | Группа `finanse_ios` + переменная в UI |
-| No matching provisioning profile | Bundle ID / тип ad_hoc / UDID в профиле |
-| `ResolutionImpossible` / `ccxt` + `cryptography` | Держать `ccxt>=4.4.0,<4.5.65` и `cryptography>=42,<50`. На Python 3.14 (Serious Python) `coincurve` не требуется по маркеру. |
-| Binary wheel not found for iOS | Пакет без iOS wheel — см. лог; упростить deps |
-| `timezone ^0.9.4` vs `^0.11.0` | Не ставить `flet-android-notifications` в iOS-сборку: он тянет Flutter `timezone` 0.11, а пуши iOS идут через `flet_local_notifications` (`timezone` 0.9). Предупреждение `flutter doctor` про PATH 3.41 vs 3.44 — не причина падения. |
-| Build timeout | Увеличить `max_build_duration` в yaml |
-| 500 min exhausted | Ждать новый месяц или включить billing |
+| `APPLE_TEAM_ID is missing` | Группа `finanse_ios` + переменная |
+| No matching provisioning profile | Bundle ID / ad_hoc / UDID в профиле |
+| `ResolutionImpossible` / `ccxt` | Нужен wheel из `vendor/wheels/` (без aiodns). Пересобрать: `python scripts/vendor_ccxt_mobile.py` и закоммитить. Не ставить upstream `ccxt` из PyPI в `[project].dependencies`. |
+| `ResolutionImpossible` / cryptography | Держать `cryptography>=42,<50` под wheels `pypi.flet.dev`. |
+| Binary wheel not found for iOS | Смотреть лог; убрать пакет без iOS wheel |
+| Конфликт `timezone` 0.9 vs 0.11 | Не тянуть android-notifications в IPA |
+| Build timeout | Увеличить `max_build_duration` |
+| Лимит минут | Ждать новый месяц или billing |
+
+---
+
+## Android (кратко)
+
+APK собирается локально: `.\scripts\build_apk.ps1` (не Codemagic).  
+Цвет splash в скрипте может отличаться от `#0B1220` — для единообразия с iOS/`flet.toml` лучше выровнять флаги `--splash-color`.
 
 ---
 
@@ -158,4 +184,5 @@ Codemagic только **собирает** IPA. На Windows без Mac:
 
 - [Codemagic — iOS signing](https://docs.codemagic.io/yaml-code-signing/signing-ios/)
 - [Flet — iOS publish](https://flet.dev/docs/publish/ios/)
-- [Codemagic pricing (500 free min)](https://docs.codemagic.io/billing/pricing/)
+- [Codemagic pricing](https://docs.codemagic.io/billing/pricing/)
+- Документация приложения — [README.md](README.md)  

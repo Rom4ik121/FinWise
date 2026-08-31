@@ -173,9 +173,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Sinxronlash muvaffaqiyatsiz. Keyinroq urinib ko‘ring.",
     },
     "error.exchange_unavailable": {
-        "ru": "Подключение бирж недоступно в этой сборке",
-        "en": "Exchange connections are not available in this build",
-        "uz": "Bu versiyada birjalarni ulash mumkin emas",
+        "ru": "Библиотека бирж недоступна. Переустановите приложение.",
+        "en": "Exchange library is unavailable. Please reinstall the app.",
+        "uz": "Birja kutubxonasi mavjud emas. Ilovani qayta o‘rnating.",
     },
     "exchange.binance": {"ru": "Binance", "en": "Binance", "uz": "Binance"},
     "exchange.coinbase": {"ru": "Coinbase", "en": "Coinbase", "uz": "Coinbase"},

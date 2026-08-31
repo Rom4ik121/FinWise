@@ -1,69 +1,152 @@
-# Use cases
+# Use cases (бизнес-сценарии)
 
-Все сценарии — async-классы с `execute()`. Собираются в `Container`.
+Use cases живут в `lib/domain/use_cases/`. Типичный контракт: класс с `async def execute(...)`.  
+UI **не** пишет в ledger напрямую через репозитории для расходов/доходов, которые должны бить по бюджетам/целям — используется соответствующий use case.
 
-## Транзакции (`transactions.py`)
+---
 
-| Use case | Поведение |
-|---|---|
-| `AddTransactionUseCase` | Пишет операцию, двигает баланс счёта, при `goal_id` / `debt_id` двигает цель/долг, пересчитывает бюджет |
-| `UpdateTransactionUseCase` | Пересчёт баланса; сумму ноги перевода менять нельзя |
-| `DeleteTransactionUseCase` | Реверс баланса/цели/долга/бюджета; перевод удаляется парой |
-| `ListTransactionsUseCase` | Фильтры: счёт, категория, тип, даты, теги, goal/debt/subscription/transfer |
-| `GetTransactionStatsUseCase` | Доход/расход по периодам и категориям; **переводы исключены** |
-| `TransferAccountsUseCase` | Пара expense+income с общим `transfer_id`; FX через RateBook |
+## Транзакции — `transactions.py`
 
-Баланс счёта: `initial_balance + Σ income − Σ expense` (включая ноги перевода).
-В статистике и бюджетах переводы не участвуют.
+| Класс | Назначение |
+|-------|------------|
+| `AddTransactionUseCase` | Создать операцию, обновить баланс, применить цель/долг/бюджет |
+| `UpdateTransactionUseCase` | Изменить; откатить старые side-effects и наложить новые |
+| `DeleteTransactionUseCase` | Удалить; для перевода — обе ноги + связанную комиссию по тегу |
+| `ListTransactionsUseCase` | Фильтры: счёт, даты, тип, теги, transfer, limit/offset |
+| `GetTransactionStatsUseCase` | Агрегаты для графиков |
+| `TransferAccountsUseCase` | Перевод между счетами + опциональная комиссия |
 
-## Счета (`accounts.py`)
+### Правила перевода
 
-CRUD. Удаление каскадно снимает транзакции и подписки счёта (FK `ON DELETE CASCADE`).
-`RecalculateAccountBalanceUseCase` пересобирает баланс из журнала.
+1. Нельзя перевод «сам в себя».
+2. Сумма > 0; комиссия ≥ 0.
+3. Создаются **две** операции с общим `transfer_id` (расход на источнике, доход на приёмнике).
+4. При разной валюте — конвертация через `RateBook`; нет курса → ошибка.
+5. Комиссия — **отдельный** расход «Комиссия» / тег fee на выбранном счёте комиссии (по умолчанию источник).
+6. Ноги перевода нельзя править порознь (сумма/счета/тип) — только комментарий и подобные поля, либо удаление пары.
 
-## Цели (`goals.py`)
+### Хелперы
 
-CRUD, архив, дубль (`current_amount=0`).  
-`ContributeToGoalUseCase` создаёт **расход** со счёта (`type=expense`, `goal_id`,
-`goal_credit_amount` в валюте цели).  
-Проекция: ежемесячный взнос, дата завершения, `is_on_track`.
+- `make_fee_expense(...)` — собрать расход комиссии.
+- Тег комиссии перевода: стабильный маркер по `transfer_id`.
 
-## Долги (`debts.py`)
+---
 
-CRUD, архив. Погашение — расход с `debt_id` и `debt_credit_amount`.
-Проценты: `principal × rate × days / 365 / 100`.  
-`MarkOverdueDebtsUseCase` — `due_date < now`.
+## Счета — `accounts.py`
 
-## Подписки (`subscriptions.py`)
+| Класс | Назначение |
+|-------|------------|
+| `CreateAccountUseCase` | Новый счёт |
+| `UpdateAccountUseCase` | Обновление; смена валюты требует курсов и пересчёта |
+| `DeleteAccountUseCase` | Удаление (с проверками) |
+| `ListAccountsUseCase` | Список (active_only и т.д.) |
+| `RecalculateAccountBalanceUseCase` | Пересчёт баланса из ledger |
 
-`ProcessDueSubscriptionsUseCase` на старте и в фоне: расход, сдвиг
-`next_billing_date`, учёт `payments_made` / `max_payments` / `end_date`.
-Опция `check_balance_before_subscription`. Пауза/ручной платёж/аналитика.
+Смена валюты счёта без курса — ошибка пользователю.
 
-## Валюты (`currencies.py`)
+---
 
-Обновление курсов (fiat+crypto), конвертация (прямая → обратная → USD), список.
+## Биржи — `exchange_sync.py`
 
-## Бюджеты (`budgets.py`)
+| Класс | Назначение |
+|-------|------------|
+| `ConnectExchangeAccountUseCase` | Создать/обновить счёт + `ExchangeConnection`, зашифровать ключи |
+| `SyncExchangeAccountUseCase` | Стянуть holdings/сделки через CCXT, импортировать операции, выставить баланс по снимку биржи |
 
-Лимит на категорию/месяц (только expense/both). `spent` из расходов без
-`transfer_id`. Алерты 80% и 100%, если `budget_alerts`.
+Импортированные строки помечаются тегами синка; ошибки синка пишутся в `last_error`, UI показывает дружелюбное «Не удалось синхронизировать» без сырого traceback.
 
-## Категории (`categories.py`)
+---
 
-CRUD, `FindOrCreateCategoryUseCase` (уникальное имя). Переименование тянет бюджеты.
+## Цели — `goals.py`
 
-## Настройки и экспорт
+CRUD цели, **вклад** со счёта (`contribute_to_goal`), проекция, архив, дублирование, удаление вклада.
 
-`GetSettingsUseCase` / `UpdateSettingsUseCase`.  
-`ExportDataUseCase` — JSON snapshot (счета, операции, цели, долги, подписки,
-валюты, курсы, настройки). JSON **не** подставляется как restore БД — для
-полного отката нужен файл `.db` бэкапа.
+- Вклад создаёт расход (или движение) с `goal_id` и обновляет `current_amount`.
+- Вклад в archived/completed цель — блокируется.
+- Бюджеты **не** учитывают взносы в цели как обычный расход категории (см. budgets).
 
-`align_sole_account_currency` — если один счёт и его валюта ≠ базовой,
-меняет код валюты счёта и его операций без FX.
+---
 
-## Голос (`voice_capture.save_spoken_transaction`)
+## Долги — `debts.py`
 
-Разбор фразы → find_or_create категории → `AddTransactionUseCase` на первый
-активный счёт. Нужны сумма > 0 и имя категории (не пустое «Прочее»).
+Создание/правка, погашение с выбранного счёта, начисление процентов, проекция, просрочка, undo платежа, справочник контрагентов.
+
+Погашение пишет транзакцию с `debt_id` и уменьшает остаток долга (с FX при необходимости).
+
+---
+
+## Подписки — `subscriptions.py`
+
+| Операция | Смысл |
+|----------|--------|
+| Create/Update/Delete | Карточка подписки |
+| Pause / Resume | Статус |
+| `ChargeSubscriptionNow` | Ручное списание |
+| `ProcessDueSubscriptions` | Фоновый проход due + auto_charge |
+| Analytics | Сводка для UI |
+
+При `check_balance_before_subscription` и нехватке средств — код/`insufficient_funds` → локализованное сообщение.
+
+---
+
+## Бюджеты — `budgets.py`
+
+| Операция | Смысл |
+|----------|--------|
+| Set / Delete | Лимит категории на месяц |
+| Progress / List month | UI прогресса |
+| Recalculate | Пересчёт из транзакций |
+| `apply_expense_delta` | Инкремент при add/update/delete expense |
+
+Категория бюджета — expense или both; нужен положительный лимит.
+
+---
+
+## Категории — `categories.py`
+
+List / Create / Update / Delete / FindOrCreate — для пикера и форм.
+
+---
+
+## Валюты — `currencies.py`
+
+| Класс | Назначение |
+|-------|------------|
+| `UpdateExchangeRatesUseCase` | Тянет фиат + крипто курсы в БД |
+| `ConvertCurrencyUseCase` | Разовая конвертация |
+| `ListCurrenciesUseCase` | Каталог |
+
+---
+
+## Настройки — `settings.py`
+
+`GetSettingsUseCase` / `UpdateSettingsUseCase` — тема, язык, базовая валюта, интервал курсов, уведомления, график дашборда и т.д.
+
+PIN/биометрия хранятся через `settings_repository.set_pin_credentials` / clear (не отдельный use case файл).
+
+---
+
+## Экспорт — `export_data.py`
+
+`ExportDataUseCase` — JSON-снимок домена в `exports/`.  
+Опционально AES-обёртка паролем пользователя (encrypt/decrypt blob).
+
+---
+
+## Выравнивание валют — `align_currencies.py`
+
+`align_sole_account_currency(container)` — если один счёт и его валюта расходится с базовой в настройках, пытается привести к базе (при наличии курса). Вызывается при старте из `_seed_if_needed`.
+
+---
+
+## Ошибки домена → UI
+
+Английские `ValueError("Insufficient funds")`, `No exchange rate…`, `Account not found…` и т.п. в presentation превращаются в ключи i18n через `user_facing_error` / `snack_exception`. Пользователь не видит traceback.
+
+---
+
+## Связанные документы
+
+- Модели — [ENTITIES.md](ENTITIES.md)  
+- Реализации — [INFRASTRUCTURE.md](INFRASTRUCTURE.md)  
+- UI-вызовы — [PRESENTATION.md](PRESENTATION.md)  

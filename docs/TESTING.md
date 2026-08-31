@@ -1,42 +1,104 @@
 # Тестирование
 
+## 1. Как запускать
+
+Из корня репозитория:
+
 ```powershell
 python -m pytest -q
 python -m pytest tests/unit -q
 python -m pytest tests/integration -q
 ```
 
-`pytest.ini`: `testpaths = tests`, `pythonpath = .`. Async в тестах —
-`asyncio.run` / `tests.conftest.run_async`, без pytest-asyncio.
+Точечно:
 
-## Фикстуры
+```powershell
+python -m pytest tests/unit/test_performance.py tests/integration/test_transfers.py -q
+```
 
-- autouse `FINANCE_DISABLE_PUSH=1`
-- `container(tmp_path)` — отдельный SQLite на тест
-- `tests/factories.py` — Account, Transaction, Goal, Debt, Subscription, Category
+### Конфиг
 
-## Юнит (`tests/unit/`)
+`pytest.ini`:
 
-Деньги и ввод, бюджет, биометрия (в т.ч. «сервис не в page.add», пропуск web),
-шифрование PIN, локализация (все ключи ru/en/uz), бэкап файлов, валюты,
-проекции целей/долгов, биллинг подписок, reminder scheduler, notification
-queue, push (`reminder_fire_at`), RateBook, AppState, иконки, аналитика периодов, **performance** (tags paging,
-rate cache, budget batch, pending_counts, goal unlink), скины, smoke виджетов,
- **file_transfer** (безопасное имя, sqlite
-magic, копия в выбранный путь), **flet_services** (web skip / builtin),
-**voice_parse** / **voice_capture**, пути iOS/Android.
+- `testpaths = tests`
+- `pythonpath = .`
 
-## Интеграция (`tests/integration/`)
+Async в тестах — через `asyncio.run` / `tests.conftest.run_async` (**без** обязательного pytest-asyncio).
 
-Счета, операции, переводы (FX, удаление пары, исключение из статистики),
-цели, долги, подписки, бюджеты, категории, курсы, upsert, safe convert,
-настройки и JSON-экспорт.
+---
 
-На прогоне репозитория: **262 passed, 2 skipped**.
+## 2. Фикстуры (`tests/conftest.py`)
 
-## Правила
+| Фикстура / поведение | Смысл |
+|----------------------|--------|
+| Autouse `FINANCE_DISABLE_PUSH=1` | Не слать OS-toast в CI |
+| `container(tmp_path)` | Отдельный SQLite на тест + собранный DI |
+| `tests/factories.py` | Account, Transaction, Goal, Debt, Subscription, Category |
 
-- Сценарии с БД — integration + фикстура `container`.
-- Чистые функции — unit.
-- Биометрия: `FINANCE_BIOMETRIC_OK=1` или `set_local_auth_service`.
-- Не включать реальные OS-toast в CI.
+Биометрия в unit-тестах: `FINANCE_BIOMETRIC_OK=1` и/или `set_local_auth_service`.
+
+---
+
+## 3. Юнит-тесты (`tests/unit/`)
+
+Покрывают чистые функции и изолированные сервисы, в том числе:
+
+| Область | Примеры файлов |
+|---------|----------------|
+| Деньги / ввод | `test_money.py`, `test_money_input.py` |
+| Бюджеты (логика) | `test_budget.py` |
+| Биометрия / PIN | `test_biometric.py`, `test_encryption.py`, `test_secret_box.py` |
+| Локализация | `test_localization.py` (все ключи ru/en/uz) |
+| Бэкап | `test_backup_service.py` (в т.ч. daily rolling) |
+| Курсы / RateBook | `test_rate_book.py`, currency helpers |
+| Проекции | `test_goal_projection.py`, `test_debt_projection.py` |
+| Подписки (биллинг) | `test_subscription_billing.py` |
+| Reminders / push | `test_reminder_scheduler.py`, `test_notification_service.py`, `test_push_notifier.py` |
+| AppState / скины | `test_app_state.py`, `test_skins.py` |
+| Иконки / каталог | `test_account_icons.py`, `test_icon_catalog.py`, `test_exchanges.py` |
+| Аналитика периодов | `test_analytics_period.py` |
+| Performance | `test_performance.py` |
+| UI smoke / utils | `test_ui_widgets_smoke.py`, `test_presentation_utils.py`, `test_charts.py` |
+| Файлы / Flet services | `test_file_transfer.py`, `test_flet_services.py` |
+| Голос | `test_voice_parse.py`, `test_voice_capture.py` |
+| Пути iOS/Android | `test_config_ios.py` |
+| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py` |
+
+---
+
+## 4. Интеграция (`tests/integration/`)
+
+Сценарии с реальной SQLite через фикстуру `container`:
+
+| Область | Файл |
+|---------|------|
+| Счета | `test_accounts.py` |
+| Операции / позиции чека | `test_transactions.py`, `test_transaction_items.py` |
+| Переводы + FX | `test_transfers.py` |
+| Цели / долги / подписки | `test_goals.py`, `test_debts.py`, `test_subscriptions.py` |
+| Бюджеты | `test_budgets.py`, `test_budget_items_parity.py` |
+| Категории / валюты | `test_categories.py`, `test_currencies.py` |
+| Курсы upsert / safe convert | `test_exchange_rate_upsert.py`, `test_safe_convert.py` |
+| Биржевой синк | `test_exchange_sync.py` |
+| Настройки / экспорт / align | `test_settings_export_align.py` |
+
+Также есть корневые smoke-тесты вроде `tests/test_money_and_transactions.py`.
+
+---
+
+## 5. Правила написания тестов
+
+1. Сценарии с БД и side-effects ledger → **integration** + `container`.
+2. Чистые функции и парсеры → **unit**.
+3. Не включать реальные OS-toast / биометрию устройства в CI.
+4. После изменений domain / money / FX / transfers — прогнать хотя бы  
+   `tests/integration/test_transfers.py` и релевантный unit.
+5. Новые ключи i18n — убедиться, что `test_localization` проходит (все три языка).
+6. Не фиксировать в документации «N passed» — число растёт; ориентир — зелёный `pytest -q`.
+
+---
+
+## 6. Связанные документы
+
+- Инварианты — [ARCHITECTURE.md](ARCHITECTURE.md), [USE_CASES.md](USE_CASES.md)  
+- Perf-кейсы — [PERFORMANCE.md](PERFORMANCE.md)  

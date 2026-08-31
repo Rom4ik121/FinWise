@@ -1,21 +1,31 @@
 # FinWise — документация
 
-Кроссплатформенный учёт личных финансов: **Python 3.11+**, **Flet 0.83–0.86**, SQLite.
-Платформы: Windows (desktop), Android и iOS (упакованный IPA/APK).
+Полное описание приложения **FinWise** (репозиторий `finanse`): локальный учёт личных финансов на **Python 3.11+** и **Flet 0.83–0.86**, данные в **SQLite** на устройстве.
 
-## Разделы
+Платформы: **Windows** (desktop), **Android** (APK), **iOS** (IPA). Облачный аккаунт не обязателен.
 
-| Файл | Содержание |
-|---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Слои, запуск, DI, данные, валюты, уведомления, безопасность, мобильные плагины |
-| [ENTITIES.md](ENTITIES.md) | Доменные модели |
-| [USE_CASES.md](USE_CASES.md) | Сценарии (транзакции, счета, цели, долги, подписки, бюджеты, экспорт) |
-| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, API курсов, бэкап, push, биометрия, речь |
-| [PRESENTATION.md](PRESENTATION.md) | UI, навигация, скины, голосовой ввод, файлы |
-| [DATABASE.md](DATABASE.md) | SQLite, таблицы, индексы, миграции Alembic 0001–0016 |
-| [PERFORMANCE.md](PERFORMANCE.md) | Оптимизация БД/FX/UI для телефонов и десктопа |
-| [TESTING.md](TESTING.md) | pytest, фикстуры, покрытие |
-| [CODEMAGIC.md](CODEMAGIC.md) | Сборка подписанного IPA |
+Репозиторий: [github.com/Rom4ik121/FinWise](https://github.com/Rom4ik121/FinWise)
+
+---
+
+## Оглавление
+
+| Документ | Содержание |
+|----------|------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Слои, bootstrap, DI, фоновые циклы, мобильные сервисы, инварианты |
+| [ENTITIES.md](ENTITIES.md) | Доменные модели (счета, операции, цели, долги, …) |
+| [USE_CASES.md](USE_CASES.md) | Бизнес-сценарии и правила денег / FX / переводов |
+| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, курсы, CCXT, бэкап, PIN/Face ID, push, речь |
+| [PRESENTATION.md](PRESENTATION.md) | UI, вкладки, маршруты, формы, UX (splash, lock, count-up) |
+| [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0017** |
+| [PERFORMANCE.md](PERFORMANCE.md) | Скорость БД, FX, UI на телефонах и десктопе |
+| [TESTING.md](TESTING.md) | pytest, фикстуры, как гонять тесты |
+| [CODEMAGIC.md](CODEMAGIC.md) | Подписанный IPA (iOS) через Codemagic |
+
+Краткий публичный обзор — в корневом [README.md](../README.md).  
+Для AI-агентов: [AGENTS.md](../AGENTS.md).
+
+---
 
 ## Быстрый старт (Windows)
 
@@ -25,57 +35,88 @@ python scripts/migrate.py
 python main.py
 ```
 
-Первый запуск создаёт каталог данных, БД, настройки и счёт «Наличные».
-Windows: `%LOCALAPPDATA%\finanse\finanse\`.
+При первом запуске создаются каталог данных, БД, настройки и счёт «Наличные».
 
-Демо-данные:
+**Каталог данных (Windows):**
+
+```text
+%LOCALAPPDATA%\finanse\finanse\
+```
+
+Внутри: `finanse.db`, `backups/`, `exports/`, `logs/`, при необходимости `.secret_box_key`.
+
+**Демо-данные:**
 
 ```powershell
 python scripts/seed_demo_data.py --wipe --scale medium --currency UZS
 ```
 
-Тесты:
+**Тесты:**
 
 ```powershell
 python -m pytest -q
 ```
 
-## Телефоны (IPA / APK)
+---
 
-Нативные функции (биометрия, пуши, микрофон, ярлык `finwise://voice`) есть
-только в **собранном** приложении. `flet run --android` открывает web-клиент
-без Dart-расширений — так и задумано.
+## Мобильные сборки
 
-После изменения Python/Flutter-плагинов нужна **новая сборка** IPA и APK.
-Не добавляйте кастомные Flet Service в `page.add()`: клиент рисует
-`Unknown control` на сплэше и приложение не открывается. Сервисы вешаются
-на `page.services`.
+| Платформа | Как собрать | Документ |
+|-----------|-------------|----------|
+| Android | `.\scripts\build_apk.ps1` | этот README + `flet.toml` |
+| iOS | Codemagic workflow `ios-ipa` | [CODEMAGIC.md](CODEMAGIC.md) |
 
-Разрешения и deep link задаются в `pyproject.toml` / `flet.toml`.
-IPA: [CODEMAGIC.md](CODEMAGIC.md). APK: `.\scripts\build_apk.ps1`.
+Нативные возможности (**Face ID**, локальные пуши, микрофон, deep link `finwise://voice`) работают только в **упакованном** APK/IPA.  
+`flet run --android` / web — это web-клиент **без** Dart-расширений (так задумано).
+
+После изменений Python-кода плагинов или `extensions/` нужна **новая** сборка.
+
+**Важно:** кастомные Flet Service нельзя добавлять через `page.add()` — на сплэше появится `Unknown control`. Сервисы вешаются на `page.services` (см. `lib/infrastructure/services/flet_services.py`).
+
+Цвет native splash / adaptive icon в `flet.toml` и Codemagic: **`#0B1220`**.
+
+---
 
 ## Стек
 
-- UI: Flet (Flutter)
-- Данные: SQLAlchemy 2.0 + SQLite (WAL), Alembic
-- Модели: Pydantic v2
-- Курсы: httpx (open.er-api, CoinGecko, Binance)
-- Отчёты: matplotlib, reportlab
-- Плагины: `extensions/flet_local_auth`, `flet_local_notifications`, `flet_speech`
+| Слой | Технологии |
+|------|------------|
+| UI | Flet (Flutter) |
+| Домен | Pydantic v2, чистые use cases |
+| Данные | SQLAlchemy 2.0 + SQLite (WAL), Alembic 0001–0017 |
+| Сеть | httpx (open.er-api, CoinGecko, Binance), CCXT |
+| Отчёты | matplotlib, reportlab |
+| Безопасность | PIN (PBKDF), Face ID, AES-GCM secret box для ключей бирж |
+| Плагины | `extensions/flet_local_auth`, `flet_local_notifications`, `flet_speech` |
+
+---
 
 ## Структура репозитория
 
+```text
+FinWise/
+├── main.py                 # точка входа → lib.main.run()
+├── lib/
+│   ├── core/               # config, БД, DI, логи
+│   ├── domain/             # сущности, порты, use cases
+│   ├── infrastructure/     # SQLAlchemy, HTTP, OS-сервисы
+│   └── presentation/       # экраны и виджеты Flet
+├── extensions/             # Flutter-мосты
+├── assets/                 # icon, splash, icons/crypto|exchanges, currencies.json
+├── migrations/versions/    # Alembic 0001 … 0017
+├── scripts/                # migrate, seed, APK, брендинг
+├── tests/                  # unit + integration
+└── docs/                   # эта документация
 ```
-finanse/
-├── main.py / lib/main.py     — вход и bootstrap
-├── lib/core                  — config, БД, DI
-├── lib/domain                — сущности, порты, use cases
-├── lib/infrastructure        — SQLAlchemy, HTTP, OS-сервисы
-├── lib/presentation          — Flet UI
-├── extensions/               — Flutter-мосты (биометрия, пуши, речь)
-├── migrations/               — Alembic (10 ревизий)
-├── assets/                   — иконки, currencies.json
-├── scripts/                  — migrate, seed, APK/IPA
-├── tests/                    — unit + integration
-└── docs/                     — эта документация
-```
+
+---
+
+## Жёсткие правила продукта
+
+1. Деньги — только через `quantize_money` (фиат 2 знака, известная крипта — до 8).
+2. Переводы — пара операций с общим `transfer_id`; комиссия — отдельный расход «Комиссия» / тег `fee`.
+3. Нельзя суммировать разные валюты в «базу» без курса; нет тихого FX-fallback.
+4. Все строки UI — через `tr` / `STRINGS` (ru / en / uz).
+5. Ошибки пользователю — понятные тексты; traceback и SQL только в логах (`snack_exception`).
+
+Подробности — в [ARCHITECTURE.md](ARCHITECTURE.md) и [USE_CASES.md](USE_CASES.md).

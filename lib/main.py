@@ -253,7 +253,34 @@ async def _flet_main(page: ft.Page) -> None:
     async def _post_start() -> None:
         from lib.infrastructure.services.backup_service import BackupService
         from lib.infrastructure.services.reminder_scheduler import schedule_reminders
-        from lib.infrastructure.services.push_notifier import request_push_permissions
+        from lib.infrastructure.services.push_notifier import (
+            notify_push_ready,
+            request_push_permissions,
+        )
+
+        # Ask for OS notification permission immediately on first UI frame
+        # (Android 13+ / iOS show the system dialog once).
+        try:
+            settings = await container.get_settings.execute()
+            if settings.notifications_enabled:
+                prompt_flag = container.config.data_dir / ".push_permission_asked"
+                first_prompt = not prompt_flag.exists()
+                granted = await request_push_permissions()
+                logger.info("Push permission granted=%s first=%s", granted, first_prompt)
+                if first_prompt:
+                    try:
+                        prompt_flag.write_text("1", encoding="utf-8")
+                    except OSError:
+                        logger.debug(
+                            "Could not write push permission flag", exc_info=True
+                        )
+                    if granted:
+                        try:
+                            await notify_push_ready(normalize_lang(settings.language))
+                        except Exception:  # noqa: BLE001
+                            logger.exception("push ready banner failed")
+        except Exception:  # noqa: BLE001
+            logger.exception("Push permission request failed")
 
         try:
             path = await asyncio.to_thread(
@@ -275,12 +302,6 @@ async def _flet_main(page: ft.Page) -> None:
             logger.exception("process_due_subscriptions failed")
         try:
             settings = await container.get_settings.execute()
-            if settings.notifications_enabled:
-                try:
-                    granted = await request_push_permissions()
-                    logger.info("Push permission granted=%s", granted)
-                except Exception:  # noqa: BLE001
-                    logger.exception("Push permission request failed")
             await schedule_reminders(
                 container,
                 settings,
