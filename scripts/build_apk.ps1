@@ -49,6 +49,11 @@ Write-Host "Building APK (arm64 only; first run may take 20-40 min)..." -Foregro
 $buildStarted = Get-Date
 python -m pip install -U "flet[all]" -r requirements.txt -q
 
+if (-not (Test-Path "vendor\ccxt\pyproject.toml")) {
+    Write-Host "Generating mobile-safe vendor/ccxt..." -ForegroundColor Cyan
+    python scripts\vendor_ccxt_mobile.py
+}
+
 # If a previous shell exists, patch before rebuild (helps incremental paths).
 Invoke-AndroidPatches
 
@@ -80,7 +85,9 @@ $exclude = @(
     "agent-tools",
     "AGENTS.md",
     "pytest.ini",
-    "codemagic.yaml"
+    "codemagic.yaml",
+    "vendor/wheels",
+    "vendor"
 )
 
 $fletExit = 0

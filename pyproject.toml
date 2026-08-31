@@ -20,8 +20,9 @@ dependencies = [
   "alembic>=1.14.0",
   # Flet mobile index (pypi.flet.dev) ships limited native wheels (e.g. cryptography).
   "cryptography>=42,<50",
-  # Mobile-safe ccxt wheel (scripts/vendor_ccxt_mobile.py): no aiodns/pycares/coincurve.
-  "ccxt @ file:./vendor/wheels/ccxt-4.5.64-py2.py3-none-any.whl",
+  # Mobile-safe local ccxt (scripts/vendor_ccxt_mobile.py) — no aiodns/pycares.
+  # Must be listed in [tool.flet.dev_packages] so Flet uses an absolute file:// URL.
+  "ccxt",
   "flet-local-auth",
   "flet-local-notifications",
   "flet-speech",
@@ -30,7 +31,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0"]
 exchange = [
-  "ccxt @ file:./vendor/wheels/ccxt-4.5.64-py2.py3-none-any.whl",
+  "ccxt",
 ]
 windows = [
   "winrt-runtime>=3.0.0",
@@ -74,6 +75,8 @@ exclude = [
   "AGENTS.md",
   "pytest.ini",
   "codemagic.yaml",
+  "vendor/wheels",
+  "vendor",
 ]
 
 [tool.flet.deep_linking]
@@ -81,6 +84,7 @@ scheme = "finwise"
 host = "voice"
 
 [tool.flet.dev_packages]
+ccxt = "./vendor/ccxt"
 flet-local-auth = "./extensions/flet_local_auth"
 flet-local-notifications = "./extensions/flet_local_notifications"
 flet-speech = "./extensions/flet_speech"
