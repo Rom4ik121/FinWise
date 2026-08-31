@@ -79,7 +79,6 @@ DEFAULT_CATEGORIES: Final[tuple[str, ...]] = (
     "Зарплата",
     "Подарки",
     "Накопление",
-    "Savings",
     "Инвестиции",
     "Прочее",
 )
@@ -705,9 +704,26 @@ CATEGORY_ICONS: Final[tuple[str, ...]] = tuple(
     )
 )
 
+# Canonical ledger category for goal contributions (always stored in Russian seed form;
+# UI localizes via localize_category_name / category.savings).
+DEFAULT_SAVINGS_CATEGORY: Final[str] = "Накопление"
+# Historical / mistaken localized names still treated as the same savings bucket.
 SAVINGS_CATEGORIES: Final[frozenset[str]] = frozenset(
-    {"Накопление", "Savings", "Jamg‘arma", "Jamg'arma"}
+    {
+        DEFAULT_SAVINGS_CATEGORY,
+        "Savings",
+        "Jamg‘arma",  # U+2018
+        "Jamg'arma",  # ASCII apostrophe
+    }
 )
+
+
+def normalize_savings_category(name: str | None) -> str:
+    """Map any savings alias (or empty) to :data:`DEFAULT_SAVINGS_CATEGORY`."""
+    link = (name or "").strip()
+    if not link or link in SAVINGS_CATEGORIES:
+        return DEFAULT_SAVINGS_CATEGORY
+    return link
 
 # Default seed: (name, kind, icon, color)
 DEFAULT_CATEGORY_SEED: Final[tuple[tuple[str, str, str, str], ...]] = (
@@ -765,6 +781,82 @@ def _is_ios() -> bool:
     return "/var/mobile/Containers/" in home
 
 
+def _env_path(name: str) -> Path | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def _try_mkdir(path: Path) -> Path | None:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".finanse_write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return path
+    except OSError:
+        return None
+
+
+def _android_data_dir() -> Path:
+    """Writable app-private dir on Android (never bare ``/data``).
+
+    Packaged Flet exposes ``FLET_APP_STORAGE_DATA`` (see ``StoragePaths``).
+    ``Path.home()`` is sometimes just ``/data``, which is not writable and
+    used to raise ``PermissionError: '/data/finanse'`` on boot.
+    """
+    candidates: list[Path] = []
+    for key in (
+        "FLET_APP_STORAGE_DATA",
+        "FLET_APP_STORAGE",
+        "FILESDIR",
+        "ANDROID_APP_DATA",
+    ):
+        base = _env_path(key)
+        if base is not None:
+            candidates.append(base / APP_NAME)
+
+    try:
+        home = Path.home()
+    except Exception:  # noqa: BLE001
+        home = None
+    if home is not None:
+        home_s = home.as_posix().rstrip("/")
+        # Real app sandboxes only — reject bare /data (Errno 13).
+        if home_s not in ("", "/", "/data") and (
+            "/data/user/" in home_s or "/data/data/" in home_s
+        ):
+            candidates.append(home / APP_NAME)
+            candidates.append(home / "files" / APP_NAME)
+
+    # Last-resort package paths used by Serious Python / Flutter.
+    pkg = "com.finanse.app"
+    candidates.extend(
+        [
+            Path(f"/data/user/0/{pkg}/files") / APP_NAME,
+            Path(f"/data/data/{pkg}/files") / APP_NAME,
+            Path(f"/data/user/0/{pkg}/app_flutter") / APP_NAME,
+            Path(f"/data/data/{pkg}/app_flutter") / APP_NAME,
+        ]
+    )
+
+    seen: set[str] = set()
+    for path in candidates:
+        key = path.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        ok = _try_mkdir(path)
+        if ok is not None:
+            return ok
+
+    raise PermissionError(
+        "No writable Android data directory "
+        "(set FLET_APP_STORAGE_DATA or install a packaged build)"
+    )
+
+
 def _default_data_dir() -> Path:
     """Resolve the application data directory under the user profile.
 
@@ -775,16 +867,21 @@ def _default_data_dir() -> Path:
     inside the container instead.
     """
     if _is_ios():
+        for key in ("FLET_APP_STORAGE_DATA", "FLET_APP_STORAGE", "FILESDIR"):
+            raw = os.environ.get(key, "").strip()
+            if raw:
+                path = Path(raw) / APP_NAME
+                try:
+                    path.mkdir(parents=True, exist_ok=True)
+                    return path
+                except OSError:
+                    continue
         path = Path.home() / "Library" / "Application Support" / APP_NAME
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     if _is_android():
-        # Stay inside the app sandbox. platformdirs would create
-        # ``~/.local/share/finanse`` and fail with PermissionError on boot.
-        path = Path.home() / APP_NAME
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return _android_data_dir()
 
     if user_data_dir is not None:
         path = Path(user_data_dir(APP_NAME, APP_AUTHOR))

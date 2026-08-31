@@ -11,7 +11,8 @@ import flet as ft
 
 from lib.domain.entities.goal import Goal, GoalStatus
 from lib.domain.entities.money import quantize_money
-from lib.core.config import SAVINGS_CATEGORIES
+from lib.core.config import DEFAULT_SAVINGS_CATEGORY, normalize_savings_category
+from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.notification_badges import (
     GOAL_ALERT_KINDS,
     mark_related_read,
@@ -19,6 +20,8 @@ from lib.presentation.notification_badges import (
 )
 from lib.presentation.styles import (
     card_surface,
+    choice_chips,
+    form_section,
     muted_text,
     page_header,
     section_title,
@@ -33,6 +36,7 @@ from lib.presentation.utils import (
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
     try_convert_amount,
 )
@@ -174,7 +178,7 @@ class GoalsPage(ft.Column):
                 sort_by=self._sort_by,
             )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
             safe_update(self._list)
             return
@@ -238,7 +242,13 @@ class GoalsPage(ft.Column):
         if self._group_by_category:
             grouped: dict[str, list[Goal]] = defaultdict(list)
             for g in goals:
-                key = (g.category_link or "").strip() or tr("goal.uncategorized", lang)
+                raw = (g.category_link or "").strip()
+                if not raw:
+                    key = tr("goal.uncategorized", lang)
+                else:
+                    key = localize_category_name(
+                        normalize_savings_category(raw), lang
+                    )
                 grouped[key].append(g)
             for category, items in sorted(grouped.items(), key=lambda kv: kv[0].lower()):
                 cards.append(section_title(category))
@@ -285,7 +295,7 @@ class GoalsPage(ft.Column):
                 )
                 book = await load_rate_book(self._state.container)
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=lang)
                 return
             if not accounts:
                 snack(self._page, tr("error.no_accounts", lang), error=True)
@@ -391,13 +401,7 @@ class GoalsPage(ft.Column):
                         account_id=account_id,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    msg = str(exc)
-                    if "archived" in msg.lower():
-                        snack(self._page, tr("goal.archived_block", lang), error=True)
-                    elif "completed" in msg.lower():
-                        snack(self._page, tr("goal.completed_block", lang), error=True)
-                    else:
-                        snack(self._page, msg, error=True)
+                    snack_exception(self._page, exc, lang=lang)
                     return
                 close()
                 self._state.bump_refresh("dashboard", "accounts", "transactions", "goals")
@@ -480,7 +484,7 @@ class GoalsPage(ft.Column):
                     offset=0,
                 )
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 return
 
             has_more = len(txs) > _CONTRIB_PAGE
@@ -654,7 +658,7 @@ class GoalsPage(ft.Column):
                         goal_id=goal.id,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    snack(self._page, str(exc), error=True)
+                    snack_exception(self._page, exc, lang=self._state.language)
                     return
                 self._state.bump_refresh(
                     "dashboard", "accounts", "transactions", "goals"
@@ -710,7 +714,7 @@ class GoalsPage(ft.Column):
         try:
             await self._state.container.archive_goal.execute(goal.id)
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             return
         closer = close_holder.get("close")
         if callable(closer):
@@ -727,7 +731,7 @@ class GoalsPage(ft.Column):
                 name_suffix=tr("goal.copy_suffix", lang),
             )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=lang)
             return
         closer = close_holder.get("close")
         if callable(closer):
@@ -741,15 +745,32 @@ class GoalsPage(ft.Column):
         name_tf = ft.TextField(
             label=tr("field.name", lang), value=goal.name if goal else ""
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(name_tf, "name")
         target_tf = make_amount_field(
             lang,
             label=tr("goal.target", lang),
             value=goal.target_amount if goal else "",
         )
-        priority_dd = ft.Dropdown(
-            label=tr("field.priority", lang),
-            value=str(goal.priority if goal else 3),
-            options=[ft.DropdownOption(key=str(i), text=str(i)) for i in range(1, 6)],
+        wire_field_chain(self._page, [name_tf, target_tf])
+        priority = {"value": str(goal.priority if goal else 3)}
+        priority_chips = choice_chips(
+            [(str(i), str(i)) for i in range(1, 6)],
+            value=priority["value"],
+            on_changed=lambda v: priority.__setitem__("value", v),
+        )
+        priority_block = ft.Column(
+            spacing=6,
+            tight=True,
+            controls=[
+                ft.Text(
+                    tr("field.priority", lang),
+                    size=12,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+                priority_chips,
+            ],
         )
         deadline_field = DateTimeField(
             self._page,
@@ -765,54 +786,52 @@ class GoalsPage(ft.Column):
             value=(goal.currency if goal else self._state.base_currency),
             include_crypto=True,
         )
-        savings_options = sorted(SAVINGS_CATEGORIES)
-        default_link = (
-            goal.category_link
-            if goal and (goal.category_link or "").strip()
-            else tr("category.savings", lang)
-        )
+        savings_label = localize_category_name(DEFAULT_SAVINGS_CATEGORY, lang)
         category_dd = ft.Dropdown(
             label=tr("goal.category_link", lang),
-            value=default_link if default_link in savings_options else savings_options[0],
+            value=DEFAULT_SAVINGS_CATEGORY,
             options=[
-                ft.DropdownOption(key=name, text=name) for name in savings_options
+                ft.DropdownOption(
+                    key=DEFAULT_SAVINGS_CATEGORY,
+                    text=savings_label,
+                )
             ],
             expand=True,
         )
-        editor_controls: list[ft.Control] = [
-            name_tf,
-            target_tf,
-            currency_picker,
-            category_dd,
-        ]
+        progress_bits: list[ft.Control] = []
         if goal:
-            editor_controls.append(
-                ft.Text(
-                    f"{tr('goal.progress', lang)}: "
-                    f"{format_money(goal.current_amount, goal.currency)}",
-                    size=13,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                )
+            progress_bits.extend(
+                [
+                    ft.Text(
+                        f"{tr('goal.progress', lang)}: "
+                        f"{format_money(goal.current_amount, goal.currency)}",
+                        size=13,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    ft.Text(
+                        tr("goal.progress_hint", lang),
+                        size=11,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    ft.Text(
+                        tr("goal.currency_change_hint", lang),
+                        size=11,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                ]
             )
-            editor_controls.append(
-                ft.Text(
-                    tr("goal.progress_hint", lang),
-                    size=11,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                )
-            )
-            if (goal.currency or "").upper() != (
-                currency_picker.value or ""
-            ).upper():
-                pass
-            editor_controls.append(
-                ft.Text(
-                    tr("goal.currency_change_hint", lang),
-                    size=11,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                )
-            )
-        editor_controls.extend([priority_dd, deadline_field])
+        editor_controls: list[ft.Control] = [
+            form_section(
+                tr("form.section.main", lang),
+                [name_tf, target_tf, currency_picker, category_dd, *progress_bits],
+                icon=ft.Icons.FLAG,
+            ),
+            form_section(
+                tr("form.section.options", lang),
+                [priority_block, deadline_field],
+                icon=ft.Icons.TUNE,
+            ),
+        ]
 
         async def _save() -> None:
             try:
@@ -830,8 +849,10 @@ class GoalsPage(ft.Column):
                 current_amount=goal.current_amount if goal else Decimal("0"),
                 currency=currency_picker.value or self._state.base_currency,
                 deadline=deadline,
-                priority=int(priority_dd.value or 3),
-                category_link=(category_dd.value or tr("category.savings", lang)).strip(),
+                priority=int(priority["value"] or 3),
+                category_link=normalize_savings_category(
+                    category_dd.value or DEFAULT_SAVINGS_CATEGORY
+                ),
                 status=goal.status if goal else GoalStatus.ACTIVE,
                 is_completed=goal.is_completed if goal else False,
                 created_at=goal.created_at if goal else datetime.now(timezone.utc),
@@ -842,7 +863,7 @@ class GoalsPage(ft.Column):
                 else:
                     await self._state.container.create_goal.execute(entity)
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 return
             close()
             self._state.bump_refresh("dashboard")
@@ -857,7 +878,7 @@ class GoalsPage(ft.Column):
                 try:
                     await self._state.container.delete_goal.execute(goal.id)
                 except Exception as exc:  # noqa: BLE001
-                    snack(self._page, str(exc), error=True)
+                    snack_exception(self._page, exc, lang=self._state.language)
                     return
                 close()
                 self._state.bump_refresh("dashboard")
@@ -887,6 +908,7 @@ class GoalsPage(ft.Column):
             title=tr("action.edit", lang) if goal else tr("action.add", lang),
             lang=lang,
             overlay_key="goal_editor",
+            wrap_body=False,
             body=editor_controls,
             on_save=_save,
         )

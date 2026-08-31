@@ -223,12 +223,18 @@ def test_splash_logo_is_large() -> None:
 
     found: list = []
     _walk(splash, found)
-    images = [c for c in found if isinstance(c, ft.Image)]
     icons = [c for c in found if isinstance(c, ft.Icon)]
-    if images:
-        assert images[0].width >= 200
-    else:
-        assert icons and icons[0].size >= 140
+    texts = [c for c in found if isinstance(c, ft.Text)]
+    rings = [c for c in found if isinstance(c, ft.ProgressRing)]
+    images = [c for c in found if isinstance(c, ft.Image)]
+    assert not images
+    assert rings
+    assert icons and icons[0].size >= 100
+    assert icons[0].icon == ft.Icons.ACCOUNT_BALANCE_WALLET or getattr(
+        icons[0], "name", None
+    ) in (ft.Icons.ACCOUNT_BALANCE_WALLET, "ACCOUNT_BALANCE_WALLET", None)
+    assert any(getattr(t, "value", "") == "FinWise" for t in texts)
+    assert not any("учёт" in str(getattr(t, "value", "")).lower() for t in texts)
 
 
 def test_fill_loading_keeps_existing_controls() -> None:

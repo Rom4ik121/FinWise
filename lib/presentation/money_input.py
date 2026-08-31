@@ -107,12 +107,15 @@ def make_amount_field(
     **kwargs: Any,
 ) -> ft.TextField:
     """Build a numeric TextField that groups thousands while typing."""
+    from lib.presentation.form_keyboard import configure_field
+
+    kwargs.setdefault("keyboard_type", ft.KeyboardType.NUMBER)
     field = ft.TextField(
         label=label,
         value=format_amount_value(value, lang) if value not in (None, "") else "",
-        keyboard_type=ft.KeyboardType.NUMBER,
         **kwargs,
     )
+    configure_field(field, "number")
     return attach_grouped_digits(field, lang, extra_on_change=extra_on_change)
 
 

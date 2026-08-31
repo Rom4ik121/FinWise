@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import flet as ft
 
@@ -13,10 +13,12 @@ CARD_RADIUS = 18
 CHIP_RADIUS = 14
 SECTION_GAP = 14
 
-# Catalog tiles: white line-art on muted sage circles (account / category pickers).
-ICON_CATALOG_BADGE = "#8FA89A"
-ICON_CATALOG_BADGE_SELECTED = "#6B8A7A"
-ICON_CATALOG_GLYPH = "#FFFFFF"
+# Catalog tiles: opaque dark disks (Flutter treats 8-digit hex as AARRGGBB —
+# values like #FFFFFF14 become yellow and hide white glyphs).
+ICON_CATALOG_BADGE = "#252B32"
+ICON_CATALOG_BADGE_SELECTED = "#0F2A21"
+ICON_CATALOG_GLYPH = "#F5F7FA"
+ICON_CATALOG_BADGE_BORDER = "#3A424A"
 
 
 def glass_layer(*, elevated: bool = False, opacity: float | None = None) -> dict:
@@ -392,6 +394,7 @@ def labeled_field(label: str, field: ft.TextField) -> ft.Control:
     """Put the caption above the field so Material labels never overlap values."""
     field.label = None
     field.dense = True
+    polish_form_control(field)
     return ft.Column(
         spacing=6,
         tight=True,
@@ -400,3 +403,245 @@ def labeled_field(label: str, field: ft.TextField) -> ft.Control:
             field,
         ],
     )
+
+
+FORM_FIELD_RADIUS = 14
+FORM_MENU_RADIUS = 16
+
+
+def dropdown_menu_style() -> ft.MenuStyle:
+    """Rounded elevated menu for Dropdown option sheets."""
+    return ft.MenuStyle(
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+        elevation=10,
+        padding=ft.Padding.symmetric(horizontal=6, vertical=8),
+        shape=ft.RoundedRectangleBorder(radius=FORM_MENU_RADIUS),
+        shadow_color=ft.Colors.with_opacity(0.35, ft.Colors.SHADOW),
+    )
+
+
+def style_popup_menu(button: ft.PopupMenuButton) -> ft.PopupMenuButton:
+    """Neon-friendly shape / padding for ⋮ overflow menus."""
+    button.shape = ft.RoundedRectangleBorder(radius=FORM_MENU_RADIUS)
+    button.bgcolor = ft.Colors.SURFACE_CONTAINER_HIGH
+    button.elevation = 10
+    button.menu_padding = ft.Padding.symmetric(horizontal=6, vertical=8)
+    button.shadow_color = ft.Colors.with_opacity(0.35, ft.Colors.SHADOW)
+    return button
+
+
+def polish_form_control(control: ft.Control) -> ft.Control:
+    """Softer corners / density for form inputs (walks nested layouts)."""
+    if isinstance(control, ft.TextField):
+        control.border_radius = FORM_FIELD_RADIUS
+        control.filled = True
+        if getattr(control, "dense", None) is None:
+            control.dense = True
+    elif isinstance(control, ft.Dropdown):
+        control.border_radius = FORM_FIELD_RADIUS
+        control.filled = True
+        if getattr(control, "dense", None) is None:
+            control.dense = True
+        if getattr(control, "menu_style", None) is None:
+            control.menu_style = dropdown_menu_style()
+    elif isinstance(control, ft.PopupMenuButton):
+        style_popup_menu(control)
+    elif isinstance(control, ft.Column):
+        for child in list(getattr(control, "controls", None) or []):
+            polish_form_control(child)
+    elif isinstance(control, ft.Row):
+        for child in list(getattr(control, "controls", None) or []):
+            polish_form_control(child)
+    elif isinstance(control, ft.Container):
+        inner = getattr(control, "content", None)
+        if inner is not None:
+            polish_form_control(inner)
+    return control
+
+
+def form_hint(text: str, *, size: int = 12) -> ft.Text:
+    """Secondary helper line under a field or section."""
+    return ft.Text(
+        text,
+        size=size,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+        max_lines=6,
+    )
+
+
+def form_section(
+    title: str | None,
+    controls: Sequence[ft.Control],
+    *,
+    hint: str | None = None,
+    icon: Optional[ft.IconData] = None,
+) -> ft.Container:
+    """Grouped card of related fields — used inside fullscreen editors."""
+    kids: list[ft.Control] = []
+    if title:
+        title_row: list[ft.Control] = []
+        if icon is not None:
+            title_row.append(
+                ft.Icon(icon, size=18, color=ft.Colors.PRIMARY),
+            )
+        title_row.append(
+            ft.Text(
+                title,
+                size=13,
+                weight=ft.FontWeight.W_700,
+                color=ft.Colors.ON_SURFACE,
+                expand=True,
+                max_lines=2,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            )
+        )
+        kids.append(
+            ft.Row(
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=title_row,
+            )
+        )
+    if hint:
+        kids.append(form_hint(hint, size=11))
+    for item in controls:
+        polish_form_control(item)
+        kids.append(item)
+    return card_surface(
+        ft.Column(spacing=12, tight=True, controls=kids),
+        padding=16,
+    )
+
+
+def form_save_button(
+    label: str,
+    *,
+    icon: ft.IconData = ft.Icons.CHECK,
+    on_click: Optional[ft.ControlEventHandler] = None,
+    content: Optional[ft.Control] = None,
+) -> ft.FilledButton:
+    """Pill primary action used in form headers."""
+    kwargs: dict = {
+        "icon": icon,
+        "style": ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=999),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+            bgcolor=ft.Colors.PRIMARY,
+            color=ft.Colors.ON_PRIMARY,
+        ),
+        "on_click": on_click,
+    }
+    if content is not None:
+        return ft.FilledButton(content=content, **kwargs)
+    return ft.FilledButton(label, **kwargs)
+
+
+def form_header_bar(
+    title: str,
+    *,
+    leading: Optional[ft.Control] = None,
+    actions: Optional[Sequence[ft.Control]] = None,
+) -> ft.Container:
+    """Compact form top bar with glass strip (titles stay readable)."""
+    left: list[ft.Control] = []
+    if leading is not None:
+        left.append(leading)
+    left.append(
+        ft.Text(
+            title,
+            size=18,
+            weight=ft.FontWeight.W_700,
+            color=ft.Colors.ON_SURFACE,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            max_lines=1,
+            expand=True,
+        )
+    )
+    skin = get_active_skin()
+    return ft.Container(
+        padding=ft.Padding.only(left=8, right=12, top=10, bottom=10),
+        border=ft.Border.only(
+            bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.OUTLINE_VARIANT))
+        ),
+        **glass_layer(elevated=True, opacity=0.28 if skin.glass else None),
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row(
+                    controls=left,
+                    spacing=2,
+                    tight=True,
+                    expand=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    controls=list(actions or []),
+                    tight=True,
+                    spacing=4,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+        ),
+    )
+
+
+def choice_chips(
+    options: Sequence[tuple[str, str]],
+    *,
+    value: str,
+    on_changed: Callable[[str], None],
+) -> ft.Row:
+    """Compact selectable chips (priority etc.) — avoids plain dropdown sheets."""
+    selected = {"value": value}
+    row = ft.Row(spacing=8, wrap=True, tight=True, controls=[])
+
+    def _rebuild() -> None:
+        chips: list[ft.Control] = []
+        for key, label in options:
+            active = selected["value"] == key
+            chips.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                    border_radius=999,
+                    bgcolor=(
+                        ft.Colors.PRIMARY_CONTAINER
+                        if active
+                        else ft.Colors.SURFACE_CONTAINER
+                    ),
+                    border=ft.Border.all(
+                        1,
+                        ft.Colors.PRIMARY if active else ft.Colors.OUTLINE_VARIANT,
+                    ),
+                    ink=True,
+                    on_click=lambda _e, k=key: _pick(k),
+                    content=ft.Text(
+                        label,
+                        size=13,
+                        weight=ft.FontWeight.W_600,
+                        color=(
+                            ft.Colors.ON_PRIMARY_CONTAINER
+                            if active
+                            else ft.Colors.ON_SURFACE
+                        ),
+                    ),
+                )
+            )
+        row.controls = chips
+        try:
+            from lib.presentation.utils import safe_update
+
+            safe_update(row)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _pick(key: str) -> None:
+        if selected["value"] == key:
+            return
+        selected["value"] = key
+        _rebuild()
+        on_changed(key)
+
+    _rebuild()
+    row.data = selected  # type: ignore[attr-defined]
+    return row

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any, Optional
 
 import flet as ft
@@ -35,6 +36,7 @@ _NAV_PILL_W = 46.0
 _NAV_PILL_H = 30.0
 _NAV_BAR_H = 54.0
 _NAV_SLIDE = ft.Animation(380, ft.AnimationCurve.EASE_IN_OUT_CUBIC)
+_BACKGROUND_LOCK_SECONDS = 15.0
 
 
 class FinanseApp:
@@ -147,6 +149,7 @@ class FinanseApp:
         self._secondary_cache: dict[str, ft.Control] = {}
         self._pin_hash: Optional[str] = None
         self._pin_salt: Optional[str] = None
+        self._backgrounded_at: float | None = None
 
     async def start(self) -> None:
         """Load settings, apply theme, and mount the shell."""
@@ -192,12 +195,16 @@ class FinanseApp:
 
         page.controls.clear()
         page.add(self._stage)
+        from lib.presentation.ui_feedback import bind_ui_feedback
+
+        bind_ui_feedback(page)
         self._render(force=True)
         self._flush_notifications()
 
         from lib.presentation.voice_shortcut import install_voice_shortcut
 
         install_voice_shortcut(page, self.state)
+        self._install_session_lock()
         if self.state.pending_voice_capture and self.state.is_unlocked:
             capture = getattr(self.state, "voice_capture", None)
             if capture is not None:
@@ -205,6 +212,46 @@ class FinanseApp:
 
                 self.state.pending_voice_capture = False
                 run_async(page, capture)
+
+    def _install_session_lock(self) -> None:
+        """Lock after the app stays backgrounded for ``_BACKGROUND_LOCK_SECONDS``."""
+        from lib.infrastructure.services.biometric import is_mobile_platform
+
+        if not is_mobile_platform(self.page):
+            return
+        previous = self.page.on_app_lifecycle_state_change
+
+        def _on_lifecycle(e: Any) -> None:
+            if callable(previous):
+                try:
+                    previous(e)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Previous lifecycle handler failed")
+            state = getattr(e, "data", None) or getattr(e, "state", None)
+            raw = str(getattr(state, "value", state) or "").strip().lower()
+            if raw in {"hide", "pause", "inactive", "detach"}:
+                if self._backgrounded_at is None:
+                    self._backgrounded_at = time.monotonic()
+                return
+            if raw in {"resume", "show", "restart"}:
+                started = self._backgrounded_at
+                self._backgrounded_at = None
+                if started is None:
+                    return
+                if time.monotonic() - started < _BACKGROUND_LOCK_SECONDS:
+                    return
+                self.lock_session()
+
+        self.page.on_app_lifecycle_state_change = _on_lifecycle
+
+    def lock_session(self) -> None:
+        """Show the PIN / Face ID gate when credentials exist."""
+        if not (self._pin_hash and self._pin_salt):
+            return
+        if not self.state.is_unlocked:
+            return
+        self.state.set_unlocked(False)
+        self._render(force=True)
 
     async def _load_pin_gate(self) -> None:
         """Decide whether the session starts locked."""
@@ -371,6 +418,7 @@ class FinanseApp:
             self._rendered_rebuild_token = self.state.view_rebuild_token
             self._render(force=True)
             self._flush_notifications()
+            self._pulse_data_flash()
             return
         needs_nav = (
             self._rendered_tab != self.state.selected_tab
@@ -386,10 +434,22 @@ class FinanseApp:
             self._secondary_cache.clear()
             self._render(force=True)
             self._flush_notifications()
+            self._pulse_data_flash()
             return
         if needs_nav:
             self._render()
         self._flush_notifications()
+        self._pulse_data_flash()
+
+    def _pulse_data_flash(self) -> None:
+        if not self.state.consume_data_flash():
+            return
+        try:
+            from lib.presentation.ui_feedback import flash_refresh
+
+            flash_refresh(self.page)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _flush_notifications(self) -> None:
         for message in self.state.pop_notifications():

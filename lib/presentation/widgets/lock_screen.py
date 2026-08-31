@@ -69,10 +69,14 @@ class LockScreen(ft.Container):
             on_submit=lambda _e: run_async(page, self._try_pin),
             autofocus=not biometric_enabled,
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(self._pin, "number")
+        wire_field_chain(page, [self._pin])
         self._error = ft.Text("", color=ft.Colors.ERROR, size=12)
         self._bio_btn = ft.OutlinedButton(
             tr("settings.biometric", language),
-            icon=ft.Icons.FINGERPRINT,
+            icon=ft.Icons.FACE_2,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=14),
                 padding=ft.Padding.symmetric(horizontal=18, vertical=14),
@@ -125,7 +129,7 @@ class LockScreen(ft.Container):
                             bgcolor=ft.Colors.PRIMARY_CONTAINER,
                             alignment=ft.Alignment.CENTER,
                             content=ft.Icon(
-                                ft.Icons.FINGERPRINT
+                                ft.Icons.FACE_2
                                 if biometric_enabled
                                 else ft.Icons.LOCK,
                                 size=34,
@@ -163,11 +167,12 @@ class LockScreen(ft.Container):
             run_async(page, self._bootstrap_biometric)
 
     async def _bootstrap_biometric(self) -> None:
-        """Probe OS support, then auto-open the Hello / biometric prompt."""
+        """Probe OS support, then auto-open Face ID when available."""
         status = await self._crypto.refresh_biometric_status()
-        self._bio_btn.visible = self._biometric_enabled
+        face_ok = status is BiometricStatus.AVAILABLE
+        self._bio_btn.visible = self._biometric_enabled and face_ok
         safe_update(self._bio_btn)
-        if status is BiometricStatus.AVAILABLE:
+        if self._biometric_enabled and face_ok:
             await self._try_biometric()
 
     async def _finish(self) -> None:

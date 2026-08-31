@@ -78,6 +78,13 @@ def biometric_env_override_ok() -> bool:
 
 def mobile_runtime() -> bool:
     """True when Python runs inside a packaged Flet Android / iOS app."""
+    try:
+        from lib.core.config import _is_android, _is_ios
+
+        if _is_ios() or _is_android():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
     platform = os.getenv("FLET_PLATFORM", "").strip().lower()
     if platform in {"android", "ios"}:
         return True
@@ -97,11 +104,17 @@ def mobile_runtime() -> bool:
 
 
 def is_mobile_platform(page: "ft.Page | None" = None) -> bool:
-    """Best-effort mobile detection for biometric registration."""
+    """Best-effort mobile detection (packaged runtime, env, or Flet page)."""
     if mobile_runtime():
         return True
     if page is None:
         return False
+    try:
+        if bool(getattr(page, "web", False)):
+            # ``flet run --android`` is a web client — not a native mobile runtime.
+            return False
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from flet import PagePlatform
 
@@ -151,6 +164,18 @@ def platform_supports_biometrics() -> bool:
     return True
 
 
+def feature_voice_available() -> bool:
+    """True when the speech bridge is registered (packaged iOS/Android)."""
+    from lib.infrastructure.services.speech import get_speech_service
+
+    return get_speech_service() is not None
+
+
+def feature_biometrics_available() -> bool:
+    """True when OS biometrics / Hello can be offered in Settings."""
+    return platform_supports_biometrics()
+
+
 def _map_mobile_auth_code(code: str | None) -> BiometricResult:
     """Map ``local_auth`` / PlatformException codes to :class:`BiometricResult`."""
     normalized = (code or "").strip().lower().replace("_", "")
@@ -174,6 +199,19 @@ def _map_mobile_auth_code(code: str | None) -> BiometricResult:
     return BiometricResult.FAILED
 
 
+def _is_face_biometric(entry: str) -> bool:
+    """True for Face ID / face / iris — fingerprint is intentionally excluded."""
+    text = str(entry or "").strip().lower().replace("biometrictype.", "")
+    if "fingerprint" in text or "finger" in text or "touch" in text:
+        return False
+    return "face" in text or "iris" in text
+
+
+def has_face_unlock(biometrics: list[str] | None) -> bool:
+    """Whether enrolled biometrics include Face ID (not fingerprint-only)."""
+    return any(_is_face_biometric(item) for item in (biometrics or []))
+
+
 async def _probe_mobile_status() -> BiometricStatus:
     service = _local_auth_service
     if service is None:
@@ -185,6 +223,13 @@ async def _probe_mobile_status() -> BiometricStatus:
             return BiometricStatus.NOT_CONFIGURED
         biometrics = await service.get_available_biometrics()
         if not biometrics:
+            return BiometricStatus.NOT_CONFIGURED
+        # FinWise unlocks with Face ID + PIN only — ignore fingerprint-only devices.
+        if not has_face_unlock(biometrics):
+            logger.info(
+                "Face unlock unavailable (enrolled=%s); PIN-only",
+                biometrics,
+            )
             return BiometricStatus.NOT_CONFIGURED
         return BiometricStatus.AVAILABLE
     except Exception:  # noqa: BLE001

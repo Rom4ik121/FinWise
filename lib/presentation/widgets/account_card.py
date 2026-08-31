@@ -12,8 +12,9 @@ from lib.presentation.account_icons import (
     account_icon_badge,
     resolve_account_icon_key,
 )
+from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
-from lib.presentation.styles import card_surface, muted_text
+from lib.presentation.styles import card_surface, muted_text, style_popup_menu
 from lib.presentation.utils import format_money
 
 
@@ -45,7 +46,11 @@ class AccountCard(ft.Container):
             and account.currency.upper() != base_currency.upper()
         ):
             converted_line.append(
-                muted_text(f"≈ {format_money(base_balance, base_currency)}")
+                mark_money_text(
+                    muted_text(f"≈ {format_money(base_balance, base_currency)}"),
+                    base_balance,
+                    currency=base_currency,
+                )
             )
 
         menu_items: list[ft.PopupMenuItem] = []
@@ -71,10 +76,12 @@ class AccountCard(ft.Container):
                 ),
             ]
         )
-        menu = ft.PopupMenuButton(
-            icon=ft.Icons.MORE_VERT,
-            icon_color=ft.Colors.ON_SURFACE_VARIANT,
-            items=menu_items,
+        menu = style_popup_menu(
+            ft.PopupMenuButton(
+                icon=ft.Icons.MORE_VERT,
+                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                items=menu_items,
+            )
         )
 
         subtitle = (
@@ -167,12 +174,16 @@ class AccountCard(ft.Container):
                         spacing=4,
                         tight=True,
                         controls=[
-                            ft.Text(
-                                native,
-                                size=20,
-                                weight=ft.FontWeight.W_700,
-                                max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS,
+                            mark_money_text(
+                                ft.Text(
+                                    native,
+                                    size=20,
+                                    weight=ft.FontWeight.W_700,
+                                    max_lines=2,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                account.balance,
+                                currency=account.currency,
                             ),
                             *converted_line,
                         ],

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Optional
 
 import flet as ft
 
+from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
 
 
@@ -24,11 +26,31 @@ class SummaryCard(ft.Container):
         width: Optional[int] = None,
         on_click: Optional[ft.ControlEventHandler] = None,
         dark: bool = True,
+        amount: Decimal | float | int | str | None = None,
+        currency: str | None = None,
+        compact: bool = False,
+        signed: bool = False,
     ) -> None:
         skin = get_active_skin()
         color = accent or skin.text_hex(dark=dark)
         badge_bg = skin.badge_bg(dark=dark)
         badge_fg = skin.badge_fg(dark=dark)
+        value_text = ft.Text(
+            value,
+            size=15 if hero else 13,
+            weight=ft.FontWeight.W_700,
+            color=color,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            max_lines=2,
+        )
+        if amount is not None and currency:
+            mark_money_text(
+                value_text,
+                amount,
+                currency=currency,
+                compact=compact,
+                signed=signed,
+            )
         body = ft.Column(
             spacing=8,
             tight=False,
@@ -62,14 +84,7 @@ class SummaryCard(ft.Container):
                         ),
                     ],
                 ),
-                ft.Text(
-                    value,
-                    size=15 if hero else 13,
-                    weight=ft.FontWeight.W_700,
-                    color=color,
-                    overflow=ft.TextOverflow.ELLIPSIS,
-                    max_lines=2,
-                ),
+                value_text,
             ],
         )
         kwargs: dict = {

@@ -100,11 +100,41 @@ def test_transfer_fee_is_separate_expense(container) -> None:
         assert len(fees) == 1
         assert fees[0].amount == Decimal("15.00")
         assert fees[0].type is TransactionType.EXPENSE
+        assert fees[0].account_id == src.id
         assert not fees[0].is_transfer
         assert "fee" in fees[0].tags
 
         stats = await container.get_transaction_stats.execute()
         assert stats.total_expense == Decimal("15.00")
+
+    run_async(_run())
+
+
+def test_transfer_fee_can_charge_destination(container) -> None:
+    async def _run() -> None:
+        src = await container.create_account.execute(
+            make_account(name="Wallet", balance="1000")
+        )
+        dst = await container.create_account.execute(
+            make_account(name="Cash", balance="100")
+        )
+        await container.transfer_between_accounts.execute(
+            from_account_id=src.id,
+            to_account_id=dst.id,
+            amount=Decimal("250"),
+            fee=Decimal("15"),
+            fee_account_id=dst.id,
+        )
+        src2 = await container.account_repository.get_by_id(src.id)
+        dst2 = await container.account_repository.get_by_id(dst.id)
+        assert src2.balance == Decimal("750.00")
+        assert dst2.balance == Decimal("335.00")  # 100 + 250 - 15
+
+        rows = await container.list_transactions.execute()
+        fees = [tx for tx in rows if tx.category == "Комиссия"]
+        assert len(fees) == 1
+        assert fees[0].account_id == dst.id
+        assert fees[0].amount == Decimal("15.00")
 
     run_async(_run())
 

@@ -10,7 +10,7 @@ greenlet>=3.1.0
 platformdirs>=4.0.0
 alembic>=1.14.0
 cryptography>=42,<50
-# Exchange sync (desktop). Omitted from mobile pyproject core deps — see CODEMAGIC.md.
+# Exchange sync via ccxt (also packaged into APK; coincurve skipped on Python 3.14).
 ccxt>=4.4.0,<4.5.65
 -e ./extensions/flet_local_auth
 -e ./extensions/flet_local_notifications

@@ -102,9 +102,9 @@ def _load_ccxt():
     try:
         import ccxt  # type: ignore[import-untyped]
     except ImportError as exc:  # pragma: no cover
-        raise ExchangeClientError(
-            "Install ccxt to connect exchanges (pip install ccxt)"
-        ) from exc
+        # Key is resolved via localization in the UI (no ``pip install`` hint —
+        # mobile builds must ship ccxt in the APK/IPA).
+        raise ExchangeClientError("error.exchange_unavailable") from exc
     return ccxt
 
 

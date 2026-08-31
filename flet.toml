@@ -7,6 +7,38 @@ version = "0.1.0"
 [app]
 module = "main"
 
+# Mirror pyproject [tool.flet.app].exclude — keep tests/docs/scripts out of APK/IPA/desktop.
+[tool.flet.app]
+module = "main"
+exclude = [
+  ".venv",
+  "venv",
+  ".git",
+  ".github",
+  ".cursor",
+  ".claude",
+  ".flet",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".tox",
+  ".hypothesis",
+  "htmlcov",
+  "__pycache__",
+  "tests",
+  "docs",
+  "scripts",
+  "agent-transcripts",
+  "agent-tools",
+  "build",
+  "dist",
+  "storage",
+  "secrets",
+  "AGENTS.md",
+  "pytest.ini",
+  "codemagic.yaml",
+]
+
 [tool.flet.deep_linking]
 scheme = "finwise"
 host = "voice"
@@ -18,7 +50,6 @@ flet-speech = "./extensions/flet_speech"
 
 [tool.flet.android.permission]
 "android.permission.USE_BIOMETRIC" = true
-"android.permission.USE_FINGERPRINT" = true
 "android.permission.POST_NOTIFICATIONS" = true
 "android.permission.VIBRATE" = true
 "android.permission.RECEIVE_BOOT_COMPLETED" = true
@@ -30,18 +61,21 @@ flet-speech = "./extensions/flet_speech"
 "android.permission.WRITE_EXTERNAL_STORAGE" = true
 "android.permission.READ_MEDIA_IMAGES" = true
 
+[tool.flet.android]
+adaptive_icon_background = "#0B1220"
+
 [flutter.pubspec.dependencies]
 local_auth = "^2.3.0"
 local_auth_android = "^1.0.46"
 local_auth_darwin = "^1.4.1"
-speech_to_text = "^6.6.2"
+speech_to_text = "^7.4.0"
 url_launcher = "^6.2.5"
 
 [tool.flet.splash]
-color = "#000000"
-dark_color = "#000000"
-icon_bgcolor = "#000000"
-icon_dark_bgcolor = "#000000"
+color = "#0B1220"
+dark_color = "#0B1220"
+icon_bgcolor = "#0B1220"
+icon_dark_bgcolor = "#0B1220"
 
 [tool.flet.ios.info]
 NSFaceIDUsageDescription = "Unlock FinWise with Face ID"

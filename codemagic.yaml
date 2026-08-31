@@ -53,8 +53,16 @@ workflows:
             --ios-team-id "$APPLE_TEAM_ID" \
             --ios-export-method release-testing \
             --ios-signing-certificate "Apple Distribution" \
-            --splash-color "#000000" \
-            --splash-dark-color "#000000" \
+            --splash-color "#0B1220" \
+            --splash-dark-color "#0B1220" \
+            --exclude build --exclude dist --exclude storage --exclude secrets \
+            --exclude .venv --exclude venv --exclude .git --exclude .github \
+            --exclude .cursor --exclude .claude --exclude .flet \
+            --exclude .pytest_cache --exclude .mypy_cache --exclude .ruff_cache \
+            --exclude .tox --exclude .hypothesis --exclude htmlcov \
+            --exclude __pycache__ --exclude tests --exclude docs --exclude scripts \
+            --exclude agent-transcripts --exclude agent-tools \
+            --exclude AGENTS.md --exclude pytest.ini --exclude codemagic.yaml \
             --yes \
             --no-rich-output \
             --verbose
@@ -87,8 +95,9 @@ workflows:
         script: |
           set -e
           # If this fails on binary wheels, fix deps before spending signed-build minutes.
-          flet build ipa --org com.finanse.app --product FinWise --splash-color "#000000" --splash-dark-color "#000000" --yes --no-rich-output --verbose || \
-          flet build ios-simulator --org com.finanse.app --product FinWise --splash-color "#000000" --splash-dark-color "#000000" --yes --no-rich-output --verbose
+          EXCLUDES="--exclude build --exclude dist --exclude storage --exclude secrets --exclude .venv --exclude venv --exclude .git --exclude .github --exclude .cursor --exclude .claude --exclude .flet --exclude .pytest_cache --exclude .mypy_cache --exclude .ruff_cache --exclude .tox --exclude .hypothesis --exclude htmlcov --exclude __pycache__ --exclude tests --exclude docs --exclude scripts --exclude agent-transcripts --exclude agent-tools --exclude AGENTS.md --exclude pytest.ini --exclude codemagic.yaml"
+          flet build ipa --org com.finanse.app --product FinWise --splash-color "#0B1220" --splash-dark-color "#0B1220" $EXCLUDES --yes --no-rich-output --verbose || \
+          flet build ios-simulator --org com.finanse.app --product FinWise --splash-color "#0B1220" --splash-dark-color "#0B1220" $EXCLUDES --yes --no-rich-output --verbose
     artifacts:
       - build/**/*.ipa
       - build/**/*.app

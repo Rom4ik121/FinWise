@@ -37,7 +37,12 @@ def share_service(page: ft.Page) -> ft.Share:
 
 def _mobile(page: ft.Page) -> bool:
     try:
-        return bool(page.web) or bool(page.platform.is_mobile())
+        from lib.infrastructure.services.biometric import is_mobile_platform
+
+        if is_mobile_platform(page):
+            return True
+        # Web preview of mobile still uses Share for sandbox paths.
+        return bool(page.web)
     except Exception:  # noqa: BLE001
         return False
 

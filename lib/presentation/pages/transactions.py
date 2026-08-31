@@ -10,19 +10,28 @@ from typing import TYPE_CHECKING, Optional
 
 import flet as ft
 
-from lib.core.config import SAVINGS_CATEGORIES
+from lib.core.config import DEFAULT_SAVINGS_CATEGORY, SAVINGS_CATEGORIES, normalize_savings_category
 from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.use_cases.transactions import FEE_CATEGORY, StatsPeriod, make_fee_expense
 from lib.infrastructure.services.localization import localize_category_name
 from lib.infrastructure.services.notification_service import NotificationKind
+from lib.presentation.count_up import mark_money_text, play_count_ups
+from lib.presentation.dropdown_options import (
+    account_dropdown_options,
+    icon_dropdown_option,
+)
+from lib.presentation.frequent_account import (
+    account_option_label,
+    prepare_tx_account_choices,
+)
 from lib.presentation.styles import page_header
 from lib.presentation.money_input import (
     make_amount_field,
     parse_amount,
     parse_optional_amount,
 )
-from lib.presentation.utils import format_date, format_money, run_async, safe_update, snack, tr, bind_dropdown_select
+from lib.presentation.utils import format_date, format_money, run_async, safe_update, snack, snack_exception, tr, bind_dropdown_select
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.date_time_field import DateTimeField
@@ -104,6 +113,10 @@ class TransactionsPage(ft.Column):
             filled=True,
             bgcolor=ft.Colors.SURFACE_CONTAINER,
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(self._search, "search")
+        wire_field_chain(page, [self._search])
         # Filter values (controls are created fresh inside the dialog).
         self._type_value = "all"
         self._category_value = "all"
@@ -129,7 +142,7 @@ class TransactionsPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", lang),
-                            on_click=lambda _e: run_async(page, self.reload),
+                            on_click=lambda _e: run_async(page, self.reload, True),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.ADD,
@@ -218,18 +231,25 @@ class TransactionsPage(ft.Column):
             label=tr("field.type", lang),
             value=self._type_value,
             options=[
-                ft.DropdownOption(key="all", text=tr("filter.all", lang)),
-                ft.DropdownOption(
-                    key=TransactionType.INCOME.value,
-                    text=tr("transaction.income", lang),
+                icon_dropdown_option(
+                    "all", tr("filter.all", lang), ft.Icons.FILTER_LIST
                 ),
-                ft.DropdownOption(
-                    key=TransactionType.EXPENSE.value,
-                    text=tr("transaction.expense", lang),
+                icon_dropdown_option(
+                    TransactionType.INCOME.value,
+                    tr("transaction.income", lang),
+                    ft.Icons.ARROW_DOWNWARD,
+                    icon_color=ft.Colors.PRIMARY,
                 ),
-                ft.DropdownOption(
-                    key="transfer",
-                    text=tr("transaction.transfer", lang),
+                icon_dropdown_option(
+                    TransactionType.EXPENSE.value,
+                    tr("transaction.expense", lang),
+                    ft.Icons.ARROW_UPWARD,
+                    icon_color=ft.Colors.ERROR,
+                ),
+                icon_dropdown_option(
+                    "transfer",
+                    tr("transaction.transfer", lang),
+                    ft.Icons.SWAP_HORIZ,
                 ),
             ],
             dense=True,
@@ -251,14 +271,20 @@ class TransactionsPage(ft.Column):
             label=tr("filter.group_by", lang),
             value=self._group_by_value,
             options=[
-                ft.DropdownOption(
-                    key=StatsPeriod.DAY.value, text=tr("filter.group.day", lang)
+                icon_dropdown_option(
+                    StatsPeriod.DAY.value,
+                    tr("filter.group.day", lang),
+                    ft.Icons.TODAY,
                 ),
-                ft.DropdownOption(
-                    key=StatsPeriod.WEEK.value, text=tr("filter.group.week", lang)
+                icon_dropdown_option(
+                    StatsPeriod.WEEK.value,
+                    tr("filter.group.week", lang),
+                    ft.Icons.DATE_RANGE,
                 ),
-                ft.DropdownOption(
-                    key=StatsPeriod.MONTH.value, text=tr("filter.group.month", lang)
+                icon_dropdown_option(
+                    StatsPeriod.MONTH.value,
+                    tr("filter.group.month", lang),
+                    ft.Icons.CALENDAR_MONTH,
                 ),
             ],
             dense=True,
@@ -473,7 +499,7 @@ class TransactionsPage(ft.Column):
                 **self._list_filters(),
             )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             return
         self._has_more = len(rows) > _PAGE_SIZE
         chunk = rows[:_PAGE_SIZE]
@@ -481,7 +507,7 @@ class TransactionsPage(ft.Column):
         self._offset += len(chunk)
         self._render_list(chunk, lang=lang, incremental=True)
 
-    async def reload(self) -> None:
+    async def reload(self, animate: bool = False) -> None:
         """Reload the first page of filtered transactions."""
         self._token = self._state.transactions_token
         lang = self._state.language
@@ -530,12 +556,14 @@ class TransactionsPage(ft.Column):
                 self._shown = rows[:_PAGE_SIZE]
                 self._offset = len(self._shown)
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
             safe_update(self._list)
             return
 
         self._render_list(self._shown, lang=lang)
+        if animate:
+            await play_count_ups(self._list, self._page)
 
     def _open_detail(self, tx: Transaction) -> None:
         """Show a read-only detail sheet; edit/delete from actions."""
@@ -720,7 +748,7 @@ class TransactionsPage(ft.Column):
                 include_completed=False
             )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=lang)
             return
 
         accounts = self._accounts
@@ -732,17 +760,34 @@ class TransactionsPage(ft.Column):
             await self._open_transfer_editor(tx)
             return
 
+        frequent_id: str | None = None
+        if tx is None:
+            accounts, default_account_id = await prepare_tx_account_choices(
+                self._state, accounts
+            )
+            frequent_id = default_account_id
+        else:
+            default_account_id = tx.account_id
+            _, frequent_id = await prepare_tx_account_choices(self._state, accounts)
+            # Keep edit order stable; only mark the frequent account in labels.
+            if default_account_id not in {a.id for a in accounts}:
+                default_account_id = accounts[0].id
+
         type_dd = ft.Dropdown(
             label=tr("field.type", lang),
             value=(tx.type.value if tx else TransactionType.EXPENSE.value),
             options=[
-                ft.DropdownOption(
-                    key=TransactionType.EXPENSE.value,
-                    text=tr("transaction.expense", lang),
+                icon_dropdown_option(
+                    TransactionType.EXPENSE.value,
+                    tr("transaction.expense", lang),
+                    ft.Icons.ARROW_UPWARD,
+                    icon_color=ft.Colors.ERROR,
                 ),
-                ft.DropdownOption(
-                    key=TransactionType.INCOME.value,
-                    text=tr("transaction.income", lang),
+                icon_dropdown_option(
+                    TransactionType.INCOME.value,
+                    tr("transaction.income", lang),
+                    ft.Icons.ARROW_DOWNWARD,
+                    icon_color=ft.Colors.PRIMARY,
                 ),
             ],
         )
@@ -785,11 +830,13 @@ class TransactionsPage(ft.Column):
 
         account_dd = ft.Dropdown(
             label=tr("field.account", lang),
-            value=tx.account_id if tx else accounts[0].id,
-            options=[
-                ft.DropdownOption(key=a.id, text=f"{a.name} ({a.currency})")
-                for a in accounts
-            ],
+            value=default_account_id,
+            options=account_dropdown_options(
+                accounts,
+                label_fn=lambda a: account_option_label(
+                    a, frequent_id=frequent_id, lang=lang
+                ),
+            ),
         )
         category_picker = CategoryPicker(
             self._page,
@@ -826,6 +873,11 @@ class TransactionsPage(ft.Column):
             label=tr("field.tags", lang),
             value=", ".join(tx.tags) if tx else "",
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(comment_tf, "text")
+        configure_field(tags_tf, "text")
+        wire_field_chain(self._page, [amount_tf, fee_tf, comment_tf, tags_tf])
         date_field = DateTimeField(
             self._page,
             lang=lang,
@@ -869,7 +921,9 @@ class TransactionsPage(ft.Column):
             if goal_id == "":
                 goal_id = None
             if goal_id and category not in SAVINGS_CATEGORIES:
-                category = tr("category.savings", lang)
+                category = DEFAULT_SAVINGS_CATEGORY
+            elif goal_id:
+                category = normalize_savings_category(category)
 
             line_items = items_editor.collect(default_category=category)
             try:
@@ -955,7 +1009,7 @@ class TransactionsPage(ft.Column):
                             )
                             raise
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 return
             close()
             self._state.bump_refresh("dashboard", "transactions", "accounts", "budgets")
@@ -999,6 +1053,11 @@ class TransactionsPage(ft.Column):
             label=tr("field.tags", lang),
             value=", ".join(tx.tags),
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(comment_tf, "text")
+        configure_field(tags_tf, "text")
+        wire_field_chain(self._page, [comment_tf, tags_tf])
         hint = ft.Text(
             tr("transfer.edit_hint", lang),
             size=12,
@@ -1015,7 +1074,7 @@ class TransactionsPage(ft.Column):
             try:
                 await self._state.container.update_transaction.execute(entity)
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 return
             close()
             self._state.bump_refresh("dashboard", "transactions", "accounts", "budgets")

@@ -9,7 +9,7 @@ import flet as ft
 
 from lib.domain.entities.debt import Debt, DebtDirection, DebtStatus
 from lib.presentation.skins import get_active_skin
-from lib.presentation.styles import amount_color, card_surface, muted_text
+from lib.presentation.styles import amount_color, card_surface, muted_text, style_popup_menu
 from lib.presentation.utils import format_date, format_money, format_money_compact
 
 
@@ -97,10 +97,12 @@ class DebtCard(ft.Container):
             )
 
         actions_row: list[ft.Control] = [
-            ft.PopupMenuButton(
-                icon=ft.Icons.MORE_VERT,
-                icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                items=menu_items,
+            style_popup_menu(
+                ft.PopupMenuButton(
+                    icon=ft.Icons.MORE_VERT,
+                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                    items=menu_items,
+                )
             )
         ]
         if alert:
@@ -168,14 +170,18 @@ class DebtCard(ft.Container):
             controls=[
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                    spacing=4,
                     controls=[
                         ft.Text(
                             debt.counterparty,
                             weight=ft.FontWeight.W_700,
                             size=16,
                             expand=True,
+                            max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
-                        ft.Row(tight=True, controls=actions_row),
+                        ft.Row(tight=True, spacing=0, controls=actions_row),
                     ],
                 ),
                 ft.Container(

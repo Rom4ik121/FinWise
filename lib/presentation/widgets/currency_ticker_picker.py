@@ -183,14 +183,16 @@ class CurrencyTickerPicker(ft.Container):
 
     def open(self) -> None:
         """Open searchable ticker picker as a fullscreen overlay."""
-        from lib.presentation.styles import page_header
+        from lib.presentation.skins import get_active_skin
+        from lib.presentation.styles import card_surface, form_header_bar, polish_form_control
+        from lib.presentation.theme import is_dark_mode
         from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen
 
         lang = self._lang
         overlay_key = self._overlay_key
         dismiss_fullscreen(self._page, key=overlay_key)
 
-        list_col = ft.ListView(spacing=2, expand=True, scroll=ft.ScrollMode.HIDDEN)
+        list_col = ft.ListView(spacing=6, expand=True, scroll=ft.ScrollMode.AUTO)
         search = ft.TextField(
             label=tr("currencies.search", lang),
             hint_text=tr("currencies.search_hint", lang),
@@ -202,9 +204,71 @@ class CurrencyTickerPicker(ft.Container):
             bgcolor=ft.Colors.SURFACE_CONTAINER,
             capitalization=ft.TextCapitalization.CHARACTERS,
         )
+        polish_form_control(search)
 
         def _close(_e: ft.ControlEvent | None = None) -> None:
             dismiss_fullscreen(self._page, key=overlay_key)
+
+        def _row_tile(row: dict[str, str]) -> ft.Control:
+            selected = row["code"] == self._value
+            return ft.Container(
+                border_radius=14,
+                bgcolor=(
+                    ft.Colors.PRIMARY_CONTAINER
+                    if selected
+                    else ft.Colors.SURFACE_CONTAINER
+                ),
+                border=ft.Border.all(
+                    1,
+                    ft.Colors.PRIMARY if selected else ft.Colors.OUTLINE_VARIANT,
+                ),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                ink=True,
+                on_click=lambda _e, code=row["code"]: _pick(code),
+                content=ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Container(
+                            width=40,
+                            height=40,
+                            border_radius=20,
+                            alignment=ft.Alignment.CENTER,
+                            bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.PRIMARY),
+                            content=ft.Text(
+                                row["code"][:4],
+                                size=11,
+                                weight=ft.FontWeight.W_700,
+                                color=ft.Colors.PRIMARY,
+                            ),
+                        ),
+                        ft.Column(
+                            spacing=2,
+                            tight=True,
+                            expand=True,
+                            controls=[
+                                ft.Text(
+                                    row["code"],
+                                    weight=ft.FontWeight.W_700,
+                                    size=15,
+                                ),
+                                ft.Text(
+                                    row["name"],
+                                    size=12,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                            ],
+                        ),
+                        ft.Icon(
+                            ft.Icons.CHECK_CIRCLE if selected else ft.Icons.CHEVRON_RIGHT,
+                            size=18,
+                            color=ft.Colors.PRIMARY if selected else ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                ),
+            )
 
         def _fill(query: str = "") -> None:
             rows = [r for r in self._rows if currency_row_matches(r, query)]
@@ -221,18 +285,7 @@ class CurrencyTickerPicker(ft.Container):
                     )
                 ]
             else:
-                list_col.controls = [
-                    ft.ListTile(
-                        leading=ft.CircleAvatar(
-                            content=ft.Text(row["code"][:4], size=10)
-                        ),
-                        title=ft.Text(row["code"], weight=ft.FontWeight.W_700),
-                        subtitle=ft.Text(row["name"], size=12),
-                        selected=row["code"] == self._value,
-                        on_click=lambda _e, code=row["code"]: _pick(code),
-                    )
-                    for row in rows
-                ]
+                list_col.controls = [_row_tile(row) for row in rows]
             try:
                 safe_update(list_col)
             except Exception:  # noqa: BLE001
@@ -262,6 +315,8 @@ class CurrencyTickerPicker(ft.Container):
         search.on_submit = _on_submit
         _fill("")
 
+        skin = get_active_skin()
+        dark = is_dark_mode(self._page)
         overlay = ft.Container(
             left=0,
             top=0,
@@ -271,29 +326,43 @@ class CurrencyTickerPicker(ft.Container):
             data=overlay_key,
             content=ft.SafeArea(
                 expand=True,
-                content=ft.Column(
+                content=ft.Container(
                     expand=True,
-                    spacing=0,
-                    controls=[
-                        page_header(
-                            self._label,
-                            leading=ft.IconButton(
-                                icon=ft.Icons.ARROW_BACK,
-                                icon_color=ft.Colors.ON_SURFACE,
-                                tooltip=tr("action.cancel", lang),
-                                on_click=_close,
+                    gradient=skin.page_gradient(dark=dark),
+                    content=ft.Column(
+                        expand=True,
+                        spacing=0,
+                        controls=[
+                            form_header_bar(
+                                self._label,
+                                leading=ft.IconButton(
+                                    icon=ft.Icons.ARROW_BACK,
+                                    icon_color=ft.Colors.ON_SURFACE,
+                                    tooltip=tr("action.cancel", lang),
+                                    on_click=_close,
+                                ),
                             ),
-                        ),
-                        ft.Container(
-                            expand=True,
-                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                            content=ft.Column(
+                            ft.Container(
                                 expand=True,
-                                spacing=10,
-                                controls=[search, list_col],
+                                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                                content=ft.Column(
+                                    expand=True,
+                                    spacing=12,
+                                    controls=[
+                                        card_surface(
+                                            ft.Column(
+                                                spacing=10,
+                                                tight=True,
+                                                controls=[search],
+                                            ),
+                                            padding=14,
+                                        ),
+                                        ft.Container(expand=True, content=list_col),
+                                    ],
+                                ),
                             ),
-                        ),
-                    ],
+                        ],
+                    ),
                 ),
             ),
         )

@@ -801,10 +801,13 @@ class TransferAccountsUseCase:
         comment: str = "",
         date: Optional[datetime] = None,
         fee: Decimal = Decimal("0"),
+        fee_account_id: Optional[str] = None,
     ) -> tuple[Transaction, Transaction]:
         """Create both transfer legs and return ``(outgoing, incoming)``.
 
-        ``fee`` is an extra expense on the source account (not credited to dest).
+        ``fee`` is a separate expense. By default it is charged on the source
+        account; pass ``fee_account_id`` to debit another account (e.g. dest).
+        The fee amount is in the **fee account** currency.
         """
         from uuid import uuid4
 
@@ -825,7 +828,24 @@ class TransferAccountsUseCase:
             raise ValueError(f"Account not found: {from_account_id}")
         if dest is None:
             raise ValueError(f"Account not found: {to_account_id}")
-        if source.balance < amount + fee:
+
+        fee_account = source
+        if fee > 0 and fee_account_id:
+            resolved = await self._accounts.get_by_id(fee_account_id)
+            if resolved is None:
+                raise ValueError(f"Account not found: {fee_account_id}")
+            fee_account = resolved
+
+        if source.balance < amount:
+            raise ValueError("Insufficient funds")
+        if fee > 0 and fee_account.id == source.id and source.balance < amount + fee:
+            raise ValueError("Insufficient funds")
+        if (
+            fee > 0
+            and fee_account.id != source.id
+            and fee_account.id != dest.id
+            and fee_account.balance < fee
+        ):
             raise ValueError("Insufficient funds")
 
         dest_amount = amount
@@ -840,6 +860,9 @@ class TransferAccountsUseCase:
             dest_amount = converted
             if dest_amount <= 0:
                 raise ValueError("No exchange rate for this currency pair")
+
+        if fee > 0 and fee_account.id == dest.id and dest.balance + dest_amount < fee:
+            raise ValueError("Insufficient funds")
 
         if self._find_or_create_category is not None:
             await self._find_or_create_category.execute(
@@ -886,23 +909,29 @@ class TransferAccountsUseCase:
             transfer_peer_account_id=source.id,
         )
 
+        async def _add_fee() -> None:
+            if fee <= 0:
+                return
+            fee_comment = f"{FEE_CATEGORY} · → {dest.name}"
+            if fee_account.id != source.id:
+                fee_comment = f"{fee_comment} · {fee_account.name}"
+            if extra:
+                fee_comment = f"{fee_comment} · {extra}"
+            await self._add.execute(
+                make_fee_expense(
+                    account_id=fee_account.id,
+                    currency=fee_account.currency,
+                    amount=fee,
+                    date=when,
+                    comment=fee_comment,
+                    extra_tags=[transfer_fee_tag(transfer_id)],
+                )
+            )
+
         async def _persist() -> tuple[Transaction, Transaction]:
             created_out = await self._add.execute(outgoing)
             created_in = await self._add.execute(incoming)
-            if fee > 0:
-                fee_comment = f"{FEE_CATEGORY} · → {dest.name}"
-                if extra:
-                    fee_comment = f"{fee_comment} · {extra}"
-                await self._add.execute(
-                    make_fee_expense(
-                        account_id=source.id,
-                        currency=source.currency,
-                        amount=fee,
-                        date=when,
-                        comment=fee_comment,
-                        extra_tags=[transfer_fee_tag(transfer_id)],
-                    )
-                )
+            await _add_fee()
             return created_out, created_in
 
         if self._session_factory is not None:
@@ -914,20 +943,7 @@ class TransferAccountsUseCase:
         created_out = await self._add.execute(outgoing)
         try:
             created_in = await self._add.execute(incoming)
-            if fee > 0:
-                fee_comment = f"{FEE_CATEGORY} · → {dest.name}"
-                if extra:
-                    fee_comment = f"{fee_comment} · {extra}"
-                await self._add.execute(
-                    make_fee_expense(
-                        account_id=source.id,
-                        currency=source.currency,
-                        amount=fee,
-                        date=when,
-                        comment=fee_comment,
-                        extra_tags=[transfer_fee_tag(transfer_id)],
-                    )
-                )
+            await _add_fee()
         except Exception:
             await self._delete.execute(created_out.id)
             raise

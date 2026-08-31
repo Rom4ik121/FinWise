@@ -10,7 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  speech_to_text: ^6.6.2
+  speech_to_text: ^7.4.0
   url_launcher: ^6.2.5
   flet:
     path: ../../../../../../../packages/flet

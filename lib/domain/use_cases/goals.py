@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from lib.core.config import SAVINGS_CATEGORIES
+from lib.core.config import DEFAULT_SAVINGS_CATEGORY, normalize_savings_category
 from lib.domain.entities.goal import Goal, GoalStatus
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.transaction import Transaction, TransactionType
@@ -31,10 +31,7 @@ def _utc_now() -> datetime:
 
 
 def _savings_category(goal: Goal) -> str:
-    link = (goal.category_link or "").strip()
-    if link in SAVINGS_CATEGORIES:
-        return link
-    return "Накопление"
+    return normalize_savings_category(goal.category_link)
 
 
 def _months_between(start: datetime, end: datetime) -> float:

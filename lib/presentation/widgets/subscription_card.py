@@ -8,7 +8,7 @@ import flet as ft
 
 from lib.domain.entities.subscription import Periodicity, Subscription, SubscriptionStatus
 from lib.presentation.skins import get_active_skin
-from lib.presentation.styles import alert_corner, card_surface, muted_text
+from lib.presentation.styles import alert_corner, card_surface, muted_text, style_popup_menu
 from lib.presentation.utils import format_date, format_money_compact
 
 
@@ -95,25 +95,27 @@ class SubscriptionCard(ft.Container):
                             overflow=ft.TextOverflow.ELLIPSIS,
                             text_align=ft.TextAlign.RIGHT,
                         ),
-                        ft.PopupMenuButton(
-                            icon=ft.Icons.MORE_VERT,
-                            icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                            items=[
-                                ft.PopupMenuItem(
-                                    content=ft.Text(tr("action.edit", language)),
-                                    icon=ft.Icons.EDIT_OUTLINED,
-                                    on_click=lambda _e: on_edit(subscription)
-                                    if on_edit
-                                    else None,
-                                ),
-                                ft.PopupMenuItem(
-                                    content=ft.Text(tr("action.delete", language)),
-                                    icon=ft.Icons.DELETE_OUTLINE,
-                                    on_click=lambda _e: on_delete(subscription)
-                                    if on_delete
-                                    else None,
-                                ),
-                            ],
+                        style_popup_menu(
+                            ft.PopupMenuButton(
+                                icon=ft.Icons.MORE_VERT,
+                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                                items=[
+                                    ft.PopupMenuItem(
+                                        content=ft.Text(tr("action.edit", language)),
+                                        icon=ft.Icons.EDIT_OUTLINED,
+                                        on_click=lambda _e: on_edit(subscription)
+                                        if on_edit
+                                        else None,
+                                    ),
+                                    ft.PopupMenuItem(
+                                        content=ft.Text(tr("action.delete", language)),
+                                        icon=ft.Icons.DELETE_OUTLINE,
+                                        on_click=lambda _e: on_delete(subscription)
+                                        if on_delete
+                                        else None,
+                                    ),
+                                ],
+                            )
                         ),
                     ],
                 ),

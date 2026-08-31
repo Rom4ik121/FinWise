@@ -15,32 +15,39 @@ from lib.domain.exchanges import EXCHANGES, exchange_title, get_exchange
 from lib.presentation.account_icons import (
     account_icon_control,
     account_icon_groups,
-    crypto_icon_src,
+    catalog_icon_control,
     exchange_icon_key,
     exchange_icon_keys,
     exchange_icon_src,
-    exchange_logo_fills_badge,
+    icon_is_logo,
     is_valid_account_icon,
-    parse_currency_icon_key,
-    parse_exchange_icon_key,
     resolve_account_icon_key,
 )
+from lib.presentation.count_up import play_count_ups
 from lib.presentation.money_input import make_amount_field, parse_amount
-from lib.presentation.styles import ICON_CATALOG_GLYPH, labeled_switch, page_header
+from lib.presentation.styles import (
+    ICON_CATALOG_GLYPH,
+    form_save_button,
+    form_section,
+    labeled_switch,
+    page_header,
+)
 from lib.presentation.utils import (
     bind_dropdown_select,
     load_rate_book,
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
+    user_facing_error,
 )
 from lib.presentation.widgets.account_card import AccountCard
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.empty_state import EmptyState
-from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen
+from lib.presentation.widgets.fullscreen_form import build_form_shell, dismiss_fullscreen
 from lib.presentation.layout import make_v_scroll
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.transfer_sheet import open_transfer
@@ -85,7 +92,7 @@ class AccountsPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload),
+                            on_click=lambda _e: run_async(page, self.reload, True),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.SWAP_HORIZ_ROUNDED,
@@ -115,7 +122,7 @@ class AccountsPage(ft.Column):
         if state.accounts_token != self._token:
             run_async(self._page, self.reload)
 
-    async def reload(self) -> None:
+    async def reload(self, animate: bool = False) -> None:
         """Reload accounts and convert balances to base currency."""
         self._token = self._state.accounts_token
         lang = self._state.language
@@ -131,7 +138,7 @@ class AccountsPage(ft.Column):
             else:
                 self._links = {}
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
             safe_update(self._list)
             return
@@ -179,6 +186,8 @@ class AccountsPage(ft.Column):
             )
         self._list.controls = cards
         safe_update(self._list)
+        if animate:
+            await play_count_ups(self._list, self._page)
         if not fx_ok:
             snack(self._page, tr("fx.missing_rates", lang), error=True)
 
@@ -194,7 +203,7 @@ class AccountsPage(ft.Column):
                     account.model_copy(update={"include_in_total": include})
                 )
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 await self.reload()
                 return
             self._state.bump_refresh("dashboard", "accounts")
@@ -212,11 +221,12 @@ class AccountsPage(ft.Column):
             try:
                 result = await sync.execute(account.id)
             except Exception as exc:  # noqa: BLE001
-                snack(
-                    self._page,
-                    tr("error.sync_failed", lang, detail=str(exc)[:240]),
-                    error=True,
+                import logging
+
+                logging.getLogger("finanse.presentation.pages.accounts").warning(
+                    "Account sync failed: %s", exc, exc_info=True
                 )
+                snack(self._page, tr("error.sync_failed", lang), error=True)
                 return
             self._state.bump_refresh("dashboard", "accounts", "transactions", "budgets")
             snack(
@@ -262,7 +272,12 @@ class AccountsPage(ft.Column):
             label=tr("field.name", lang),
             value=account.name if account else "",
             visible=not is_exchange["value"],
+            border_radius=14,
+            filled=True,
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(name_tf, "name")
         currency_picker = CurrencyTickerPicker(
             self._page,
             lang=lang,
@@ -285,12 +300,16 @@ class AccountsPage(ft.Column):
             value="",
             password=True,
             can_reveal_password=True,
+            border_radius=14,
+            filled=True,
         )
         secret_tf = ft.TextField(
             label=tr("field.api_secret", lang),
             value="",
             password=True,
             can_reveal_password=True,
+            border_radius=14,
+            filled=True,
         )
         passphrase_tf = ft.TextField(
             label=tr("field.api_passphrase", lang),
@@ -298,6 +317,15 @@ class AccountsPage(ft.Column):
             password=True,
             can_reveal_password=True,
             visible=False,
+            border_radius=14,
+            filled=True,
+        )
+        configure_field(api_key_tf, "password")
+        configure_field(secret_tf, "password")
+        configure_field(passphrase_tf, "password")
+        wire_field_chain(
+            self._page,
+            [name_tf, balance_tf, api_key_tf, secret_tf, passphrase_tf],
         )
         exchange_hint = ft.Text(
             tr("account.exchange.hint", lang),
@@ -315,6 +343,8 @@ class AccountsPage(ft.Column):
             disabled=linked,
             options=[_exchange_dropdown_option(spec) for spec in EXCHANGES],
             expand=True,
+            border_radius=14,
+            filled=True,
         )
 
         include_sw = ft.Switch(
@@ -369,18 +399,24 @@ class AccountsPage(ft.Column):
 
         def _refresh_previews() -> None:
             key = selected_icon["value"]
-            exchange_id = parse_exchange_icon_key(key)
-            fills = bool(
-                exchange_id
-                and exchange_icon_src(exchange_id)
-                and exchange_logo_fills_badge(exchange_id)
-            )
-            icon_preview.content = account_icon_control(
-                key,
-                size=48 if fills else 24,
-                color=ICON_CATALOG_GLYPH,
-            )
-            icon_preview.bgcolor = None if fills else selected_color["value"]
+            logo = icon_is_logo(key)
+            if logo:
+                icon_preview.content = catalog_icon_control(
+                    key,
+                    tile_size=48,
+                    glyph_size=24,
+                    glyph_color=ICON_CATALOG_GLYPH,
+                )
+                icon_preview.bgcolor = None
+                icon_preview.border_radius = 999
+            else:
+                icon_preview.content = account_icon_control(
+                    key,
+                    size=24,
+                    color=ICON_CATALOG_GLYPH,
+                )
+                icon_preview.bgcolor = selected_color["value"]
+                icon_preview.border_radius = 24
             color_preview.bgcolor = selected_color["value"]
             try:
                 safe_update(icon_preview)
@@ -397,22 +433,18 @@ class AccountsPage(ft.Column):
             _refresh_previews()
 
         def _picker_icon(key: str) -> ft.Control:
-            code = parse_currency_icon_key(key)
-            logo = bool(
-                parse_exchange_icon_key(key)
-                or (code and crypto_icon_src(code))
-            )
-            return account_icon_control(
+            return catalog_icon_control(
                 key,
-                size=36 if logo else 22,
-                color=ICON_CATALOG_GLYPH,
+                tile_size=48,
+                glyph_size=22,
+                glyph_color=ICON_CATALOG_GLYPH,
             )
 
         def _open_icons(_e: ft.ControlEvent | None = None) -> None:
             groups = (
                 (("icon_group.exchanges", exchange_icon_keys()),)
                 if is_exchange["value"]
-                else account_icon_groups()
+                else account_icon_groups(include_exchanges=False)
             )
             open_icon_picker(
                 self._page,
@@ -473,6 +505,11 @@ class AccountsPage(ft.Column):
                 safe_update(type_row)
             except Exception:  # noqa: BLE001
                 pass
+            sync = section_vis.get("fn")
+            if sync is not None:
+                sync()
+
+        section_vis: dict = {"fn": None}
 
         def _type_chip(key: str, label: str) -> ft.Container:
             selected = is_exchange["value"] == (key == "exchange")
@@ -634,9 +671,9 @@ class AccountsPage(ft.Column):
                 _refresh_previews()
 
         save_label = ft.Text(tr("action.save", lang))
-        save_btn = ft.FilledButton(
+        save_btn = form_save_button(
+            tr("action.save", lang),
             content=save_label,
-            icon=ft.Icons.CHECK,
             on_click=lambda e: _on_save_click(e),
         )
         close_btn = ft.IconButton(
@@ -753,7 +790,11 @@ class AccountsPage(ft.Column):
                 else:
                     await self._state.container.create_account.execute(entity)
             except Exception as exc:  # noqa: BLE001
-                _fail(str(exc))
+                detail = str(exc).strip()
+                if detail.startswith("error.") or detail == "error.exchange_unavailable":
+                    _fail(tr(detail, lang))
+                else:
+                    _fail(user_facing_error(exc, lang))
                 return
             _close_editor(force=True)
             self._state.bump_refresh("dashboard", "accounts", "transactions", "budgets")
@@ -762,6 +803,47 @@ class AccountsPage(ft.Column):
         title = tr("action.edit", lang) if account else tr("action.add", lang)
         page_w = getattr(self._page, "width", None) or None
         page_h = getattr(self._page, "height", None) or None
+        type_section = form_section(
+            tr("form.section.type", lang),
+            [type_row],
+            icon=ft.Icons.ACCOUNT_BALANCE_WALLET,
+        )
+        main_section = form_section(
+            tr("form.section.main", lang),
+            [name_tf, currency_picker, balance_tf],
+            icon=ft.Icons.EDIT_NOTE,
+        )
+        exchange_section = form_section(
+            tr("form.section.exchange", lang),
+            [exchange_block],
+            icon=ft.Icons.TOKEN,
+        )
+        appearance_section = form_section(
+            tr("form.section.appearance", lang),
+            [icon_toggle, color_toggle],
+            icon=ft.Icons.PALETTE,
+        )
+        options_section = form_section(
+            tr("form.section.options", lang),
+            [include_block],
+            icon=ft.Icons.TUNE,
+        )
+
+        def _sync_section_visibility() -> None:
+            exchange = is_exchange["value"]
+            main_section.visible = not exchange
+            exchange_section.visible = exchange
+            appearance_section.visible = not exchange
+            try:
+                safe_update(main_section)
+                safe_update(exchange_section)
+                safe_update(appearance_section)
+            except Exception:  # noqa: BLE001
+                pass
+
+        _sync_section_visibility()
+        section_vis["fn"] = _sync_section_visibility
+
         overlay = ft.Container(
             left=0,
             top=0,
@@ -772,39 +854,20 @@ class AccountsPage(ft.Column):
             expand=True,
             bgcolor=ft.Colors.SURFACE,
             alignment=ft.Alignment.TOP_CENTER,
-            content=ft.SafeArea(
-                expand=True,
-                content=ft.Column(
-                    expand=True,
-                    spacing=0,
-                    controls=[
-                        page_header(
-                            title,
-                            leading=close_btn,
-                            actions=[save_btn],
-                        ),
-                        ft.Container(
-                            expand=True,
-                            padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                            content=ft.Column(
-                                expand=True,
-                                spacing=12,
-                                scroll=ft.ScrollMode.AUTO,
-                                controls=[
-                                    type_row,
-                                    name_tf,
-                                    currency_picker,
-                                    balance_tf,
-                                    exchange_block,
-                                    icon_toggle,
-                                    color_toggle,
-                                    include_block,
-                                    ft.Container(height=24),
-                                ],
-                            ),
-                        ),
-                    ],
-                ),
+            content=build_form_shell(
+                self._page,
+                title=title,
+                lang=lang,
+                leading=close_btn,
+                actions=[save_btn],
+                wrap_body=False,
+                body=[
+                    type_section,
+                    main_section,
+                    exchange_section,
+                    appearance_section,
+                    options_section,
+                ],
             ),
         )
 

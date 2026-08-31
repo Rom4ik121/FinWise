@@ -32,6 +32,7 @@ from lib.presentation.styles import (
     page_header,
     section_title,
 )
+from lib.presentation.count_up import mark_money_text, play_count_ups
 from lib.presentation.skins import get_active_skin
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
@@ -41,6 +42,7 @@ from lib.presentation.utils import (
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
 )
 from lib.presentation.widgets.charts import (
@@ -129,7 +131,7 @@ class AnalyticsPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload),
+                            on_click=lambda _e: run_async(page, self.reload, True),
                         ),
                     ],
                 ),
@@ -226,6 +228,13 @@ class AnalyticsPage(ft.Column):
             text_align=align,
             no_wrap=True,
             max_lines=1,
+        )
+        mark_money_text(
+            figure_text,
+            amount,
+            currency=currency,
+            signed=signed,
+            figure_only=True,
         )
         code_text = ft.Text(
             code,
@@ -679,7 +688,7 @@ class AnalyticsPage(ft.Column):
             padding=10,
         )
 
-    async def reload(self) -> None:
+    async def reload(self, animate: bool = False) -> None:
         """Reload analytics KPIs and section pages."""
         self._token = self._data_token(self._state)
         lang = self._state.language
@@ -700,7 +709,7 @@ class AnalyticsPage(ft.Column):
                 date_to=period_cfg.date_to,
             )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._kpi_host.controls = [
                 EmptyState(tr("error.generic", lang), icon=ft.Icons.ERROR_OUTLINE)
             ]
@@ -948,6 +957,8 @@ class AnalyticsPage(ft.Column):
         self._pager.selected_index = _SECTIONS.index(self._section)
         self._rebuild_section_chips()
         safe_update(self._pager)
+        if animate:
+            await play_count_ups(self, self._page)
 
     def _dark(self) -> bool:
         return is_dark_mode(self._page, self._state.theme_mode)

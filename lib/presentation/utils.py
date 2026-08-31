@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
@@ -16,6 +18,55 @@ from lib.infrastructure.services.localization import t
 
 if TYPE_CHECKING:
     from lib.domain.services.rate_book import RateBook
+
+logger = logging.getLogger("finanse.presentation.utils")
+
+# Domain English / codes → i18n keys (never show raw programmer text).
+_DOMAIN_ERROR_KEYS: dict[str, str] = {
+    "insufficient_funds": "error.insufficient_funds",
+    "Insufficient funds": "error.insufficient_funds",
+    "Cannot transfer to the same account": "transfer.same_account",
+    "No exchange rate for this currency pair": "transfer.no_rate",
+    "Transfer amount must be positive": "invalid_amount",
+    "Fee cannot be negative": "invalid_amount",
+    "Transaction amount must be positive": "invalid_amount",
+    "Line amount must be positive": "invalid_amount",
+    "Transaction items must sum to a positive amount": "invalid_amount",
+    "Category is required": "budgets.category_required",
+    "Budget amount_limit must be positive": "budgets.limit_required",
+    "Invalid encrypted export": "settings.restore_bad_file",
+    "Transfer legs cannot be edited independently": "transfer.edit_hint",
+    "error.exchange_unavailable": "error.exchange_unavailable",
+    "error.generic": "error.generic",
+    "error.insufficient_funds": "error.insufficient_funds",
+    "error.network": "error.network",
+    "error.no_accounts": "error.no_accounts",
+}
+
+_DOMAIN_ERROR_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("No exchange rate", "fx.missing_rates"),
+    ("Account not found", "error.generic"),
+    ("Transaction not found", "error.generic"),
+    ("Goal not found", "error.generic"),
+    ("Debt not found", "error.generic"),
+    ("Subscription not found", "error.generic"),
+    ("Category not found", "error.generic"),
+    ("Budget not found", "error.generic"),
+    ("Subscription cannot be charged", "error.generic"),
+    ("Subscription charging is not configured", "error.generic"),
+    ("budget_id or category_id", "error.generic"),
+    ("Budget category must be", "budgets.category_required"),
+    ("Exchange rate must be positive", "invalid_amount"),
+    ("reminder_", "error.generic"),
+)
+
+_TECHNICAL_RE = re.compile(
+    r"(traceback|file \"|site-packages|sqlalchemy|operationalerror|"
+    r"integrityerror|attributeerror|typeerror|modulenotfound|"
+    r"permissionerror|errno\s*\d|\\\w:\\|/users/|c:\\\\|"
+    r"\.py:\d+|at 0x[0-9a-f]+)",
+    re.IGNORECASE,
+)
 
 
 def tr(key: str, lang: str = "ru", *, default: str | None = None, **kwargs: Any) -> str:
@@ -45,6 +96,12 @@ def dropdown_select_kwargs(handler: Callable[..., Any]) -> dict[str, Any]:
 
 def bind_dropdown_select(dropdown: Any, handler: Callable[..., Any]) -> None:
     """Attach a selection handler using the event name this Flet build supports."""
+    try:
+        from lib.presentation.styles import polish_form_control
+
+        polish_form_control(dropdown)
+    except Exception:  # noqa: BLE001
+        pass
     if hasattr(dropdown, "on_select"):
         dropdown.on_select = handler
         return
@@ -184,13 +241,121 @@ def safe_update(control: ft.Control) -> None:
         pass
 
 
+def _looks_technical(text: str) -> bool:
+    """True for stack traces, SQL, paths, and other developer-only copy."""
+    raw = (text or "").strip()
+    if not raw:
+        return True
+    if len(raw) > 160:
+        return True
+    if _TECHNICAL_RE.search(raw):
+        return True
+    lower = raw.lower()
+    if lower.startswith("error.") or lower.startswith("exception"):
+        # bare "error.foo" keys are handled elsewhere; "Exception: ..." is tech
+        if " " in raw or ":" in raw[6:]:
+            return "exception" in lower or "error:" in lower
+    return False
+
+
+def _has_cyrillic(text: str) -> bool:
+    return any("\u0400" <= ch <= "\u04ff" for ch in text)
+
+
+def user_facing_error(
+    exc: BaseException | str | None,
+    lang: str = "ru",
+) -> str:
+    """Translate domain failures; hide programmer diagnostics from the UI."""
+    raw = str(exc).strip() if exc is not None else ""
+    if not raw:
+        return tr("error.generic", lang)
+
+    mapped = _DOMAIN_ERROR_KEYS.get(raw)
+    if mapped:
+        return tr(mapped, lang)
+
+    if raw.startswith(
+        (
+            "error.",
+            "transfer.",
+            "settings.",
+            "fx.",
+            "goal.",
+            "budgets.",
+            "invalid_",
+            "debt.",
+            "action.",
+        )
+    ):
+        return tr(raw, lang)
+
+    for prefix, key in _DOMAIN_ERROR_PREFIXES:
+        if raw.startswith(prefix) or raw.lower().startswith(prefix.lower()):
+            return tr(key, lang)
+
+    lower = raw.lower()
+    if "archived" in lower:
+        return tr("goal.archived_block", lang)
+    if "completed" in lower and ("goal" in lower or "cannot" in lower):
+        return tr("goal.completed_block", lang)
+    if "insufficient" in lower:
+        return tr("error.insufficient_funds", lang)
+    if (
+        "not permitted" in lower
+        or "errno 1" in lower
+        or "clouddocs" in lower
+        or "mobile documents" in lower
+    ):
+        return tr("settings.file_denied", lang)
+
+    if _looks_technical(raw):
+        return tr("error.generic", lang)
+
+    # Unmapped English domain text → generic (never dump to end users).
+    if not _has_cyrillic(raw) and re.search(r"[A-Za-z]", raw):
+        return tr("error.generic", lang)
+
+    if len(raw) > 120:
+        return tr("error.generic", lang)
+    return raw
+
+
+def _sanitize_error_text(message: str, *, lang: str = "ru") -> str:
+    """Drop technical leftovers that slipped into SnackBar text."""
+    text = (message or "").strip()
+    if not text:
+        return tr("error.generic", lang)
+    if _looks_technical(text):
+        return tr("error.generic", lang)
+    return text
+
+
+def snack_exception(
+    page: ft.Page,
+    exc: BaseException | str | None,
+    *,
+    lang: str = "ru",
+    log: bool = True,
+) -> None:
+    """Log the real exception and show a safe user-facing SnackBar."""
+    if log and isinstance(exc, BaseException):
+        logger.warning("UI error suppressed for user: %s", exc, exc_info=True)
+    elif log and exc is not None:
+        logger.warning("UI error suppressed for user: %s", exc)
+    snack(page, user_facing_error(exc, lang), error=True)
+
+
 def snack(
     page: ft.Page,
     message: str,
     *,
     error: bool = False,
 ) -> None:
-    """Show a short SnackBar message."""
+    """Success → small top toast; errors → SnackBar. Never blank the screen."""
+    if error:
+        # Last-line defense: never show stack traces / SQL / paths in the UI.
+        message = _sanitize_error_text(message)
     if not error:
         try:
             from lib.presentation.haptics import haptic
@@ -198,17 +363,34 @@ def snack(
             haptic("light")
         except Exception:  # noqa: BLE001
             pass
-    page.show_dialog(
-        ft.SnackBar(
-            content=ft.Text(
-                message,
-                color=ft.Colors.ON_ERROR if error else ft.Colors.ON_PRIMARY,
-            ),
-            bgcolor=ft.Colors.ERROR if error else ft.Colors.PRIMARY,
-            behavior=ft.SnackBarBehavior.FLOATING,
-            shape=ft.RoundedRectangleBorder(radius=14),
-        )
+        try:
+            from lib.presentation.ui_feedback import flash_saved
+
+            if flash_saved(page, message):
+                return
+        except Exception:  # noqa: BLE001
+            pass
+    # Fallback / errors: floating SnackBar (no modal barrier wash).
+    bar = ft.SnackBar(
+        content=ft.Text(
+            message,
+            color=ft.Colors.ON_ERROR if error else ft.Colors.ON_PRIMARY,
+        ),
+        bgcolor=ft.Colors.ERROR if error else ft.Colors.PRIMARY,
+        behavior=ft.SnackBarBehavior.FLOATING,
+        show_close_icon=False,
+        shape=ft.RoundedRectangleBorder(radius=14),
+        duration=2000,
     )
+    try:
+        # Prefer non-dialog API when present.
+        page.snack_bar = bar  # type: ignore[attr-defined]
+        page.snack_bar.open = True  # type: ignore[attr-defined]
+        page.update()
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    page.show_dialog(bar)
 
 
 def account_icon(name: str | None) -> ft.IconData:

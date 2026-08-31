@@ -18,10 +18,11 @@ from lib.infrastructure.services.export_service import ExportService
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 from lib.infrastructure.services.localization import normalize_lang
 from lib.infrastructure.services.push_notifier import request_push_permissions
+from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.styles import card_surface, labeled_field, labeled_switch, page_header, section_title
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
-from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, tr
+from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, snack_exception, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 
@@ -154,9 +155,21 @@ class SettingsPage(ft.Column):
             label=tr("settings.theme", lang),
             value=s.theme,
             options=[
-                ft.DropdownOption(key="light", text=tr("settings.theme.light", lang)),
-                ft.DropdownOption(key="dark", text=tr("settings.theme.dark", lang)),
-                ft.DropdownOption(key="system", text=tr("settings.theme.system", lang)),
+                icon_dropdown_option(
+                    "light",
+                    tr("settings.theme.light", lang),
+                    ft.Icons.LIGHT_MODE,
+                ),
+                icon_dropdown_option(
+                    "dark",
+                    tr("settings.theme.dark", lang),
+                    ft.Icons.DARK_MODE,
+                ),
+                icon_dropdown_option(
+                    "system",
+                    tr("settings.theme.system", lang),
+                    ft.Icons.BRIGHTNESS_AUTO,
+                ),
             ],
             expand=True,
             dense=True,
@@ -174,9 +187,9 @@ class SettingsPage(ft.Column):
             label=tr("settings.language", lang),
             value=normalize_lang(s.language),
             options=[
-                ft.DropdownOption(key="ru", text=tr("lang.ru", lang)),
-                ft.DropdownOption(key="en", text=tr("lang.en", lang)),
-                ft.DropdownOption(key="uz", text=tr("lang.uz", lang)),
+                icon_dropdown_option("ru", tr("lang.ru", lang), ft.Icons.LANGUAGE),
+                icon_dropdown_option("en", tr("lang.en", lang), ft.Icons.LANGUAGE),
+                icon_dropdown_option("uz", tr("lang.uz", lang), ft.Icons.LANGUAGE),
             ],
             expand=True,
             dense=True,
@@ -218,6 +231,14 @@ class SettingsPage(ft.Column):
             on_blur=lambda _e: self._autosave(),
             on_submit=lambda _e: self._autosave(),
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(self._interval, "number")
+        configure_field(self._reminder_time, "text")
+        configure_field(self._reminder_days, "number")
+        wire_field_chain(
+            page, [self._interval, self._reminder_time, self._reminder_days]
+        )
         self._notifications = ft.Switch(
             value=s.notifications_enabled,
             on_change=lambda e: self._on_notifications_toggle(e),
@@ -251,6 +272,13 @@ class SettingsPage(ft.Column):
             size=11,
             color=ft.Colors.ON_SURFACE_VARIANT,
         )
+        from lib.infrastructure.services.biometric import feature_biometrics_available
+
+        if not feature_biometrics_available():
+            self._biometric.disabled = True
+            self._biometric.value = False
+            self._biometric_hint.value = tr("settings.biometric_unsupported", lang)
+
         self._pin_tf = ft.TextField(
             password=True,
             can_reveal_password=True,
@@ -262,15 +290,18 @@ class SettingsPage(ft.Column):
             filled=True,
             bgcolor=ft.Colors.SURFACE,
         )
+        configure_field(self._pin_tf, "number")
+        wire_field_chain(page, [self._pin_tf])
 
         btn_style = ft.ButtonStyle(
             shape=ft.RoundedRectangleBorder(radius=12),
             padding=ft.Padding.symmetric(horizontal=14, vertical=12),
         )
-        self._voice_section = section(
-            tr("voice.shortcut_title", lang),
-            ft.Icons.MIC_NONE,
-            [
+        from lib.infrastructure.services.biometric import feature_voice_available
+
+        voice_controls: list[ft.Control] = []
+        if feature_voice_available():
+            voice_controls = [
                 ft.Text(
                     tr("voice.shortcut_how", lang),
                     size=12,
@@ -300,8 +331,14 @@ class SettingsPage(ft.Column):
                     style=btn_style,
                     on_click=lambda _e: self._listen_voice_now(),
                 ),
-            ],
-        )
+            ]
+            self._voice_section = section(
+                tr("voice.shortcut_title", lang),
+                ft.Icons.MIC_NONE,
+                voice_controls,
+            )
+        else:
+            self._voice_section = ft.Container(height=0, visible=False)
 
         scroll_body = ft.ListView(
             expand=True,
@@ -526,6 +563,11 @@ class SettingsPage(ft.Column):
                                     ),
                                 ),
                             ],
+                        ),
+                        ft.Text(
+                            tr("settings.daily_backup_hint", lang),
+                            size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ],
                 ),
@@ -858,7 +900,7 @@ class SettingsPage(ft.Column):
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             return
         try:
             saved = await self._state.container.update_settings.execute(settings)
@@ -886,7 +928,7 @@ class SettingsPage(ft.Column):
                         biometric_enabled=saved.biometric_enabled,
                     )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             return
 
         # Keep the sole cash account in sync with the display currency.
@@ -895,7 +937,7 @@ class SettingsPage(ft.Column):
                 await self._migrate_account_currencies(previous_currency, new_currency)
             await align_sole_account_currency(self._state.container)
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
         if new_currency != previous_currency:
             uc = self._state.container.update_exchange_rates
             if uc is not None:
@@ -966,18 +1008,8 @@ class SettingsPage(ft.Column):
                 )
 
     def _io_error_snack(self, exc: Exception) -> None:
-        text = str(exc)
         lang = self._state.language
-        lowered = text.lower()
-        if (
-            "not permitted" in lowered
-            or "errno 1" in lowered
-            or "CloudDocs" in text
-            or "Mobile Documents" in text
-        ):
-            snack(self._page, tr("settings.file_denied", lang), error=True)
-            return
-        snack(self._page, text, error=True)
+        snack_exception(self._page, exc, lang=lang)
 
     async def export_json(self) -> None:
         try:
@@ -1195,7 +1227,7 @@ class SettingsPage(ft.Column):
             self._page.update()
             snack(self._page, tr("settings.restore_done", self._state.language))
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
 
     def set_pin(self) -> None:
         """Hash PIN and persist credentials via settings repository."""
@@ -1266,7 +1298,7 @@ class SettingsPage(ft.Column):
                 get_session_factory(c.config),
             )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=lang)
             return
 
         # Recreate defaults so the app stays usable.
@@ -1304,7 +1336,7 @@ class SettingsPage(ft.Column):
                     )
                 )
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             return
 
         self._state.request_view_rebuild()

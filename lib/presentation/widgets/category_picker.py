@@ -10,7 +10,7 @@ from lib.core.config import CATEGORY_COLORS, CATEGORY_ICON_GROUPS, CATEGORY_ICON
 from lib.domain.entities.category import Category, CategoryKind
 from lib.domain.entities.transaction import TransactionType
 from lib.presentation.styles import page_header
-from lib.presentation.utils import category_icon, run_async, safe_update, snack, tr
+from lib.presentation.utils import category_icon, run_async, safe_update, snack, snack_exception, tr
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, open_fullscreen_form
@@ -583,7 +583,7 @@ class CategoryPicker(ft.Column):
                     )
                     self._selected_name = updated.name
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 return
             close()
             await self.reload()

@@ -81,15 +81,19 @@ class LineItemsEditor(ft.Column):
             value=name,
             expand=3,
             dense=True,
-            on_change=lambda _e: self._refresh_total(),
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(name_tf, "text")
         amount_tf = make_amount_field(
             self._lang,
             label=tr("field.amount", self._lang),
             expand=2,
             value=amount or None,
+            extra_on_change=lambda _e: self._refresh_total(),
+            dense=True,
         )
-        amount_tf.on_change = lambda _e: self._refresh_total()
+        name_tf.on_change = lambda _e: self._refresh_total()
         remove = ft.IconButton(
             icon=ft.Icons.CLOSE,
             tooltip=tr("action.delete", self._lang),
@@ -97,6 +101,7 @@ class LineItemsEditor(ft.Column):
         )
         # Capture by object identity instead of stale index.
         remove.on_click = lambda _e, n=name_tf: self._remove_field(n)
+        wire_field_chain(getattr(self, "page", None), [name_tf, amount_tf])
         row = ft.Row(
             spacing=6,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,

@@ -33,6 +33,29 @@ def test_backup_restore_roundtrip(tmp_path: Path) -> None:
     assert svc.list_backups()
 
 
+def test_daily_backup_overwrites_once_per_day(tmp_path: Path) -> None:
+    cfg = AppConfig(data_dir=tmp_path)
+    cfg.ensure_directories()
+    cfg.db_path.write_text("v1", encoding="utf-8")
+    svc = BackupService(cfg)
+
+    first = svc.ensure_daily_backup()
+    assert first is not None
+    assert first.name == "finanse_daily.db"
+    assert first.read_text(encoding="utf-8") == "v1"
+    assert svc.daily_stamp_path.read_text(encoding="utf-8").strip() == svc.today_local()
+
+    cfg.db_path.write_text("v2", encoding="utf-8")
+    skipped = svc.ensure_daily_backup()
+    assert skipped is None
+    assert first.read_text(encoding="utf-8") == "v1"
+
+    forced = svc.ensure_daily_backup(force=True)
+    assert forced is not None
+    assert forced.read_text(encoding="utf-8") == "v2"
+    assert forced.resolve() == first.resolve()
+
+
 def test_backup_missing_db(tmp_path: Path) -> None:
     cfg = AppConfig(data_dir=tmp_path)
     cfg.ensure_directories()

@@ -16,7 +16,13 @@ from lib.presentation.notification_badges import (
     mark_related_read,
     pending_related_ids,
 )
-from lib.presentation.styles import card_surface, muted_text, page_header, summary_strip
+from lib.presentation.styles import (
+    card_surface,
+    form_section,
+    muted_text,
+    page_header,
+    summary_strip,
+)
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.utils import (
     category_icon,
@@ -24,6 +30,7 @@ from lib.presentation.utils import (
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
 )
 from lib.presentation.widgets.category_picker import CategoryPicker
@@ -163,7 +170,7 @@ class BudgetsPage(ft.Column):
             )
             self._categories_by_name = {c.name: c for c in categories}
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
             safe_update(self._list)
             return
@@ -292,7 +299,7 @@ class BudgetsPage(ft.Column):
             try:
                 await self._state.container.delete_budget.execute(budget.id)
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=lang)
                 return
             self._state.bump_refresh("dashboard", "budgets")
             snack(self._page, tr("budgets.deleted", lang))
@@ -340,7 +347,7 @@ class BudgetsPage(ft.Column):
                     name, self._month, self._year, limit
                 )
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 return
             close()
             self._state.bump_refresh("dashboard", "budgets")
@@ -351,9 +358,13 @@ class BudgetsPage(ft.Column):
             title=tr("budgets.edit" if budget else "budgets.add", lang),
             lang=lang,
             overlay_key="budget_form",
+            wrap_body=False,
             body=[
-                picker,
-                limit_tf,
+                form_section(
+                    tr("form.section.category", lang),
+                    [picker, limit_tf],
+                    icon=ft.Icons.PIE_CHART,
+                ),
             ],
             on_save=_save,
         )

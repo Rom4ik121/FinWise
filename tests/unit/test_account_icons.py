@@ -45,6 +45,8 @@ def test_groups_and_validation() -> None:
         "icon_group.crypto",
         "icon_group.exchanges",
     ]
+    manual = dict(account_icon_groups(include_exchanges=False))
+    assert "icon_group.exchanges" not in manual
     assert is_valid_account_icon("wallet")
     assert is_valid_account_icon("exch_binance")
     assert not is_valid_account_icon("not_a_real_icon_xyz")
@@ -84,8 +86,10 @@ def test_crypto_token_pngs_are_vendored() -> None:
     assert crypto_icon_src("BTC")
     assert crypto_icon_src("ETH")
     assert crypto_icon_src("USDT")
-    extras = extra_crypto_icon_keys()
-    assert extras
-    assert is_valid_account_icon(extras[0])
+    catalog = crypto_icon_keys()
+    assert currency_icon_key("BTC") in catalog
+    assert is_valid_account_icon(currency_icon_key("BTC"))
     groups = dict(account_icon_groups())
-    assert extras[0] in groups["icon_group.crypto"]
+    assert currency_icon_key("BTC") in groups["icon_group.crypto"]
+    # Extras are only tokens on disk that are not in currencies.json (pruned).
+    assert extra_crypto_icon_keys() == ()

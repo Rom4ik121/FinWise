@@ -48,6 +48,7 @@ class AppState:
         self.view_rebuild_token: int = 0
         self._listeners: list[Listener] = []
         self._notify_scheduled: bool = False
+        self._data_flash_pending: bool = False
 
     # ------------------------------------------------------------------
     # Observer
@@ -129,7 +130,15 @@ class AppState:
                 self.analytics_token += 1
             if "budgets" in scopes:
                 self.budgets_token += 1
+        self._data_flash_pending = True
         self.notify(coalesce=True)
+
+    def consume_data_flash(self) -> bool:
+        """Return True once after :meth:`bump_refresh` (for UI rim pulse)."""
+        if not self._data_flash_pending:
+            return False
+        self._data_flash_pending = False
+        return True
 
     # ------------------------------------------------------------------
     # Mutators

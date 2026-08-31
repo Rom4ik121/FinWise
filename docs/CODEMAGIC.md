@@ -4,10 +4,10 @@
 
 В сборку должны попасть editable-пакеты из `requirements.txt`
 (`flet_local_auth`, `flet_local_notifications`, `flet_speech`) и deep link
-`finwise://voice` из `pyproject.toml`. **Не** включайте `ccxt` в
-`[project].dependencies` — ломает iOS/Android packaging (см. таблицу ошибок).
-Биржи на ПК: `pip install -r requirements.txt` (там `ccxt` остаётся).
-Без новой IPA биометрия, пуши и голос на iPhone не обновятся.
+`finwise://voice` из `pyproject.toml`. Биржи: **`ccxt>=4.4.0,<4.5.65`** в
+core-deps (Python 3.14 на mobile пропускает `coincurve`; `cryptography` держим
+`<50` из‑за `pypi.flet.dev`). Без новой IPA биометрия, пуши и голос на iPhone
+не обновятся.
 Info.plist: Face ID, микрофон, распознавание речи.
 
 ## Что нужно заранее
@@ -146,7 +146,7 @@ Codemagic только **собирает** IPA. На Windows без Mac:
 |--------|---------|
 | `APPLE_TEAM_ID is missing` | Группа `finanse_ios` + переменная в UI |
 | No matching provisioning profile | Bundle ID / тип ad_hoc / UDID в профиле |
-| `ResolutionImpossible` / `ccxt` + `cryptography` | Не класть свежий `ccxt` в core-deps `pyproject.toml`: на [pypi.flet.dev](https://pypi.flet.dev) есть только `cryptography` **43.x**, а новый ccxt хочет ≥50 и `coincurve` без iOS wheel. Core: `cryptography>=42,<50`; биржи — optional/`requirements.txt` для desktop. |
+| `ResolutionImpossible` / `ccxt` + `cryptography` | Держать `ccxt>=4.4.0,<4.5.65` и `cryptography>=42,<50`. На Python 3.14 (Serious Python) `coincurve` не требуется по маркеру. |
 | Binary wheel not found for iOS | Пакет без iOS wheel — см. лог; упростить deps |
 | `timezone ^0.9.4` vs `^0.11.0` | Не ставить `flet-android-notifications` в iOS-сборку: он тянет Flutter `timezone` 0.11, а пуши iOS идут через `flet_local_notifications` (`timezone` 0.9). Предупреждение `flutter doctor` про PATH 3.41 vs 3.44 — не причина падения. |
 | Build timeout | Увеличить `max_build_duration` в yaml |

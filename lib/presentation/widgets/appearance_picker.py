@@ -7,8 +7,10 @@ from typing import Optional
 
 import flet as ft
 
+from lib.presentation.account_icons import icon_is_logo
 from lib.presentation.styles import (
     ICON_CATALOG_BADGE,
+    ICON_CATALOG_BADGE_BORDER,
     ICON_CATALOG_BADGE_SELECTED,
     page_header,
 )
@@ -28,25 +30,33 @@ def build_icon_catalog(
     on_change: Optional[SelectStr] = None,
     accent: Optional[str] = None,
 ) -> list[ft.Control]:
-    """Grouped circular sage badges with white glyphs.
-
-    ``selected`` is a mutable ``{"value": key}`` dict shared with the caller.
-    """
-    accent_color = accent or ft.Colors.WHITE
+    """Grouped circular badges with soft fill; logos clip to the circle."""
+    accent_color = accent or ft.Colors.PRIMARY
     tiles_by_key: dict[str, list[ft.Container]] = {}
 
     def _style_tile(key: str, tile: ft.Container) -> None:
         active = key == selected["value"]
-        tile.bgcolor = ICON_CATALOG_BADGE_SELECTED if active else ICON_CATALOG_BADGE
-        tile.border = ft.Border.all(
-            3 if active else 0,
-            accent_color if active else ft.Colors.TRANSPARENT,
-        )
+        logo = icon_is_logo(key)
+        if logo:
+            # Logo already paints the disk — keep highlight as a thin ring only.
+            tile.bgcolor = ft.Colors.TRANSPARENT
+            tile.border = ft.Border.all(
+                2 if active else 0,
+                accent_color if active else ft.Colors.TRANSPARENT,
+            )
+        else:
+            tile.bgcolor = (
+                ICON_CATALOG_BADGE_SELECTED if active else ICON_CATALOG_BADGE
+            )
+            tile.border = ft.Border.all(
+                2 if active else 1,
+                accent_color if active else ICON_CATALOG_BADGE_BORDER,
+            )
         tile.shadow = (
             ft.BoxShadow(
-                blur_radius=10,
-                color="#00000033",
-                offset=ft.Offset(0, 2),
+                blur_radius=8,
+                color="#00000028",
+                offset=ft.Offset(0, 1),
             )
             if active
             else None
@@ -88,6 +98,7 @@ def build_icon_catalog(
                 height=56,
                 border_radius=999,
                 alignment=ft.Alignment.CENTER,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                 ink=True,
                 on_click=lambda _e, k=key: _highlight(k),
                 content=render_icon(key),

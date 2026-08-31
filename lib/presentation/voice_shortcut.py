@@ -103,7 +103,17 @@ def install_voice_shortcut(page: ft.Page, state: "AppState") -> None:
         run_async(page, _poll)
 
     page.on_route_change = _on_route
-    page.on_app_lifecycle_state_change = _on_lifecycle
+    previous_lifecycle = page.on_app_lifecycle_state_change
+
+    def _on_lifecycle_chained(e: Any) -> None:
+        if callable(previous_lifecycle):
+            try:
+                previous_lifecycle(e)
+            except Exception:  # noqa: BLE001
+                logger.exception("Chained lifecycle handler failed")
+        _on_lifecycle(e)
+
+    page.on_app_lifecycle_state_change = _on_lifecycle_chained
     _maybe_from_route(getattr(page, "route", None))
 
     service = get_speech_service()

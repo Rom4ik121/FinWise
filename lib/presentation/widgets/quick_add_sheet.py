@@ -13,13 +13,19 @@ from lib.domain.entities.account import Account
 from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.use_cases.transactions import FEE_CATEGORY, make_fee_expense
+from lib.presentation.dropdown_options import account_dropdown_options, icon_dropdown_option
+from lib.presentation.frequent_account import (
+    account_option_label,
+    prepare_tx_account_choices,
+)
 from lib.presentation.money_input import (
     format_amount_value,
     make_amount_field,
     parse_amount,
     parse_optional_amount,
 )
-from lib.presentation.utils import bind_dropdown_select, run_async, safe_update, snack, tr
+from lib.presentation.styles import form_hint, form_section
+from lib.presentation.utils import bind_dropdown_select, run_async, safe_update, snack, snack_exception, tr
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.widgets.line_items_editor import LineItemsEditor
@@ -46,7 +52,7 @@ def open_quick_add(
                 await state.container.list_accounts.execute(active_only=True)
             )
         except Exception as exc:  # noqa: BLE001
-            snack(page, str(exc), error=True)
+            snack_exception(page, exc, lang=lang)
             return
         if not loaded and accounts:
             loaded = list(accounts)
@@ -73,17 +79,22 @@ async def _show_form(
     on_saved: Optional[Callable[[], None]],
 ) -> None:
     lang = state.language
+    accounts, default_account_id = await prepare_tx_account_choices(state, accounts)
     type_dd = ft.Dropdown(
         label=tr("field.type", lang),
         value=default_type.value,
         options=[
-            ft.DropdownOption(
-                key=TransactionType.EXPENSE.value,
-                text=tr("transaction.expense", lang),
+            icon_dropdown_option(
+                TransactionType.EXPENSE.value,
+                tr("transaction.expense", lang),
+                ft.Icons.ARROW_UPWARD,
+                icon_color=ft.Colors.ERROR,
             ),
-            ft.DropdownOption(
-                key=TransactionType.INCOME.value,
-                text=tr("transaction.income", lang),
+            icon_dropdown_option(
+                TransactionType.INCOME.value,
+                tr("transaction.income", lang),
+                ft.Icons.ARROW_DOWNWARD,
+                icon_color=ft.Colors.PRIMARY,
             ),
         ],
         expand=True,
@@ -108,18 +119,16 @@ async def _show_form(
         label=tr("field.fee", lang),
         expand=True,
     )
-    fee_hint = ft.Text(
-        tr("field.fee_hint", lang),
-        size=11,
-        color=ft.Colors.ON_SURFACE_VARIANT,
-    )
+    fee_hint = form_hint(tr("field.fee_hint", lang), size=11)
     account_dd = ft.Dropdown(
         label=tr("field.account", lang),
-        value=accounts[0].id,
-        options=[
-            ft.DropdownOption(key=a.id, text=f"{a.name} ({a.currency})")
-            for a in accounts
-        ],
+        value=default_account_id,
+        options=account_dropdown_options(
+            accounts,
+            label_fn=lambda a: account_option_label(
+                a, frequent_id=default_account_id, lang=lang
+            ),
+        ),
         expand=True,
     )
     category_picker = CategoryPicker(
@@ -151,6 +160,11 @@ async def _show_form(
         hint_text=tr("tags.hint", lang),
         expand=True,
     )
+    from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+    configure_field(comment_tf, "text")
+    configure_field(tags_tf, "text")
+    wire_field_chain(page, [amount_tf, fee_tf, comment_tf, tags_tf])
     voice_status = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
 
     async def _listen_voice() -> None:
@@ -192,6 +206,11 @@ async def _show_form(
         icon=ft.Icons.MIC,
         on_click=lambda _e: run_async(page, _listen_voice),
     )
+    from lib.infrastructure.services.biometric import feature_voice_available
+
+    voice_body: list[ft.Control] = []
+    if feature_voice_available():
+        voice_body = [mic, voice_status]
 
     async def _save() -> None:
         account = next((a for a in accounts if a.id == account_dd.value), accounts[0])
@@ -275,7 +294,7 @@ async def _show_form(
                     await state.container.delete_transaction.execute(saved.id)
                     raise
         except Exception as exc:  # noqa: BLE001
-            snack(page, str(exc), error=True)
+            snack_exception(page, exc, lang=lang)
             return
 
         close()
@@ -289,18 +308,23 @@ async def _show_form(
         title=tr("action.quick_add", lang),
         lang=lang,
         overlay_key="quick_add_editor",
+        wrap_body=False,
         body=[
-            type_dd,
-            amount_tf,
-            items_editor,
-            fee_tf,
-            fee_hint,
-            mic,
-            voice_status,
-            account_dd,
-            category_picker,
-            comment_tf,
-            tags_tf,
+            form_section(
+                tr("form.section.type", lang),
+                [type_dd, amount_tf, items_editor, fee_tf, fee_hint, *voice_body],
+                icon=ft.Icons.CREDIT_CARD,
+            ),
+            form_section(
+                tr("form.section.category", lang),
+                [account_dd, category_picker],
+                icon=ft.Icons.CATEGORY,
+            ),
+            form_section(
+                tr("form.section.details", lang),
+                [comment_tf, tags_tf],
+                icon=ft.Icons.NOTES,
+            ),
         ],
         on_save=_save,
     )

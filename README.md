@@ -1,11 +1,34 @@
-# FinWise (finanse)
+# FinWise
 
-Учёт личных финансов на **Python 3.11+** и **Flet**. Данные только на устройстве:
-SQLite + SQLAlchemy. Слои: `domain` → use cases → `infrastructure` → `presentation`.
+**Локальный учёт личных финансов** для Windows, Android и iOS.  
+Данные хранятся на устройстве (SQLite) — без обязательного облака и аккаунтов.
 
-Документация: [`docs/README.md`](docs/README.md)
+<p align="center">
+  <img src="assets/icon.png" alt="FinWise" width="120" />
+</p>
 
-## Запуск на ПК
+---
+
+## Что умеет
+
+| Раздел | Возможности |
+|--------|-------------|
+| **Главная** | Общий баланс, доход/расход за день, быстрый доход/расход, аналитика |
+| **Операции** | Доходы, расходы, переводы, комиссии, теги, позиции чека, поиск и фильтры |
+| **Счета** | Наличные, карты, крипто, подключение бирж (CCXT), синхронизация |
+| **Цели** | Накопления с пополнением со счёта |
+| **Долги** | Долги мне / я должен, погашения |
+| **Подписки** | Регулярные платежи и напоминания |
+| **Бюджеты** | Лимиты по категориям на месяц |
+| **Валюты** | Фиат + крипто, курсы, конвертация без «тихих» ошибок FX |
+| **Безопасность** | PIN + Face ID, автоблокировка после свёрнутого приложения |
+| **Резерв** | Ежедневное обновление одного файла `finanse_daily.db` |
+
+Интерфейс: **русский / English / o‘zbek**, светлая и тёмная темы, скины Classic / Neon.
+
+---
+
+## Быстрый старт (Windows)
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -13,18 +36,109 @@ python scripts/migrate.py
 python main.py
 ```
 
-Каталог данных Windows: `%LOCALAPPDATA%\finanse\finanse\`.
+Каталог данных:
 
-Демо: `python scripts/seed_demo_data.py --wipe --scale medium --currency UZS`  
-Тесты: `python -m pytest -q`
+```text
+%LOCALAPPDATA%\finanse\finanse\
+```
+
+Демо-данные:
+
+```powershell
+python scripts/seed_demo_data.py --wipe --scale medium --currency UZS
+```
+
+Тесты:
+
+```powershell
+python -m pytest -q
+```
+
+---
+
+## Стек
+
+- **UI:** [Flet](https://flet.dev) 0.83–0.86 (Flutter)
+- **Данные:** SQLAlchemy 2 + SQLite (WAL), Alembic
+- **Модели:** Pydantic v2
+- **Курсы:** httpx (open.er-api, CoinGecko, Binance)
+- **Биржи:** CCXT
+- **Мобильные плагины:** биометрия, локальные уведомления, речь (`extensions/`)
+
+Архитектура — чистые слои:
+
+```text
+main.py
+ └─ lib/core/            конфиг, БД, DI
+ └─ lib/domain/          сущности и use cases (без Flet/SQLAlchemy)
+ └─ lib/infrastructure/  репозитории, API, OS-сервисы
+ └─ lib/presentation/    экраны и виджеты Flet
+```
+
+---
+
+## Структура репозитория
+
+```text
+FinWise/
+├── main.py                 # точка входа
+├── lib/                    # приложение
+├── extensions/             # Flutter-мосты (Face ID, push, речь)
+├── assets/                 # иконки, splash, currencies.json
+├── migrations/             # Alembic
+├── scripts/                # migrate, seed, APK/IPA
+├── tests/                  # unit + integration
+└── docs/                   # подробная документация
+```
+
+Документация: **[docs/README.md](docs/README.md)**  
+(архитектура, сущности, use cases, БД, производительность, Codemagic)
+
+---
 
 ## Сборка на телефон
 
-Биометрия, системные уведомления, микрофон и ярлык `finwise://voice` работают
-только в установленном IPA/APK (не в `flet run --android`).
+Нативные функции (Face ID, пуши, микрофон, ярлык `finwise://voice`) работают в **собранном** APK/IPA.  
+`flet run --android` — web-клиент без Dart-плагинов.
+
+**Android (APK):**
 
 ```powershell
 .\scripts\build_apk.ps1
 ```
 
-IPA: [`docs/CODEMAGIC.md`](docs/CODEMAGIC.md).
+**iOS (IPA):** [docs/CODEMAGIC.md](docs/CODEMAGIC.md)
+
+---
+
+## Безопасность данных
+
+- База и ключи только в локальном каталоге приложения
+- API-ключи бирж шифруются (`secret_box`)
+- В git не попадают: `.env`, `*.db`, `secrets/`, ключи и профили подписи (см. `.gitignore`)
+
+---
+
+## Для разработчиков / агентов
+
+Краткий вход: [AGENTS.md](AGENTS.md)
+
+Правила продукта:
+
+- деньги только через `quantize_money`
+- переводы через `transfer_id`, комиссии — отдельный расход
+- не суммировать разные валюты в «базу» без курса
+- пользовательские строки — через `tr` / `STRINGS` (ru/en/uz)
+- ошибки в UI — понятные тексты; технические детали только в логах
+
+---
+
+## Лицензия и автор
+
+Репозиторий: [github.com/Rom4ik121/FinWise](https://github.com/Rom4ik121/FinWise)
+
+---
+
+<p align="center">
+  <b>FinWise</b> — личные финансы под контролем, данные у вас.
+</p>

@@ -1,8 +1,10 @@
-"""iOS data-dir detection must not touch sandbox parent paths."""
+"""iOS/Android data-dir detection must not touch sandbox parent paths."""
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from lib.core.config import _is_android, _is_ios
 
@@ -86,7 +88,49 @@ def test_android_data_dir_stays_in_sandbox(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr("lib.core.config.sys.platform", "linux")
     monkeypatch.setenv("FLET_PLATFORM", "android")
+    monkeypatch.delenv("FLET_APP_STORAGE_DATA", raising=False)
+    monkeypatch.delenv("FILESDIR", raising=False)
     monkeypatch.setattr("lib.core.config.Path.home", classmethod(lambda cls: tmp_path))
+    # tmp_path is not an Android sandbox path — use env instead.
+    storage = tmp_path / "storage_data"
+    storage.mkdir()
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(storage))
     path = _default_data_dir()
-    assert path == tmp_path / "finanse"
+    assert path == storage / "finanse"
+    assert path.is_dir()
     assert ".local" not in path.as_posix()
+
+
+def test_android_data_dir_rejects_bare_data_home(monkeypatch, tmp_path) -> None:
+    from lib.core.config import _default_data_dir
+
+    monkeypatch.setattr("lib.core.config.sys.platform", "linux")
+    monkeypatch.setenv("FLET_PLATFORM", "android")
+    monkeypatch.delenv("FLET_APP_STORAGE_DATA", raising=False)
+    monkeypatch.delenv("FILESDIR", raising=False)
+    monkeypatch.setattr(
+        "lib.core.config.Path.home", classmethod(lambda cls: Path("/data"))
+    )
+    storage = tmp_path / "app_data"
+    storage.mkdir()
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(storage))
+    path = _default_data_dir()
+    assert path == storage / "finanse"
+    assert "/data/finanse" not in path.as_posix()
+
+
+def test_android_data_dir_uses_sandbox_home(monkeypatch, tmp_path) -> None:
+    from lib.core.config import _default_data_dir
+
+    sandbox = tmp_path / "data" / "user" / "0" / "com.finanse.app" / "files"
+    sandbox.mkdir(parents=True)
+    monkeypatch.setattr("lib.core.config.sys.platform", "linux")
+    monkeypatch.setenv("FLET_PLATFORM", "android")
+    monkeypatch.delenv("FLET_APP_STORAGE_DATA", raising=False)
+    monkeypatch.delenv("FILESDIR", raising=False)
+    monkeypatch.setattr(
+        "lib.core.config.Path.home", classmethod(lambda cls: sandbox)
+    )
+    path = _default_data_dir()
+    assert path == sandbox / "finanse"
+    assert path.is_dir()

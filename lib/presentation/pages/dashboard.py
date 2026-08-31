@@ -10,6 +10,7 @@ import flet as ft
 
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.transaction import TransactionType
+from lib.presentation.count_up import mark_money_text, play_count_ups
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
     DEBT_ALERT_KINDS,
@@ -32,6 +33,7 @@ from lib.presentation.utils import (
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
 )
 from lib.infrastructure.services.localization import localize_category_name
@@ -77,7 +79,7 @@ class DashboardPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload),
+                            on_click=lambda _e: run_async(page, self.reload, True),
                         ),
                     ],
                 ),
@@ -336,6 +338,21 @@ class DashboardPage(ft.Column):
             )
             if not abbreviated:
                 on_tap = None
+        amount_label = ft.Text(
+            display,
+            size=13,
+            weight=ft.FontWeight.W_700,
+            color=color,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        if not hidden:
+            mark_money_text(
+                amount_label,
+                amount,
+                currency=currency,
+                compact=True,
+            )
         return ft.Container(
             expand=True,
             ink=on_tap is not None,
@@ -356,14 +373,7 @@ class DashboardPage(ft.Column):
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
                     ),
-                    ft.Text(
-                        display,
-                        size=13,
-                        weight=ft.FontWeight.W_700,
-                        color=color,
-                        max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
+                    amount_label,
                 ],
             ),
         )
@@ -384,6 +394,15 @@ class DashboardPage(ft.Column):
         balance_txt = _HIDDEN_MONEY if hidden else format_money(total, base)
         eye_icon = ft.Icons.VISIBILITY_OFF if hidden else ft.Icons.VISIBILITY
         zeros = [Decimal("0")] * max(len(incomes), 1)
+        balance_label = ft.Text(
+            balance_txt,
+            size=20,
+            weight=ft.FontWeight.W_700,
+            color=skin.text_hex(dark=True),
+            expand=True,
+        )
+        if not hidden:
+            mark_money_text(balance_label, total, currency=base)
         panel_controls: list[ft.Control] = [
             ft.Row(
                 spacing=6,
@@ -427,13 +446,7 @@ class DashboardPage(ft.Column):
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Text(
-                        balance_txt,
-                        size=20,
-                        weight=ft.FontWeight.W_700,
-                        color=skin.text_hex(dark=True),
-                        expand=True,
-                    ),
+                    balance_label,
                     ft.IconButton(
                         icon=(
                             ft.Icons.SHOW_CHART
@@ -665,7 +678,7 @@ class DashboardPage(ft.Column):
             ),
         )
 
-    async def reload(self) -> None:
+    async def reload(self, animate: bool = False) -> None:
         """Reload dashboard data from use cases."""
         self._token = self._state.dashboard_token
         lang = self._state.language
@@ -674,7 +687,7 @@ class DashboardPage(ft.Column):
         try:
             accounts = await c.list_accounts.execute(active_only=True)
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=lang)
             self._body.controls = [
                 EmptyState(tr("error.generic", lang), icon=ft.Icons.ERROR_OUTLINE)
             ]
@@ -762,6 +775,8 @@ class DashboardPage(ft.Column):
         self._balance_cache = {"build": _build}
         self._body.controls = _build()
         safe_update(self._body)
+        if animate:
+            await play_count_ups(self._body, self._page)
 
     async def _budgets_widget(self, lang: str, currency: str) -> ft.Control:
         """Category budgets for the current month."""

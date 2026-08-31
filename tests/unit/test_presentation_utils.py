@@ -14,6 +14,7 @@ from lib.presentation.utils import (
     format_money_parts,
     safe_update,
     tr,
+    user_facing_error,
 )
 
 
@@ -105,3 +106,17 @@ def test_dropdown_select_kwargs_match_flet_api() -> None:
         options=[ft.DropdownOption(key="dark", text="Dark")],
         **kwargs,
     )
+
+
+def test_user_facing_error_hides_technical_text() -> None:
+    assert "средств" in user_facing_error(ValueError("Insufficient funds"), "ru")
+    assert user_facing_error("error.no_accounts", "en") == "Add an account first"
+    tech = user_facing_error(
+        RuntimeError('Traceback (most recent call last):\n  File "x.py", line 1'),
+        "ru",
+    )
+    assert tech == "Произошла ошибка"
+    assert "sqlalchemy" not in user_facing_error(
+        Exception("sqlalchemy.exc.OperationalError: disk I/O"), "ru"
+    ).lower()
+    assert user_facing_error(ValueError("Account not found: abc"), "ru") == "Произошла ошибка"

@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
+from typing import Any, Optional
 
 import flet as ft
 
-from lib.presentation.styles import page_header
+from lib.presentation.skins import get_active_skin
+from lib.presentation.styles import (
+    card_surface,
+    form_header_bar,
+    form_save_button,
+    polish_form_control,
+)
+from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import run_async, safe_update, tr
 
 CloseFn = Callable[[], None]
 SaveFn = Callable[[], Awaitable[None]]
+
+_FORM_MAX_WIDTH = 560
 
 
 def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
@@ -28,6 +37,91 @@ def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
         pass
 
 
+def _polish_tree(controls: Sequence[ft.Control]) -> list[ft.Control]:
+    out: list[ft.Control] = []
+    for item in controls:
+        polish_form_control(item)
+        out.append(item)
+    return out
+
+
+def build_form_shell(
+    page: ft.Page,
+    *,
+    title: str,
+    lang: str,
+    body: Sequence[ft.Control],
+    leading: Optional[ft.Control] = None,
+    actions: Optional[Sequence[ft.Control]] = None,
+    wrap_body: bool = True,
+) -> ft.Control:
+    """Shared chrome: gradient backdrop, glass header, padded scroll body."""
+    skin = get_active_skin()
+    dark = is_dark_mode(page)
+    body_controls = _polish_tree(body)
+    if wrap_body:
+        panel = card_surface(
+            ft.Column(spacing=14, tight=True, controls=body_controls),
+            padding=18,
+        )
+        scroll_kids: list[ft.Control] = [
+            ft.Container(
+                alignment=ft.Alignment.TOP_CENTER,
+                content=ft.Container(
+                    width=_FORM_MAX_WIDTH,
+                    content=panel,
+                ),
+            ),
+            ft.Container(height=40),
+        ]
+    else:
+        scroll_kids = [
+            ft.Container(
+                alignment=ft.Alignment.TOP_CENTER,
+                content=ft.Container(
+                    width=_FORM_MAX_WIDTH,
+                    content=ft.Column(spacing=14, tight=True, controls=body_controls),
+                ),
+            ),
+            ft.Container(height=40),
+        ]
+
+    close_leading = leading or ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_color=ft.Colors.ON_SURFACE,
+        tooltip=tr("action.cancel", lang),
+    )
+
+    return ft.SafeArea(
+        expand=True,
+        content=ft.Container(
+            expand=True,
+            gradient=skin.page_gradient(dark=dark),
+            content=ft.Column(
+                expand=True,
+                spacing=0,
+                controls=[
+                    form_header_bar(
+                        title,
+                        leading=close_leading,
+                        actions=list(actions or []),
+                    ),
+                    ft.Container(
+                        expand=True,
+                        padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                        content=ft.Column(
+                            expand=True,
+                            spacing=0,
+                            scroll=ft.ScrollMode.AUTO,
+                            controls=scroll_kids,
+                        ),
+                    ),
+                ],
+            ),
+        ),
+    )
+
+
 def open_fullscreen_form(
     page: ft.Page,
     *,
@@ -39,6 +133,7 @@ def open_fullscreen_form(
     save_icon: ft.IconData = ft.Icons.CHECK,
     save_label: str | None = None,
     show_save: bool = True,
+    wrap_body: bool = True,
 ) -> CloseFn:
     """Show a full-screen form with close + optional save in the header.
 
@@ -56,12 +151,19 @@ def open_fullscreen_form(
     actions: list[ft.Control] = []
     if show_save and on_save is not None:
         actions.append(
-            ft.FilledButton(
+            form_save_button(
                 save_label or tr("action.save", lang),
                 icon=save_icon,
                 on_click=lambda e: run_async(page, _save_click, e),
             )
         )
+
+    close_btn = ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_color=ft.Colors.ON_SURFACE,
+        tooltip=tr("action.cancel", lang),
+        on_click=lambda _e: _close(),
+    )
 
     overlay = ft.Container(
         left=0,
@@ -74,34 +176,14 @@ def open_fullscreen_form(
         bgcolor=ft.Colors.SURFACE,
         alignment=ft.Alignment.TOP_CENTER,
         data=overlay_key,
-        content=ft.SafeArea(
-            expand=True,
-            content=ft.Column(
-                expand=True,
-                spacing=0,
-                controls=[
-                    page_header(
-                        title,
-                        leading=ft.IconButton(
-                            icon=ft.Icons.CLOSE,
-                            icon_color=ft.Colors.ON_SURFACE,
-                            tooltip=tr("action.cancel", lang),
-                            on_click=lambda _e: _close(),
-                        ),
-                        actions=actions,
-                    ),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                        content=ft.Column(
-                            expand=True,
-                            spacing=12,
-                            scroll=ft.ScrollMode.HIDDEN,
-                            controls=[*body, ft.Container(height=24)],
-                        ),
-                    ),
-                ],
-            ),
+        content=build_form_shell(
+            page,
+            title=title,
+            lang=lang,
+            body=body,
+            leading=close_btn,
+            actions=actions,
+            wrap_body=wrap_body,
         ),
     )
     page.overlay.append(overlay)

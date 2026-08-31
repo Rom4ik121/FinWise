@@ -32,7 +32,7 @@ class _FakeLocalAuth:
     ) -> None:
         self._supported = supported
         self._can_check = can_check
-        self._biometrics = biometrics if biometrics is not None else ["fingerprint"]
+        self._biometrics = biometrics if biometrics is not None else ["face"]
         self._auth_result = auth_result or {"ok": True, "code": None}
 
     async def is_device_supported(self) -> bool:
@@ -70,6 +70,30 @@ def test_mobile_probe_and_auth(monkeypatch) -> None:
     async def _run() -> None:
         assert await probe_biometric_status() is BiometricStatus.AVAILABLE
         assert await request_biometric_verification("unlock") is BiometricResult.VERIFIED
+
+    asyncio.run(_run())
+    set_local_auth_service(None)
+    monkeypatch.delenv("FLET_PLATFORM", raising=False)
+
+
+def test_mobile_fingerprint_only_not_offered(monkeypatch) -> None:
+    monkeypatch.setenv("FLET_PLATFORM", "android")
+    set_local_auth_service(_FakeLocalAuth(biometrics=["fingerprint"]))
+
+    async def _run() -> None:
+        assert await probe_biometric_status() is BiometricStatus.NOT_CONFIGURED
+
+    asyncio.run(_run())
+    set_local_auth_service(None)
+    monkeypatch.delenv("FLET_PLATFORM", raising=False)
+
+
+def test_mobile_face_available(monkeypatch) -> None:
+    monkeypatch.setenv("FLET_PLATFORM", "ios")
+    set_local_auth_service(_FakeLocalAuth(biometrics=["face"]))
+
+    async def _run() -> None:
+        assert await probe_biometric_status() is BiometricStatus.AVAILABLE
 
     asyncio.run(_run())
     set_local_auth_service(None)

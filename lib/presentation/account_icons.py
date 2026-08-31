@@ -114,13 +114,7 @@ def account_icon_badge(
     glyph_color: str | None = None,
 ) -> ft.Container:
     """Rounded badge: full-bleed exchange/token PNG or tinted Material/currency glyph."""
-    exchange_id = parse_exchange_icon_key(key)
-    token_code = parse_currency_icon_key(key)
-    fills = (
-        exchange_id is not None
-        and exchange_icon_src(exchange_id) is not None
-        and exchange_logo_fills_badge(exchange_id)
-    ) or (token_code is not None and crypto_icon_src(token_code) is not None)
+    fills = icon_is_logo(key)
     clip = getattr(ft, "ClipBehavior", None)
     kwargs: dict = {}
     if clip is not None:
@@ -128,7 +122,7 @@ def account_icon_badge(
     return ft.Container(
         width=size,
         height=size,
-        border_radius=14 if size >= 40 else 12,
+        border_radius=999 if fills else (14 if size >= 40 else 12),
         alignment=ft.Alignment.CENTER,
         bgcolor=None if fills else color,
         content=account_icon_control(
@@ -238,8 +232,11 @@ def currency_glyph_label(code: str, symbol: str | None = None) -> str:
     return code if len(code) <= 4 else code[:4]
 
 
-def account_icon_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Thematic groups plus fiat / crypto currency glyph groups."""
+def account_icon_groups(*, include_exchanges: bool = True) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Thematic groups plus fiat / crypto currency glyph groups.
+
+    Exchange logos are omitted for regular (manual) account pickers.
+    """
     fiat_keys: list[str] = []
     crypto_keys: list[str] = []
     for row in _currency_catalog():
@@ -255,8 +252,41 @@ def account_icon_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
         extra.append(
             ("icon_group.crypto", tuple(crypto_keys) + extra_crypto_icon_keys())
         )
-    extra.append(("icon_group.exchanges", exchange_icon_keys()))
+    if include_exchanges:
+        extra.append(("icon_group.exchanges", exchange_icon_keys()))
     return ACCOUNT_ICON_GROUPS + tuple(extra)
+
+
+def icon_is_logo(key: str | None) -> bool:
+    """True when the key resolves to a vendored PNG (token or exchange)."""
+    exchange_id = parse_exchange_icon_key(key)
+    if exchange_id and exchange_icon_src(exchange_id):
+        return True
+    code = parse_currency_icon_key(key)
+    return bool(code and crypto_icon_src(code))
+
+
+def catalog_icon_control(
+    key: str | None,
+    *,
+    tile_size: float = 48,
+    glyph_size: float = 22,
+    glyph_color: str | None = None,
+) -> ft.Control:
+    """Icon for catalog grids: logos clipped to a circle that fills the tile."""
+    if icon_is_logo(key):
+        return ft.Container(
+            width=tile_size,
+            height=tile_size,
+            border_radius=999,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            content=account_icon_control(key, size=tile_size),
+        )
+    return account_icon_control(
+        key,
+        size=glyph_size,
+        color=glyph_color,
+    )
 
 
 def all_account_icon_keys() -> tuple[str, ...]:

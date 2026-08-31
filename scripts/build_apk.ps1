@@ -29,7 +29,7 @@ $defaultGradleHome = Join-Path $env:USERPROFILE ".gradle"
 $initDir = Join-Path $defaultGradleHome "init.d"
 New-Item -ItemType Directory -Force -Path $initDir | Out-Null
 Copy-Item -Force "scripts\desugar.init.gradle" (Join-Path $initDir "finanse_desugar.init.gradle")
-# Do NOT override GRADLE_USER_HOME — that forces a full Gradle re-download and lock fights.
+# Do NOT override GRADLE_USER_HOME - that forces a full Gradle re-download and lock fights.
 
 function Invoke-AndroidPatches {
     param([string]$FlutterRoot = "build\flutter")
@@ -43,12 +43,45 @@ function Invoke-AndroidPatches {
 
 Write-Host "Flutter: $flutter" -ForegroundColor Cyan
 Write-Host "Android SDK: $env:ANDROID_HOME" -ForegroundColor Cyan
-Write-Host "Building APK (first run may take 20-40 min)..." -ForegroundColor Yellow
+Write-Host "Building APK (arm64 only; first run may take 20-40 min)..." -ForegroundColor Yellow
 
+# Do not treat a stale APK from an older build as success.
+$buildStarted = Get-Date
 python -m pip install -U "flet[all]" -r requirements.txt -q
 
 # If a previous shell exists, patch before rebuild (helps incremental paths).
 Invoke-AndroidPatches
+
+# serious_python copies the whole tree then compileall's it. Keep packaging
+# lean (also mirrored in pyproject.toml / flet.toml [tool.flet.app].exclude).
+$exclude = @(
+    "build",
+    "dist",
+    "storage",
+    "secrets",
+    ".venv",
+    "venv",
+    ".git",
+    ".github",
+    ".cursor",
+    ".claude",
+    ".flet",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".hypothesis",
+    "htmlcov",
+    "__pycache__",
+    "tests",
+    "docs",
+    "scripts",
+    "agent-transcripts",
+    "agent-tools",
+    "AGENTS.md",
+    "pytest.ini",
+    "codemagic.yaml"
+)
 
 $fletExit = 0
 try {
@@ -57,6 +90,9 @@ try {
         --product FinWise `
         --build-version 0.1.0 `
         --build-number 1 `
+        --arch arm64-v8a `
+        --exclude @exclude `
+        --android-adaptive-icon-background "#000000" `
         --splash-color "#000000" `
         --splash-dark-color "#000000" `
         --yes `
@@ -71,13 +107,30 @@ try {
 # if the APK is still missing (typical desugar / notification failures).
 Invoke-AndroidPatches
 
-$apk = Get-ChildItem -Path build -Recurse -Filter "*.apk" -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -match '\\(apk|outputs)\\' -or $_.DirectoryName -match 'flutter\\build\\app' } |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
+$apk = $null
+if ($fletExit -eq 0) {
+    $apk = Get-ChildItem -Path build -Recurse -Filter "*.apk" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.LastWriteTime -ge $buildStarted -and (
+                $_.FullName -match '\\(apk|outputs)\\' -or
+                $_.DirectoryName -match 'flutter\\build\\app'
+            )
+        } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+}
+
+if ((-not $apk) -and ($fletExit -ne 0)) {
+    Write-Host "flet build apk failed (exit $fletExit). Trying flutter assembleRelease fallback..." -ForegroundColor Yellow
+}
 
 if (-not $apk) {
     Write-Host "Finishing APK via flutter build apk (with desugar patches)..." -ForegroundColor Yellow
+    if (-not (Test-Path "build\flutter")) {
+        Write-Host "No build\flutter project - cannot finish APK." -ForegroundColor Red
+        if ($fletExit -ne 0) { exit $fletExit }
+        exit 1
+    }
     $buildDir = (Resolve-Path "build").Path
     $env:SERIOUS_PYTHON_SITE_PACKAGES = Join-Path $buildDir "site-packages"
     $env:SERIOUS_PYTHON_APP = Join-Path $buildDir "python-app"
@@ -88,7 +141,7 @@ if (-not $apk) {
     try {
         & "$flutter\bin\flutter.bat" build apk `
             --release `
-            --target-platform android-arm64,android-x64,android-arm `
+            --target-platform android-arm64 `
             --build-number 1 `
             --build-name 0.1.0 `
             --no-version-check `
@@ -103,19 +156,22 @@ if (-not $apk) {
     New-Item -ItemType Directory -Force -Path "build\apk" | Out-Null
     $built = @(
         Get-ChildItem -Path "build\flutter\build\app\outputs" -Recurse -Filter "app-release.apk" -ErrorAction SilentlyContinue
-    ) | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    ) | Where-Object { $_.LastWriteTime -ge $buildStarted } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
     if ($built) {
         Copy-Item -Force $built.FullName "build\apk\FinWise-0.1.0.apk"
         $apk = Get-Item "build\apk\FinWise-0.1.0.apk"
     }
 }
 
-if ($apk) {
+if ($apk -and ($apk.LastWriteTime -ge $buildStarted)) {
     Write-Host ""
     Write-Host "APK ready: $($apk.FullName)" -ForegroundColor Green
+    Write-Host ("Size: {0:N1} MB  modified: {1}" -f ($apk.Length / 1MB), $apk.LastWriteTime)
     exit 0
 }
 
-Write-Host "Build finished but APK not found under build/" -ForegroundColor Yellow
+Write-Host "Build failed - no fresh APK (ignoring stale files from older builds)." -ForegroundColor Red
 if ($fletExit -ne 0) { exit $fletExit }
 exit 1

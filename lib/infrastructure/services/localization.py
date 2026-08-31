@@ -21,6 +21,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Cash",
         "uz": "Naqd pul",
     },
+    "account.frequent": {
+        "ru": "часто",
+        "en": "often",
+        "uz": "tez-tez",
+    },
+
     "account.stats.title": {
         "ru": "Счёт",
         "en": "Account",
@@ -162,9 +168,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Maxfiy kalit",
     },
     "error.sync_failed": {
-        "ru": "Не удалось синхронизировать: {detail}",
-        "en": "Sync failed: {detail}",
-        "uz": "Sinxronlash muvaffaqiyatsiz: {detail}",
+        "ru": "Не удалось синхронизировать. Попробуйте позже.",
+        "en": "Sync failed. Please try again later.",
+        "uz": "Sinxronlash muvaffaqiyatsiz. Keyinroq urinib ko‘ring.",
     },
     "error.exchange_unavailable": {
         "ru": "Подключение бирж недоступно в этой сборке",
@@ -249,9 +255,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Filtrlar",
     },
     "action.quick_add": {
+        "ru": "Доход / расход",
+        "en": "Income / expense",
+        "uz": "Daromad / xarajat",
+    },
+    "action.quick_add_full": {
         "ru": "Быстрый доход / расход",
         "en": "Quick income / expense",
         "uz": "Tezkor daromad / xarajat",
+    },
+    "transfers.title_short": {
+        "ru": "Перевод",
+        "en": "Transfer",
+        "uz": "O‘tkazma",
     },
     "voice.button": {
         "ru": "Голосовой ввод",
@@ -367,6 +383,71 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Сохранено",
         "en": "Saved",
         "uz": "Saqlandi",
+    },
+    "form.section.route": {
+        "ru": "Счета",
+        "en": "Accounts",
+        "uz": "Hisoblar",
+    },
+    "form.section.amount": {
+        "ru": "Сумма",
+        "en": "Amount",
+        "uz": "Summa",
+    },
+    "form.section.fee": {
+        "ru": "Комиссия",
+        "en": "Fee",
+        "uz": "Komissiya",
+    },
+    "form.section.details": {
+        "ru": "Подробности",
+        "en": "Details",
+        "uz": "Tafsilotlar",
+    },
+    "form.section.main": {
+        "ru": "Основное",
+        "en": "Main",
+        "uz": "Asosiy",
+    },
+    "form.section.category": {
+        "ru": "Категория",
+        "en": "Category",
+        "uz": "Toifa",
+    },
+    "form.section.appearance": {
+        "ru": "Оформление",
+        "en": "Appearance",
+        "uz": "Ko‘rinish",
+    },
+    "form.section.exchange": {
+        "ru": "Биржа",
+        "en": "Exchange",
+        "uz": "Birja",
+    },
+    "form.section.options": {
+        "ru": "Параметры",
+        "en": "Options",
+        "uz": "Parametrlar",
+    },
+    "form.section.schedule": {
+        "ru": "Расписание",
+        "en": "Schedule",
+        "uz": "Jadval",
+    },
+    "form.section.type": {
+        "ru": "Тип",
+        "en": "Type",
+        "uz": "Tur",
+    },
+    "form.section.interest": {
+        "ru": "Проценты",
+        "en": "Interest",
+        "uz": "Foizlar",
+    },
+    "form.section.account": {
+        "ru": "Счёт",
+        "en": "Account",
+        "uz": "Hisob",
     },
     "app.name": {
         "ru": "FinWise",
@@ -784,9 +865,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Hisobga darhol o‘tkazish",
     },
     "debt.record_cash_hint": {
-        "ru": "Выключите, если хотите только запомнить долг — без списания или зачисления на счёт",
-        "en": "Turn off to only remember the debt — without moving money on an account",
-        "uz": "Faqat qarzni eslatib qo‘yish uchun o‘chiring — hisobdan pul yechilmaydi va tushmaydi",
+        "ru": "Выкл. — только запомнить долг, без движения по счёту",
+        "en": "Off — remember only, no account movement",
+        "uz": "O‘chiq — faqat eslatma, hisobga tegilmaydi",
     },
     "debt.default_account": {
         "ru": "Счёт по умолчанию",
@@ -814,9 +895,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Foizlarni qarz summasiga qo‘shish",
     },
     "debt.accrue_interest_hint": {
-        "ru": "Раз в месяц проценты прибавятся к сумме, которую нужно вернуть — не только для справки на экране",
-        "en": "Once a month, interest is added to what you still owe — not just shown for reference",
-        "uz": "Har oy foizlar qaytarilishi kerak bo‘lgan summaga qo‘shiladi — faqat ekranda ko‘rsatish uchun emas",
+        "ru": "Раз в месяц % добавятся к сумме долга",
+        "en": "Interest is added to the debt once a month",
+        "uz": "Har oy foizlar qarz summasiga qo‘shiladi",
     },
     "debt.accrued_interest": {
         "ru": "Начислено: {amount}",
@@ -829,9 +910,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Oxirgi to‘lovni bekor qilish",
     },
     "debt.currency_change_hint": {
-        "ru": "Если смените валюту, остаток долга пересчитается по текущему курсу",
-        "en": "If you change the currency, the outstanding amount is recalculated at the current rate",
-        "uz": "Valyutani o‘zgartirsangiz, qarz qoldig‘i joriy kurs bo‘yicha qayta hisoblanadi",
+        "ru": "Остаток пересчитается по текущему курсу",
+        "en": "Balance recalculates at the current rate",
+        "uz": "Qoldiq joriy kurs bo‘yicha qayta hisoblanadi",
     },
     "debt.payment_split": {
         "ru": "Тело {principal} · % {interest}",
@@ -892,6 +973,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "В архиве",
         "en": "Archived",
         "uz": "Arxivda",
+    },
+    "debt.filter.open": {
+        "ru": "Открытые",
+        "en": "Open",
+        "uz": "Ochiq",
     },
     "debt.filter.active": {
         "ru": "Активные",
@@ -1689,34 +1775,34 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Qurilma band — qayta urinib ko‘ring",
     },
     "lock.biometric_canceled": {
-        "ru": "Вход по биометрии отменён",
-        "en": "Biometric sign-in canceled",
-        "uz": "Biometrik kirish bekor qilindi",
+        "ru": "Вход через Face ID отменён",
+        "en": "Face ID sign-in canceled",
+        "uz": "Face ID orqali kirish bekor qilindi",
     },
     "lock.biometric_failed": {
-        "ru": "Не удалось подтвердить биометрию — используйте PIN",
-        "en": "Biometric verification failed — use PIN",
-        "uz": "Biometriyani tasdiqlab bo‘lmadi — PIN dan foydalaning",
+        "ru": "Не удалось подтвердить Face ID — используйте PIN",
+        "en": "Face ID verification failed — use PIN",
+        "uz": "Face ID tasdiqlanmadi — PIN dan foydalaning",
     },
     "lock.biometric_no_device": {
-        "ru": "Биометрия недоступна на этом устройстве — настройте отпечаток или Face ID",
-        "en": "No biometric hardware — enroll fingerprint or Face ID in system settings",
-        "uz": "Biometriya qurilmasi yo‘q — tizim sozlamalarida barmoq izi yoki Face ID qo‘shing",
+        "ru": "Face ID недоступен на этом устройстве — используйте PIN",
+        "en": "Face ID is not available on this device — use PIN",
+        "uz": "Bu qurilmada Face ID yo‘q — PIN dan foydalaning",
     },
     "lock.biometric_not_configured": {
-        "ru": "Биометрия не настроена — добавьте отпечаток или лицо в настройках телефона",
-        "en": "Biometrics not set up — enroll fingerprint or face in device settings",
-        "uz": "Biometriya sozlanmagan — qurilma sozlamalarida barmoq izi yoki yuz qo‘shing",
+        "ru": "Face ID не настроен — добавьте лицо в настройках телефона",
+        "en": "Face ID is not set up — enroll face unlock in device settings",
+        "uz": "Face ID sozlanmagan — qurilma sozlamalarida yuz ochishni qo‘shing",
     },
     "lock.biometric_policy": {
-        "ru": "Биометрия отключена политикой системы",
-        "en": "Biometrics disabled by system policy",
-        "uz": "Biometriya tizim siyosati bilan o‘chirilgan",
+        "ru": "Face ID отключён политикой системы",
+        "en": "Face ID disabled by system policy",
+        "uz": "Face ID tizim siyosati bilan o‘chirilgan",
     },
     "lock.biometric_prompt": {
-        "ru": "Разблокировать FinWise",
-        "en": "Unlock FinWise",
-        "uz": "FinWise qulfini ochish",
+        "ru": "Разблокировать FinWise через Face ID",
+        "en": "Unlock FinWise with Face ID",
+        "uz": "FinWise ni Face ID bilan ochish",
     },
     "lock.biometric_retries": {
         "ru": "Слишком много попыток — используйте PIN",
@@ -1724,9 +1810,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Juda ko‘p urinish — PIN dan foydalaning",
     },
     "lock.biometric_unavailable": {
-        "ru": "Биометрия недоступна — используйте PIN",
-        "en": "Biometrics unavailable — use PIN",
-        "uz": "Biometriya mavjud emas — PIN dan foydalaning",
+        "ru": "Face ID недоступен — используйте PIN",
+        "en": "Face ID unavailable — use PIN",
+        "uz": "Face ID mavjud emas — PIN dan foydalaning",
     },
     "lock.subtitle": {
         "ru": "Введите PIN для входа",
@@ -1734,9 +1820,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Kirish uchun PIN kiriting",
     },
     "lock.subtitle_bio": {
-        "ru": "Подтвердите вход биометрией или введите PIN",
-        "en": "Confirm with biometrics or enter your PIN",
-        "uz": "Biometriya bilan tasdiqlang yoki PIN kiriting",
+        "ru": "Подтвердите вход через Face ID или введите PIN",
+        "en": "Unlock with Face ID or enter your PIN",
+        "uz": "Face ID bilan oching yoki PIN kiriting",
     },
     "lock.unlock": {
         "ru": "Разблокировать",
@@ -2045,45 +2131,50 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Backups",
         "uz": "Zaxira nusxalar",
     },
+    "settings.daily_backup_hint": {
+        "ru": "Раз в день приложение само обновляет файл finanse_daily.db в папке backups (не создаёт новый).",
+        "en": "Once a day the app updates finanse_daily.db in the backups folder (same file, not a new copy).",
+        "uz": "Har kuni ilova backups papkasidagi finanse_daily.db faylini yangilaydi (yangi nusxa yaratmaydi).",
+    },
     "settings.basics": {
         "ru": "Основные",
         "en": "Basics",
         "uz": "Asosiy",
     },
     "settings.biometric": {
-        "ru": "Биометрия",
-        "en": "Biometrics",
-        "uz": "Biometriya",
+        "ru": "Face ID",
+        "en": "Face ID",
+        "uz": "Face ID",
     },
     "settings.biometric_hint_missing": {
-        "ru": "Сканер не найден. Добавьте отпечаток или Face ID в настройках устройства",
-        "en": "No biometric sensor. Enroll fingerprint or Face ID in device settings",
-        "uz": "Biometriya sensori topilmadi. Qurilma sozlamalarida barmoq izi yoki Face ID qo‘shing",
+        "ru": "Face ID недоступен. Настройте разблокировку по лицу в системе",
+        "en": "Face ID unavailable. Enroll face unlock in device settings",
+        "uz": "Face ID yo‘q. Qurilma sozlamalarida yuz bilan ochishni sozlang",
     },
     "settings.biometric_hint_ok": {
-        "ru": "Отпечаток / Face ID готовы — можно входить по биометрии",
-        "en": "Fingerprint / Face ID is ready for unlock",
-        "uz": "Barmoq izi / Face ID qulfni ochish uchun tayyor",
+        "ru": "Face ID готов — можно входить по лицу",
+        "en": "Face ID is ready for unlock",
+        "uz": "Face ID qulfni ochish uchun tayyor",
     },
     "settings.biometric_hint_unconfigured": {
-        "ru": "Добавьте отпечаток или лицо в настройках устройства, затем включите снова",
-        "en": "Enroll a fingerprint or face in device settings, then enable again",
-        "uz": "Qurilma sozlamalarida barmoq izi yoki yuz qo‘shing, keyin qayta yoqing",
+        "ru": "Добавьте Face ID в настройках устройства, затем включите снова",
+        "en": "Enroll Face ID in device settings, then enable again",
+        "uz": "Qurilma sozlamalarida Face ID qo‘shing, keyin qayta yoqing",
     },
     "settings.biometric_need_pin": {
-        "ru": "Сначала установите PIN — биометрия работает вместе с ним",
-        "en": "Set a PIN first — biometrics work together with it",
-        "uz": "Avval PIN o‘rnating — biometriya u bilan birga ishlaydi",
+        "ru": "Сначала установите PIN — Face ID работает вместе с ним",
+        "en": "Set a PIN first — Face ID works together with it",
+        "uz": "Avval PIN o‘rnating — Face ID u bilan birga ishlaydi",
     },
     "settings.biometric_unsupported": {
-        "ru": "Биометрия недоступна на этой платформе",
-        "en": "Biometrics are not available on this platform",
-        "uz": "Bu platformada biometriya mavjud emas",
+        "ru": "Face ID недоступен на этой платформе",
+        "en": "Face ID is not available on this platform",
+        "uz": "Bu platformada Face ID yo‘q",
     },
     "settings.biometric_confirmed": {
-        "ru": "Биометрия подтверждена",
-        "en": "Biometrics confirmed",
-        "uz": "Biometriya tasdiqlandi",
+        "ru": "Face ID подтверждён",
+        "en": "Face ID confirmed",
+        "uz": "Face ID tasdiqlandi",
     },
     "push.ready": {
         "ru": "Уведомления включены. Напоминание придёт даже при закрытом приложении.",
@@ -2395,6 +2486,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Max payments",
         "uz": "Maks. to‘lovlar",
     },
+    "subscription.max_payments_hint": {
+        "ru": "Сколько раз списывать. Пусто — без лимита",
+        "en": "How many times to charge. Empty — no limit",
+        "uz": "Necha marta yechiladi. Bo‘sh — cheklovsiz",
+    },
     "subscription.status.active": {
         "ru": "Активна",
         "en": "Active",
@@ -2696,9 +2792,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "«{account}» hisobiga {amount} tushadi",
     },
     "transfer.will_debit": {
-        "ru": "Со счёта спишется {total}",
+        "ru": "Со счёта списания уйдёт {total}",
         "en": "{total} will leave the source account",
         "uz": "Manba hisobidan {total} yechiladi",
+    },
+    "transfer.fee_account": {
+        "ru": "Счёт комиссии",
+        "en": "Fee account",
+        "uz": "Komissiya hisobi",
+    },
+    "transfer.will_fee": {
+        "ru": "Комиссия {amount} со счёта «{account}»",
+        "en": "Fee {amount} from “{account}”",
+        "uz": "Komissiya {amount} — «{account}»",
     },
     "transfer.edit_hint": {
         "ru": "Сумму и счета перевода менять нельзя — только комментарий. Удаление уберёт обе стороны перевода",

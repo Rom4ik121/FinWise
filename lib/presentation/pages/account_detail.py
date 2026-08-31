@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -21,6 +22,7 @@ from lib.presentation.analytics_period import (
     format_chart_period_label,
     resolve_analytics_period,
 )
+from lib.presentation.count_up import mark_money_text, play_count_ups
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
@@ -34,10 +36,12 @@ from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
     format_date,
     format_money,
+    format_money_compact,
     load_rate_book,
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
 )
 from lib.presentation.widgets.charts import (
@@ -53,6 +57,8 @@ from lib.presentation.widgets.transaction_tile import TransactionTile
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
+
+logger = logging.getLogger("finanse.presentation.pages.account_detail")
 
 
 class AccountDetailPage(ft.Column):
@@ -91,7 +97,7 @@ class AccountDetailPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload),
+                            on_click=lambda _e: run_async(page, self.reload, True),
                         ),
                     ],
                 ),
@@ -210,11 +216,8 @@ class AccountDetailPage(ft.Column):
         try:
             result = await sync.execute(self._account_id)
         except Exception as exc:  # noqa: BLE001
-            snack(
-                self._page,
-                tr("error.sync_failed", lang, detail=str(exc)[:240]),
-                error=True,
-            )
+            logger.warning("Account sync failed: %s", exc, exc_info=True)
+            snack(self._page, tr("error.sync_failed", lang), error=True)
             return
         finally:
             self._syncing = False
@@ -282,10 +285,14 @@ class AccountDetailPage(ft.Column):
                                 muted_text(f"{amount.normalize()} {asset}", size=11),
                             ],
                         ),
-                        ft.Text(
-                            format_money(value, currency),
-                            size=13,
-                            weight=ft.FontWeight.W_600,
+                        mark_money_text(
+                            ft.Text(
+                                format_money(value, currency),
+                                size=13,
+                                weight=ft.FontWeight.W_600,
+                            ),
+                            value,
+                            currency=currency,
                         ),
                     ],
                 )
@@ -336,10 +343,14 @@ class AccountDetailPage(ft.Column):
                             ),
                         ],
                     ),
-                    ft.Text(
-                        format_money(balance, currency),
-                        size=26,
-                        weight=ft.FontWeight.W_700,
+                    mark_money_text(
+                        ft.Text(
+                            format_money(balance, currency),
+                            size=26,
+                            weight=ft.FontWeight.W_700,
+                        ),
+                        balance,
+                        currency=currency,
                     ),
                     *([muted_text(base_line)] if base_line else []),
                 ],
@@ -348,7 +359,7 @@ class AccountDetailPage(ft.Column):
             padding=16,
         )
 
-    async def reload(self) -> None:
+    async def reload(self, animate: bool = False) -> None:
         """Load the account and rebuild KPIs / charts."""
         self._token = (
             self._state.accounts_token + self._state.transactions_token
@@ -386,7 +397,7 @@ class AccountDetailPage(ft.Column):
             if repo is not None:
                 link = await repo.get_by_account_id(account.id)
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._body.controls = [
                 EmptyState(tr("error.generic", lang), icon=ft.Icons.ERROR_OUTLINE)
             ]
@@ -438,6 +449,8 @@ class AccountDetailPage(ft.Column):
                         accent=amount_color(True, dark=dark),
                         expand=True,
                         dark=dark,
+                        amount=stats.ops_income,
+                        currency=currency,
                     ),
                     SummaryCard(
                         title=tr("dashboard.period_expense", lang, period=period_label),
@@ -446,6 +459,8 @@ class AccountDetailPage(ft.Column):
                         accent=amount_color(False, dark=dark),
                         expand=True,
                         dark=dark,
+                        amount=stats.ops_expense,
+                        currency=currency,
                     ),
                 ],
             ),
@@ -465,11 +480,16 @@ class AccountDetailPage(ft.Column):
                                     ),
                                     size=12,
                                 ),
-                                ft.Text(
-                                    format_money(net, currency),
-                                    size=16,
-                                    weight=ft.FontWeight.W_700,
-                                    color=net_accent,
+                                mark_money_text(
+                                    ft.Text(
+                                        format_money(net, currency),
+                                        size=16,
+                                        weight=ft.FontWeight.W_700,
+                                        color=net_accent,
+                                    ),
+                                    net,
+                                    currency=currency,
+                                    signed=True,
                                 ),
                             ],
                         ),
@@ -493,29 +513,66 @@ class AccountDetailPage(ft.Column):
                 card_surface(
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                        spacing=8,
                         controls=[
                             ft.Column(
+                                expand=True,
                                 spacing=2,
                                 tight=True,
                                 controls=[
-                                    muted_text(tr("account.stats.transfer_in", lang)),
-                                    ft.Text(
-                                        format_money(stats.transfer_in, currency),
-                                        weight=ft.FontWeight.W_700,
-                                        color=amount_color(True, dark=dark),
+                                    muted_text(
+                                        tr("account.stats.transfer_in", lang),
+                                        size=11,
+                                    ),
+                                    mark_money_text(
+                                        ft.Text(
+                                            format_money_compact(
+                                                stats.transfer_in, currency
+                                            ),
+                                            weight=ft.FontWeight.W_700,
+                                            size=13,
+                                            max_lines=2,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                            color=amount_color(True, dark=dark),
+                                            tooltip=format_money(
+                                                stats.transfer_in, currency
+                                            ),
+                                        ),
+                                        stats.transfer_in,
+                                        currency=currency,
+                                        compact=True,
                                     ),
                                 ],
                             ),
                             ft.Column(
+                                expand=True,
                                 spacing=2,
                                 tight=True,
                                 horizontal_alignment=ft.CrossAxisAlignment.END,
                                 controls=[
-                                    muted_text(tr("account.stats.transfer_out", lang)),
-                                    ft.Text(
-                                        format_money(stats.transfer_out, currency),
-                                        weight=ft.FontWeight.W_700,
-                                        color=amount_color(False, dark=dark),
+                                    muted_text(
+                                        tr("account.stats.transfer_out", lang),
+                                        size=11,
+                                    ),
+                                    mark_money_text(
+                                        ft.Text(
+                                            format_money_compact(
+                                                stats.transfer_out, currency
+                                            ),
+                                            weight=ft.FontWeight.W_700,
+                                            size=13,
+                                            max_lines=2,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                            text_align=ft.TextAlign.END,
+                                            color=amount_color(False, dark=dark),
+                                            tooltip=format_money(
+                                                stats.transfer_out, currency
+                                            ),
+                                        ),
+                                        stats.transfer_out,
+                                        currency=currency,
+                                        compact=True,
                                     ),
                                 ],
                             ),
@@ -534,6 +591,8 @@ class AccountDetailPage(ft.Column):
             )
             self._body.controls = controls
             safe_update(self._body)
+            if animate:
+                await play_count_ups(self._body, self._page)
             return
 
         pie_cats = stats.by_category[:6]
@@ -659,3 +718,5 @@ class AccountDetailPage(ft.Column):
             controls.append(TransactionTile(tx, language=lang))
         self._body.controls = controls
         safe_update(self._body)
+        if animate:
+            await play_count_ups(self._body, self._page)

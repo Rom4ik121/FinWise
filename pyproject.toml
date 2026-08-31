@@ -19,9 +19,11 @@ dependencies = [
   "platformdirs>=4.0.0",
   "alembic>=1.14.0",
   # Flet mobile index (pypi.flet.dev) currently ships cryptography 43.x only.
-  # Newer ccxt wants cryptography>=50 + coincurve — both break iOS/Android
-  # ``--only-binary`` packaging, so keep exchanges as an optional desktop extra.
+  # Pin ccxt below 4.5.65 so it does not require cryptography>=50.
+  # coincurve is only required for Python <=3.13; Android/iOS Serious Python
+  # is 3.14 so the marker skips it and packaging succeeds.
   "cryptography>=42,<50",
+  "ccxt>=4.4.0,<4.5.65",
   "flet-local-auth",
   "flet-local-notifications",
   "flet-speech",
@@ -30,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0"]
 exchange = [
-  # Desktop / CI with normal PyPI wheels. Not packaged into IPA/APK.
+  # Alias of the core pin (desktop / docs that still reference the extra).
   "ccxt>=4.4.0,<4.5.65",
 ]
 windows = [
@@ -47,6 +49,35 @@ description = "Personal finance tracker"
 
 [tool.flet.app]
 module = "main"
+# Serious Python packages the tree then compileall's it — keep junk out of APK/IPA/desktop.
+exclude = [
+  ".venv",
+  "venv",
+  ".git",
+  ".github",
+  ".cursor",
+  ".claude",
+  ".flet",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".tox",
+  ".hypothesis",
+  "htmlcov",
+  "__pycache__",
+  "tests",
+  "docs",
+  "scripts",
+  "agent-transcripts",
+  "agent-tools",
+  "build",
+  "dist",
+  "storage",
+  "secrets",
+  "AGENTS.md",
+  "pytest.ini",
+  "codemagic.yaml",
+]
 
 [tool.flet.deep_linking]
 scheme = "finwise"
@@ -59,7 +90,6 @@ flet-speech = "./extensions/flet_speech"
 
 [tool.flet.android.permission]
 "android.permission.USE_BIOMETRIC" = true
-"android.permission.USE_FINGERPRINT" = true
 "android.permission.POST_NOTIFICATIONS" = true
 "android.permission.VIBRATE" = true
 "android.permission.RECEIVE_BOOT_COMPLETED" = true
@@ -71,18 +101,21 @@ flet-speech = "./extensions/flet_speech"
 "android.permission.WRITE_EXTERNAL_STORAGE" = true
 "android.permission.READ_MEDIA_IMAGES" = true
 
+[tool.flet.android]
+adaptive_icon_background = "#0B1220"
+
 [tool.flet.flutter.pubspec.dependencies]
 local_auth = "^2.3.0"
 local_auth_android = "^1.0.46"
 local_auth_darwin = "^1.4.1"
-speech_to_text = "^6.6.2"
+speech_to_text = "^7.4.0"
 url_launcher = "^6.2.5"
 
 [tool.flet.splash]
-color = "#000000"
-dark_color = "#000000"
-icon_bgcolor = "#000000"
-icon_dark_bgcolor = "#000000"
+color = "#0B1220"
+dark_color = "#0B1220"
+icon_bgcolor = "#0B1220"
+icon_dark_bgcolor = "#0B1220"
 
 # Fill team_id after joining Apple Developer Program (Membership → Team ID).
 # Ad Hoc / development profiles must include your iPhone 12 UDID.

@@ -13,6 +13,10 @@ from lib.infrastructure.services.secret_box import master_key_path
 
 logger = logging.getLogger("finanse.infrastructure.services.backup")
 
+# Single rolling file updated at most once per local calendar day on every device.
+DAILY_BACKUP_NAME = "finanse_daily.db"
+DAILY_STAMP_NAME = "finanse_daily.day"
+
 
 class BackupServiceError(Exception):
     """Raised when backup or restore fails."""
@@ -38,6 +42,16 @@ class BackupService:
     def backup_dir(self) -> Path:
         return self._config.backup_dir
 
+    @property
+    def daily_backup_path(self) -> Path:
+        """Fixed path for the once-per-day rolling backup."""
+        return self.backup_dir / DAILY_BACKUP_NAME
+
+    @property
+    def daily_stamp_path(self) -> Path:
+        """Sidecar with ``YYYY-MM-DD`` of the last successful daily backup."""
+        return self.backup_dir / DAILY_STAMP_NAME
+
     def backup(self, *, label: Optional[str] = None) -> Path:
         """Create a timestamped copy of the database.
 
@@ -60,7 +74,6 @@ class BackupService:
         target = self.backup_dir / f"finanse_{stamp}{suffix}.db"
 
         try:
-            # Also copy WAL/SHM sidecars when present for a consistent snapshot.
             self._copy_sqlite_bundle(source, target)
             self._copy_secret_key(target)
             logger.info("Database backed up to %s", target)
@@ -68,6 +81,59 @@ class BackupService:
         except OSError as exc:
             logger.exception("Backup failed")
             raise BackupServiceError(f"Backup failed: {exc}") from exc
+
+    def today_local(self) -> str:
+        """Local calendar day used for the daily-backup gate."""
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def last_daily_backup_day(self) -> Optional[str]:
+        """Return the stamped day of the last daily backup, if any."""
+        stamp = self.daily_stamp_path
+        if not stamp.is_file():
+            return None
+        try:
+            text = stamp.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        return text or None
+
+    def needs_daily_backup(self) -> bool:
+        """True when today's rolling backup has not been written yet."""
+        return self.last_daily_backup_day() != self.today_local()
+
+    def ensure_daily_backup(self, *, force: bool = False) -> Optional[Path]:
+        """Overwrite ``finanse_daily.db`` at most once per local day.
+
+        Returns the backup path when a write happened, or ``None`` if skipped.
+        Safe to call on every launch / hourly — does not create dated copies.
+        """
+        if not force and not self.needs_daily_backup():
+            logger.debug(
+                "Daily backup already done for %s — skip",
+                self.today_local(),
+            )
+            return None
+
+        source = self.db_path
+        if not source.exists():
+            logger.error("Cannot daily-backup; database not found at %s", source)
+            raise BackupServiceError(f"Database not found: {source}")
+
+        target = self.daily_backup_path
+        try:
+            self._remove_sqlite_sidecars(target)
+            key_side = Path(str(target) + ".key")
+            if key_side.exists():
+                key_side.unlink()
+            self._copy_sqlite_bundle(source, target)
+            self._copy_secret_key(target)
+            day = self.today_local()
+            self.daily_stamp_path.write_text(day + "\n", encoding="utf-8")
+            logger.info("Daily backup updated at %s (day=%s)", target, day)
+            return target
+        except OSError as exc:
+            logger.exception("Daily backup failed")
+            raise BackupServiceError(f"Daily backup failed: {exc}") from exc
 
     def restore(self, backup_path: Path | str, *, make_safety_copy: bool = True) -> Path:
         """Restore the database from a backup file.
@@ -99,7 +165,7 @@ class BackupService:
             raise BackupServiceError(f"Restore failed: {exc}") from exc
 
     def list_backups(self) -> list[Path]:
-        """Return backup files newest first."""
+        """Return backup files newest first (includes daily rolling file)."""
         return sorted(
             self.backup_dir.glob("finanse_*.db"),
             key=lambda p: p.stat().st_mtime,
@@ -116,6 +182,8 @@ class BackupService:
                 key_side.unlink()
             if path.exists():
                 path.unlink()
+            if path.name == DAILY_BACKUP_NAME and self.daily_stamp_path.exists():
+                self.daily_stamp_path.unlink()
             logger.info("Deleted backup %s", path)
         except OSError as exc:
             logger.exception("Failed to delete backup %s", path)
@@ -148,11 +216,13 @@ class BackupService:
     def _copy_sqlite_bundle(source: Path, target: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
-        # SQLite uses ``file.db-wal`` / ``file.db-shm``.
         for sidecar_suffix in ("-wal", "-shm"):
             src_side = Path(str(source) + sidecar_suffix)
+            dst_side = Path(str(target) + sidecar_suffix)
             if src_side.exists():
-                shutil.copy2(src_side, Path(str(target) + sidecar_suffix))
+                shutil.copy2(src_side, dst_side)
+            elif dst_side.exists():
+                dst_side.unlink()
 
     @staticmethod
     def _remove_sqlite_sidecars(db_path: Path) -> None:

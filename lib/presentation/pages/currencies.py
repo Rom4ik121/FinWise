@@ -17,6 +17,7 @@ from lib.presentation.utils import (
     safe_convert,
     safe_update,
     snack,
+    snack_exception,
     tr,
 )
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -129,6 +130,9 @@ class CurrenciesPage(ft.Column):
             bgcolor=ft.Colors.SURFACE,
         )
         self._amount.on_submit = lambda _e: run_async(page, self._recalculate)
+        from lib.presentation.form_keyboard import wire_field_chain
+
+        wire_field_chain(page, [self._amount])
         self._from_picker = CurrencyTickerPicker(
             page,
             lang=lang,
@@ -175,6 +179,10 @@ class CurrenciesPage(ft.Column):
             on_change=lambda _e: self._render_lists(),
             on_submit=lambda _e: self._apply_search_to_converter(),
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(self._list_search, "search")
+        wire_field_chain(page, [self._list_search])
         self._base_caption = muted_text("", size=11)
         self._rates_list = ft.ListView(
             expand=True,
@@ -458,7 +466,7 @@ class CurrenciesPage(ft.Column):
             elif repo is not None and hasattr(repo, "list_all_rates"):
                 rates = await repo.list_all_rates()
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._rates_list.controls = [EmptyState(tr("error.generic", lang))]
             try:
                 safe_update(self._rates_list)
@@ -508,5 +516,5 @@ class CurrenciesPage(ft.Column):
             invalidate_rate_book_cache()
             snack(self._page, tr("action.saved", lang))
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
         await self.reload()

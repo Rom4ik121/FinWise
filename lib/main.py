@@ -20,6 +20,7 @@ logger = logging.getLogger("finanse.main")
 
 _rate_task: Optional[asyncio.Future[Any]] = None
 _reminder_task: Optional[asyncio.Future[Any]] = None
+_daily_backup_task: Optional[asyncio.Future[Any]] = None
 
 
 async def _seed_if_needed(container: Container) -> None:
@@ -133,6 +134,24 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
     return hour, minute
 
 
+async def _daily_backup_loop(container: Container) -> None:
+    """Refresh the single rolling ``finanse_daily.db`` at most once per local day."""
+    from lib.infrastructure.services.backup_service import BackupService
+
+    while True:
+        try:
+            path = await asyncio.to_thread(
+                BackupService(container.config).ensure_daily_backup
+            )
+            if path is not None:
+                logger.info("Daily backup refreshed: %s", path)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("Daily backup check failed")
+        await asyncio.sleep(60 * 60)
+
+
 async def _reminder_loop(container: Container) -> None:
     """Daily in-app reminder sweep for debts and subscriptions."""
     last_run_date: Optional[str] = None
@@ -190,12 +209,17 @@ async def _reminder_loop(container: Container) -> None:
 
 async def _flet_main(page: ft.Page) -> None:
     """Async Flet target: wire container, background task, UI."""
-    global _rate_task, _reminder_task
+    global _rate_task, _reminder_task, _daily_backup_task
 
     from lib.presentation.widgets.splash_screen import build_launch_splash
 
+    # Match native splash / classic dark shell so phones never flash white.
     page.padding = 0
-    page.bgcolor = "#000000"
+    page.bgcolor = "#0B1220"
+    try:
+        page.theme_mode = ft.ThemeMode.DARK
+    except Exception:  # noqa: BLE001
+        pass
     page.add(build_launch_splash())
     page.update()
 
@@ -205,30 +229,17 @@ async def _flet_main(page: ft.Page) -> None:
     container = build_container(config, init_database=False)
     await _seed_if_needed(container)
 
-    from lib.infrastructure.services.reminder_scheduler import schedule_reminders
-
     if _rate_task is None or _rate_task.done():
         _rate_task = page.run_task(_exchange_rate_loop, container)
     if _reminder_task is None or _reminder_task.done():
         _reminder_task = page.run_task(_reminder_loop, container)
-
-    try:
-        if container.process_due_subscriptions is not None:
-            settings = await container.get_settings.execute()
-            await container.process_due_subscriptions.execute(
-                language=normalize_lang(settings.language),
-                notifier=container.notification_service,
-            )
-    except Exception:  # noqa: BLE001
-        logger.exception("process_due_subscriptions failed")
+    if _daily_backup_task is None or _daily_backup_task.done():
+        _daily_backup_task = page.run_task(_daily_backup_loop, container)
 
     app = FinanseApp(page, container)
 
     from lib.infrastructure.services.biometric import register_local_auth_service
-    from lib.infrastructure.services.push_notifier import (
-        register_android_notifications,
-        request_push_permissions,
-    )
+    from lib.infrastructure.services.push_notifier import register_android_notifications
     from lib.infrastructure.services.speech import register_speech_service
 
     # Keep the splash visible — do not clear the page before the shell is ready.
@@ -236,23 +247,49 @@ async def _flet_main(page: ft.Page) -> None:
     register_android_notifications(page)
     register_speech_service(page)
 
-    try:
-        settings = await container.get_settings.execute()
-        if settings.notifications_enabled:
-            try:
-                granted = await request_push_permissions()
-                logger.info("Push permission granted=%s", granted)
-            except Exception:  # noqa: BLE001
-                logger.exception("Push permission request failed")
-        await schedule_reminders(
-            container,
-            settings,
-            language=normalize_lang(settings.language),
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("Startup reminder scheduling failed")
-
     await app.start()
+
+    # Heavy startup work after first frame (faster perceived launch on phones).
+    async def _post_start() -> None:
+        from lib.infrastructure.services.backup_service import BackupService
+        from lib.infrastructure.services.reminder_scheduler import schedule_reminders
+        from lib.infrastructure.services.push_notifier import request_push_permissions
+
+        try:
+            path = await asyncio.to_thread(
+                BackupService(container.config).ensure_daily_backup
+            )
+            if path is not None:
+                logger.info("Daily backup refreshed on start: %s", path)
+        except Exception:  # noqa: BLE001
+            logger.exception("Startup daily backup failed")
+
+        try:
+            if container.process_due_subscriptions is not None:
+                settings = await container.get_settings.execute()
+                await container.process_due_subscriptions.execute(
+                    language=normalize_lang(settings.language),
+                    notifier=container.notification_service,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("process_due_subscriptions failed")
+        try:
+            settings = await container.get_settings.execute()
+            if settings.notifications_enabled:
+                try:
+                    granted = await request_push_permissions()
+                    logger.info("Push permission granted=%s", granted)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Push permission request failed")
+            await schedule_reminders(
+                container,
+                settings,
+                language=normalize_lang(settings.language),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Startup reminder scheduling failed")
+
+    page.run_task(_post_start)
 
 
 def run(config: Optional[AppConfig] = None) -> None:

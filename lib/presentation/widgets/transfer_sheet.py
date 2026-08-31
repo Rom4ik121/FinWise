@@ -15,6 +15,12 @@ from lib.presentation.money_input import (
     parse_amount,
     parse_optional_amount,
 )
+from lib.presentation.dropdown_options import (
+    account_dropdown_option,
+    account_dropdown_options,
+    icon_dropdown_option,
+)
+from lib.presentation.styles import form_hint, form_section
 from lib.presentation.utils import (
     bind_dropdown_select,
     format_money,
@@ -22,20 +28,13 @@ from lib.presentation.utils import (
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
 )
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
-
-_DOMAIN_ERROR_KEYS = {
-    "Cannot transfer to the same account": "transfer.same_account",
-    "Insufficient funds": "transfer.insufficient",
-    "No exchange rate for this currency pair": "transfer.no_rate",
-    "Transfer amount must be positive": "invalid_amount",
-    "Fee cannot be negative": "invalid_amount",
-}
 
 
 def open_transfer(
@@ -58,7 +57,7 @@ def open_transfer(
                 await state.container.list_accounts.execute(active_only=True)
             )
         except Exception as exc:  # noqa: BLE001
-            snack(page, str(exc), error=True)
+            snack_exception(page, exc, lang=lang)
             return
         if not loaded and accounts:
             loaded = list(accounts)
@@ -79,9 +78,7 @@ async def _show_form(
 ) -> None:
     lang = state.language
     book = await load_rate_book(state.container)
-    options = [
-        ft.DropdownOption(key=a.id, text=f"{a.name} ({a.currency})") for a in accounts
-    ]
+    options = account_dropdown_options(accounts)
     from_dd = ft.Dropdown(
         label=tr("transfer.from", lang),
         value=accounts[0].id,
@@ -91,7 +88,7 @@ async def _show_form(
     to_dd = ft.Dropdown(
         label=tr("transfer.to", lang),
         value=accounts[1].id,
-        options=options,
+        options=list(options),
         expand=True,
     )
     amount_tf = make_amount_field(
@@ -105,20 +102,51 @@ async def _show_form(
         label=tr("field.fee", lang),
         expand=True,
     )
-    fee_hint = ft.Text(
-        tr("field.fee_hint", lang),
-        size=11,
-        color=ft.Colors.ON_SURFACE_VARIANT,
+    fee_account_dd = ft.Dropdown(
+        label=tr("transfer.fee_account", lang),
+        value=accounts[0].id,
+        options=list(options),
+        expand=True,
     )
-    convert_hint = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+    fee_hint = form_hint(tr("field.fee_hint", lang), size=11)
+    convert_hint = form_hint("")
     comment_tf = ft.TextField(label=tr("field.comment", lang), expand=True)
+    from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+    configure_field(comment_tf, "text")
+    wire_field_chain(page, [amount_tf, fee_tf, comment_tf])
 
     def _account(account_id: str | None) -> Account:
         return next((a for a in accounts if a.id == account_id), accounts[0])
 
+    def _sync_fee_account_options() -> None:
+        """Offer from/to first, then the rest of active accounts."""
+        source = _account(from_dd.value)
+        dest = _account(to_dd.value)
+        ordered: list[Account] = []
+        seen: set[str] = set()
+        for account in (source, dest, *accounts):
+            if account.id in seen:
+                continue
+            seen.add(account.id)
+            ordered.append(account)
+        fee_account_dd.options = [
+            account_dropdown_option(a) for a in ordered
+        ]
+        if fee_account_dd.value not in seen:
+            fee_account_dd.value = source.id
+        fee_acc = _account(fee_account_dd.value)
+        fee_tf.label = f"{tr('field.fee', lang)} ({fee_acc.currency})"
+        try:
+            safe_update(fee_account_dd)
+            safe_update(fee_tf)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _refresh_hint(_e: ft.ControlEvent | None = None) -> None:
         source = _account(from_dd.value)
         dest = _account(to_dd.value)
+        fee_acc = _account(fee_account_dd.value)
         try:
             amount = parse_amount(amount_tf.value)
             fee = parse_optional_amount(fee_tf.value)
@@ -154,24 +182,45 @@ async def _show_form(
                 lang,
                 amount=format_money(credit, dest.currency),
                 account=dest.name,
-            )
+            ),
+            tr(
+                "transfer.will_debit",
+                lang,
+                total=format_money(amount, source.currency),
+            ),
         ]
         if fee > 0:
             lines.append(
                 tr(
-                    "transfer.will_debit",
+                    "transfer.will_fee",
                     lang,
-                    total=format_money(amount + fee, source.currency),
+                    amount=format_money(fee, fee_acc.currency),
+                    account=fee_acc.name,
                 )
             )
         convert_hint.value = "\n".join(lines)
         convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
         safe_update(convert_hint)
 
+    def _on_accounts_changed(_e: ft.ControlEvent | None = None) -> None:
+        _sync_fee_account_options()
+        _refresh_hint()
+
+    def _on_fee_account_changed(_e: ft.ControlEvent | None = None) -> None:
+        fee_acc = _account(fee_account_dd.value)
+        fee_tf.label = f"{tr('field.fee', lang)} ({fee_acc.currency})"
+        try:
+            safe_update(fee_tf)
+        except Exception:  # noqa: BLE001
+            pass
+        _refresh_hint()
+
     attach_grouped_digits(amount_tf, lang, extra_on_change=_refresh_hint)
     attach_grouped_digits(fee_tf, lang, extra_on_change=_refresh_hint)
-    bind_dropdown_select(from_dd, _refresh_hint)
-    bind_dropdown_select(to_dd, _refresh_hint)
+    bind_dropdown_select(from_dd, _on_accounts_changed)
+    bind_dropdown_select(to_dd, _on_accounts_changed)
+    bind_dropdown_select(fee_account_dd, _on_fee_account_changed)
+    _sync_fee_account_options()
 
     async def _save() -> None:
         try:
@@ -184,6 +233,7 @@ async def _show_form(
             return
         source = _account(from_dd.value)
         dest = _account(to_dd.value)
+        fee_acc = _account(fee_account_dd.value)
         if source.id == dest.id:
             snack(page, tr("transfer.same_account", lang), error=True)
             return
@@ -194,10 +244,10 @@ async def _show_form(
                 amount=amount,
                 comment=comment_tf.value or "",
                 fee=fee,
+                fee_account_id=fee_acc.id if fee > 0 else None,
             )
         except Exception as exc:  # noqa: BLE001
-            key = _DOMAIN_ERROR_KEYS.get(str(exc))
-            snack(page, tr(key, lang) if key else str(exc), error=True)
+            snack_exception(page, exc, lang=lang)
             return
         close()
         state.bump_refresh("dashboard", "transactions", "accounts", "budgets")
@@ -207,9 +257,31 @@ async def _show_form(
 
     close = open_fullscreen_form(
         page,
-        title=tr("transfers.title", lang),
+        title=tr("transfers.title_short", lang),
         lang=lang,
         overlay_key="transfer_editor",
-        body=[from_dd, to_dd, amount_tf, fee_tf, fee_hint, convert_hint, comment_tf],
+        wrap_body=False,
+        body=[
+            form_section(
+                tr("form.section.route", lang),
+                [from_dd, to_dd],
+                icon=ft.Icons.SWAP_HORIZ,
+            ),
+            form_section(
+                tr("form.section.amount", lang),
+                [amount_tf, convert_hint],
+                icon=ft.Icons.PAYMENTS,
+            ),
+            form_section(
+                tr("form.section.fee", lang),
+                [fee_tf, fee_account_dd, fee_hint],
+                icon=ft.Icons.RECEIPT_LONG,
+            ),
+            form_section(
+                tr("form.section.details", lang),
+                [comment_tf],
+                icon=ft.Icons.NOTES,
+            ),
+        ],
         on_save=_save,
     )

@@ -19,8 +19,19 @@ from lib.presentation.notification_badges import (
     mark_related_read,
     pending_related_ids,
 )
+from lib.presentation.dropdown_options import (
+    account_dropdown_options,
+    icon_dropdown_option,
+)
 from lib.presentation.money_input import make_amount_field, parse_amount
-from lib.presentation.styles import card_surface, muted_text, page_header, summary_strip
+from lib.presentation.styles import (
+    card_surface,
+    form_hint,
+    form_section,
+    muted_text,
+    page_header,
+    summary_strip,
+)
 from lib.presentation.utils import (
     bind_dropdown_select,
     format_date,
@@ -29,6 +40,7 @@ from lib.presentation.utils import (
     run_async,
     safe_update,
     snack,
+    snack_exception,
     tr,
 )
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
@@ -123,7 +135,7 @@ class SubscriptionsPage(ft.Column):
             )
             items = await self._state.container.list_subscriptions.execute()
         except Exception as exc:  # noqa: BLE001
-            snack(self._page, str(exc), error=True)
+            snack_exception(self._page, exc, lang=self._state.language)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
             safe_update(self._list)
             return
@@ -243,7 +255,7 @@ class SubscriptionsPage(ft.Column):
                     offset=0,
                 )
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=self._state.language)
                 return
 
             has_more = len(txs) > _CHARGE_PAGE
@@ -322,7 +334,7 @@ class SubscriptionsPage(ft.Column):
                             error=True,
                         )
                         return
-                    snack(self._page, str(exc), error=True)
+                    snack_exception(self._page, exc, lang=self._state.language)
                     return
                 self._state.bump_refresh("dashboard", "subscriptions")
                 snack(self._page, tr("action.saved", lang))
@@ -511,7 +523,7 @@ class SubscriptionsPage(ft.Column):
                     active_only=True
                 )
             except Exception as exc:  # noqa: BLE001
-                snack(self._page, str(exc), error=True)
+                snack_exception(self._page, exc, lang=lang)
                 return
         if not self._accounts:
             snack(self._page, tr("empty.accounts", lang), error=True)
@@ -520,6 +532,9 @@ class SubscriptionsPage(ft.Column):
         name_tf = ft.TextField(
             label=tr("field.name", lang), value=sub.name if sub else ""
         )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(name_tf, "name")
         amount_tf = make_amount_field(
             lang,
             label=tr("field.amount", lang),
@@ -528,18 +543,26 @@ class SubscriptionsPage(ft.Column):
         account_dd = ft.Dropdown(
             label=tr("field.account", lang),
             value=sub.account_id if sub else self._accounts[0].id,
-            options=[
-                ft.DropdownOption(key=a.id, text=f"{a.name} ({a.currency})")
-                for a in self._accounts
-            ],
+            options=account_dropdown_options(self._accounts),
         )
+        _period_icons = {
+            Periodicity.DAILY: ft.Icons.TODAY,
+            Periodicity.WEEKLY: ft.Icons.DATE_RANGE,
+            Periodicity.BIWEEKLY: ft.Icons.DATE_RANGE,
+            Periodicity.MONTHLY: ft.Icons.CALENDAR_MONTH,
+            Periodicity.QUARTERLY: ft.Icons.CALENDAR_VIEW_MONTH,
+            Periodicity.SEMI_ANNUAL: ft.Icons.CALENDAR_VIEW_MONTH,
+            Periodicity.YEARLY: ft.Icons.EVENT_AVAILABLE,
+            Periodicity.CUSTOM: ft.Icons.TUNE,
+        }
         period_dd = ft.Dropdown(
             label=tr("field.period", lang),
             value=(sub.periodicity.value if sub else Periodicity.MONTHLY.value),
             options=[
-                ft.DropdownOption(
-                    key=p.value,
-                    text=periodicity_label(p, lang),
+                icon_dropdown_option(
+                    p.value,
+                    periodicity_label(p, lang),
+                    _period_icons.get(p, ft.Icons.EVENT),
                 )
                 for p in _PERIOD_OPTIONS
             ],
@@ -551,9 +574,9 @@ class SubscriptionsPage(ft.Column):
                 if sub and sub.custom_interval_days
                 else ""
             ),
-            keyboard_type=ft.KeyboardType.NUMBER,
             visible=(sub.periodicity == Periodicity.CUSTOM) if sub else False,
         )
+        configure_field(custom_tf, "number")
         start_field = DateTimeField(
             self._page,
             lang=lang,
@@ -583,7 +606,12 @@ class SubscriptionsPage(ft.Column):
             value=(
                 str(sub.max_payments) if sub and sub.max_payments is not None else ""
             ),
-            keyboard_type=ft.KeyboardType.NUMBER,
+            border_radius=14,
+            filled=True,
+        )
+        configure_field(max_payments_tf, "number")
+        wire_field_chain(
+            self._page, [name_tf, amount_tf, custom_tf, max_payments_tf]
         )
         next_field = DateTimeField(
             self._page,
@@ -591,13 +619,19 @@ class SubscriptionsPage(ft.Column):
             label=tr("field.date", lang),
             value=(sub.next_billing_date if sub else datetime.now(timezone.utc)),
         )
+        _status_icons = {
+            SubscriptionStatus.ACTIVE: ft.Icons.CHECK_CIRCLE_OUTLINE,
+            SubscriptionStatus.PAUSED: ft.Icons.PAUSE_CIRCLE_OUTLINE,
+            SubscriptionStatus.CANCELLED: ft.Icons.CANCEL_OUTLINED,
+        }
         status_dd = ft.Dropdown(
             label=tr("field.active", lang),
             value=(sub.status.value if sub else SubscriptionStatus.ACTIVE.value),
             options=[
-                ft.DropdownOption(
-                    key=s.value,
-                    text=tr(f"subscription.status.{s.value}", lang),
+                icon_dropdown_option(
+                    s.value,
+                    tr(f"subscription.status.{s.value}", lang),
+                    _status_icons.get(s, ft.Icons.CIRCLE_OUTLINED),
                 )
                 for s in (
                     SubscriptionStatus.ACTIVE,
@@ -708,30 +742,38 @@ class SubscriptionsPage(ft.Column):
             await self.reload()
             snack(self._page, tr("action.saved", lang))
 
-        body = ft.Column(
-            tight=True,
-            spacing=10,
-            scroll=ft.ScrollMode.HIDDEN,
-            controls=[
-                name_tf,
-                amount_tf,
-                account_dd,
-                period_dd,
-                custom_tf,
-                start_field,
-                end_field,
-                max_payments_tf,
-                next_field,
-                status_dd,
-                auto_sw,
-            ],
-        )
+        body = [
+            form_section(
+                tr("form.section.main", lang),
+                [name_tf, amount_tf, account_dd],
+                icon=ft.Icons.AUTORENEW,
+            ),
+            form_section(
+                tr("form.section.schedule", lang),
+                [
+                    period_dd,
+                    custom_tf,
+                    start_field,
+                    end_field,
+                    max_payments_tf,
+                    form_hint(tr("subscription.max_payments_hint", lang), size=11),
+                    next_field,
+                ],
+                icon=ft.Icons.EVENT,
+            ),
+            form_section(
+                tr("form.section.options", lang),
+                [status_dd, auto_sw],
+                icon=ft.Icons.TUNE,
+            ),
+        ]
         close = open_fullscreen_form(
             self._page,
             title=tr("action.edit", lang) if sub else tr("action.add", lang),
             lang=lang,
             overlay_key="subscription_editor",
-            body=[body],
+            wrap_body=False,
+            body=body,
             on_save=_save,
         )
         close_holder["close"] = close

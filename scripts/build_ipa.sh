@@ -28,6 +28,36 @@ fi
 
 python3 -m pip install -U "flet[all]" -r requirements.txt
 
+# Keep tests/docs/scripts/caches out of the IPA (same list as pyproject / APK).
+EXCLUDE=(
+  --exclude build
+  --exclude dist
+  --exclude storage
+  --exclude secrets
+  --exclude .venv
+  --exclude venv
+  --exclude .git
+  --exclude .github
+  --exclude .cursor
+  --exclude .claude
+  --exclude .flet
+  --exclude .pytest_cache
+  --exclude .mypy_cache
+  --exclude .ruff_cache
+  --exclude .tox
+  --exclude .hypothesis
+  --exclude htmlcov
+  --exclude __pycache__
+  --exclude tests
+  --exclude docs
+  --exclude scripts
+  --exclude agent-transcripts
+  --exclude agent-tools
+  --exclude AGENTS.md
+  --exclude pytest.ini
+  --exclude codemagic.yaml
+)
+
 ARGS=(
   build ipa
   --org com.finanse.app
@@ -36,6 +66,10 @@ ARGS=(
   --ios-team-id "$TEAM_ID"
   --ios-export-method "$EXPORT_METHOD"
   --ios-signing-certificate "$CERT"
+  --splash-color "#000000"
+  --splash-dark-color "#000000"
+  --yes
+  "${EXCLUDE[@]}"
 )
 
 if [[ -n "$PROFILE" ]]; then

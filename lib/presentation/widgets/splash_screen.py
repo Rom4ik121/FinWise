@@ -2,77 +2,58 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import flet as ft
 
 from lib.presentation.utils import tr
 
-_SPLASH_BG = "#000000"
-_SPLASH_BG_TOP = "#0A0A0A"
-_ACCENT = "#FFFFFF"
-_TAGLINE_KEY = "app.tagline"
-
-
-def _icon_asset_path() -> str | None:
-    """Return a path/URL usable by ``ft.Image`` in desktop and packaged mobile builds."""
-    rel = Path("assets") / "icon.png"
-    if rel.is_file():
-        return str(rel.resolve())
-    bundled = Path(__file__).resolve().parents[2] / "assets" / "icon.png"
-    if bundled.is_file():
-        return str(bundled)
-    return None
+# Match classic dark shell (same atmosphere as the main app).
+_SPLASH_TOP = "#0B1220"
+_SPLASH_MID = "#121A2B"
+_SPLASH_BOTTOM = "#0B1220"
+_FG = "#FFFFFF"
 
 
 def build_launch_splash(*, language: str = "ru") -> ft.Control:
-    """Full-screen splash with icon, app name, and loading indicator."""
-    icon_path = _icon_asset_path()
-    icon_control: ft.Control
-    if icon_path:
-        icon_control = ft.Image(
-            src=icon_path,
-            width=220,
-            height=220,
-            fit=ft.BoxFit.CONTAIN,
-        )
-    else:
-        icon_control = ft.Icon(ft.Icons.ACCOUNT_BALANCE_WALLET, size=168, color=_ACCENT)
-
+    """Splash: app gradient, Material wallet icon, FinWise, loader — no tagline."""
     return ft.Container(
         expand=True,
+        bgcolor=_SPLASH_BOTTOM,
         gradient=ft.LinearGradient(
-            begin=ft.Alignment(0, -1),
-            end=ft.Alignment(0, 1),
-            colors=[_SPLASH_BG_TOP, _SPLASH_BG],
+            begin=ft.Alignment.TOP_LEFT,
+            end=ft.Alignment.BOTTOM_RIGHT,
+            colors=[_SPLASH_TOP, _SPLASH_MID, _SPLASH_BOTTOM],
         ),
         alignment=ft.Alignment.CENTER,
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=16,
+            tight=True,
             controls=[
-                icon_control,
+                ft.Icon(
+                    ft.Icons.ACCOUNT_BALANCE_WALLET,
+                    size=120,
+                    color=_FG,
+                ),
                 ft.Text(
                     tr("app.name", language),
                     size=36,
                     weight=ft.FontWeight.W_700,
-                    color=ft.Colors.WHITE,
+                    color=_FG,
                 ),
                 ft.Container(
                     width=72,
-                    height=4,
+                    height=3,
                     border_radius=2,
-                    bgcolor=_ACCENT,
+                    bgcolor=_FG,
                 ),
-                ft.Text(
-                    tr(_TAGLINE_KEY, language),
-                    size=15,
-                    color="#A0A0A0",
-                    text_align=ft.TextAlign.CENTER,
+                ft.Container(height=20),
+                ft.ProgressRing(
+                    width=34,
+                    height=34,
+                    color=_FG,
+                    stroke_width=3,
                 ),
-                ft.Container(height=28),
-                ft.ProgressRing(width=34, height=34, color=_ACCENT, stroke_width=3),
             ],
         ),
     )
