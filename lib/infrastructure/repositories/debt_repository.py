@@ -13,7 +13,7 @@ from sqlalchemy import select
 from lib.domain.entities.debt import Debt, DebtDirection, DebtStatus
 from lib.domain.repositories.debt_repository import DebtRepository
 from lib.infrastructure.db_models import DebtModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, in_unit_of_work, session_scope
 
 logger = logging.getLogger("finanse.infrastructure.repositories.debt")
 
@@ -135,15 +135,23 @@ class SqlAlchemyDebtRepository(DebtRepository):
         self._session_factory = session_factory
 
     async def create(self, debt: Debt) -> Debt:
+        if in_unit_of_work():
+            return self._create_sync(debt)
         return await asyncio.to_thread(self._create_sync, debt)
 
     async def update(self, debt: Debt) -> Debt:
+        if in_unit_of_work():
+            return self._update_sync(debt)
         return await asyncio.to_thread(self._update_sync, debt)
 
     async def delete(self, debt_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(debt_id)
         return await asyncio.to_thread(self._delete_sync, debt_id)
 
     async def get_by_id(self, debt_id: str) -> Optional[Debt]:
+        if in_unit_of_work():
+            return self._get_by_id_sync(debt_id)
         return await asyncio.to_thread(self._get_by_id_sync, debt_id)
 
     async def list(
@@ -154,6 +162,8 @@ class SqlAlchemyDebtRepository(DebtRepository):
         currency: Optional[str] = None,
         sort_by: str = "due_date",
     ) -> list[Debt]:
+        if in_unit_of_work():
+            return self._list_sync(status, direction, currency, sort_by)
         return await asyncio.to_thread(
             self._list_sync, status, direction, currency, sort_by
         )

@@ -452,3 +452,75 @@ def test_subscription_charge_converts_currency(container) -> None:
         assert refreshed.payments_made == 1
 
     run_async(_run())
+
+
+def test_delete_charge_restores_paused_not_active(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="500"))
+        due = datetime.now(timezone.utc)
+        sub = await container.create_subscription.execute(
+            make_subscription(
+                acc.id,
+                amount="25",
+                next_billing=due,
+                max_payments=1,
+            )
+        )
+        await container.pause_subscription.execute(sub.id)
+        if container.append_subscription_audit is not None:
+            await container.append_subscription_audit.execute(sub.id, "pause")
+        tx = await container.charge_subscription_now.execute(
+            sub.id, check_balance=False
+        )
+        expired = await container.subscription_repository.get_by_id(sub.id)
+        assert expired is not None
+        assert expired.status == SubscriptionStatus.EXPIRED
+        if container.append_subscription_audit is not None:
+            await container.append_subscription_audit.execute(sub.id, "charge")
+
+        assert await container.delete_subscription_charge.execute(
+            tx.id, subscription_id=sub.id
+        )
+        restored = await container.subscription_repository.get_by_id(sub.id)
+        assert restored is not None
+        assert restored.status == SubscriptionStatus.PAUSED
+        assert restored.is_active is False
+        assert restored.payments_made == 0
+
+    run_async(_run())
+
+
+def test_delete_charge_restores_pause_via_editor_update(container) -> None:
+    """ACTIVE→PAUSED through update_subscription must audit as pause."""
+
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="500"))
+        due = datetime.now(timezone.utc)
+        sub = await container.create_subscription.execute(
+            make_subscription(
+                acc.id,
+                amount="25",
+                next_billing=due,
+                max_payments=1,
+            )
+        )
+        paused = await container.update_subscription.execute(
+            sub.model_copy(update={"status": SubscriptionStatus.PAUSED})
+        )
+        assert paused.status == SubscriptionStatus.PAUSED
+        tx = await container.charge_subscription_now.execute(
+            sub.id, check_balance=False
+        )
+        expired = await container.subscription_repository.get_by_id(sub.id)
+        assert expired is not None
+        assert expired.status == SubscriptionStatus.EXPIRED
+
+        assert await container.delete_subscription_charge.execute(
+            tx.id, subscription_id=sub.id
+        )
+        restored = await container.subscription_repository.get_by_id(sub.id)
+        assert restored is not None
+        assert restored.status == SubscriptionStatus.PAUSED
+        assert restored.is_active is False
+
+    run_async(_run())

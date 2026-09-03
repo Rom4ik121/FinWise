@@ -89,6 +89,53 @@ def goal_credit_amount(transaction: Transaction) -> Decimal:
     return quantize_money(transaction.amount)
 
 
+GOAL_ALLOC_TAG_PREFIX = "goal_alloc:"
+
+
+def encode_goal_allocation_tags(allocations: dict[str, Decimal]) -> list[str]:
+    """Serialize per-item contribution splits into transaction tags."""
+    tags: list[str] = []
+    for item_id, amount in sorted(allocations.items()):
+        amt = quantize_money(amount)
+        if amt <= 0:
+            continue
+        tags.append(f"{GOAL_ALLOC_TAG_PREFIX}{item_id}:{amt}")
+    return tags
+
+
+def parse_goal_allocation_tags(tags: list[str] | None) -> dict[str, Decimal] | None:
+    """Parse per-item splits from tags; ``None`` when no allocation tags exist."""
+    found: dict[str, Decimal] = {}
+    for tag in tags or []:
+        text = (tag or "").strip()
+        if not text.startswith(GOAL_ALLOC_TAG_PREFIX):
+            continue
+        payload = text[len(GOAL_ALLOC_TAG_PREFIX) :]
+        if ":" not in payload:
+            continue
+        item_id, raw_amt = payload.split(":", 1)
+        item_id = item_id.strip()
+        if not item_id:
+            continue
+        try:
+            amt = quantize_money(raw_amt)
+        except Exception:  # noqa: BLE001
+            continue
+        if amt <= 0:
+            continue
+        found[item_id] = quantize_money(found.get(item_id, Decimal("0")) + amt)
+    return found or None
+
+
+def strip_goal_allocation_tags(tags: list[str] | None) -> list[str]:
+    """Remove allocation markers while keeping user tags."""
+    return [
+        t
+        for t in (tags or [])
+        if not str(t).strip().startswith(GOAL_ALLOC_TAG_PREFIX)
+    ]
+
+
 def apply_goal_contribution_credit(
     goal: Goal,
     credit: Decimal,
@@ -96,6 +143,19 @@ def apply_goal_contribution_credit(
     item_id: str | None = None,
 ) -> Goal:
     """Increase goal (and optional item) progress after a contribution."""
+    updated, _allocations = allocate_goal_contribution_credit(
+        goal, credit, item_id=item_id
+    )
+    return updated
+
+
+def allocate_goal_contribution_credit(
+    goal: Goal,
+    credit: Decimal,
+    *,
+    item_id: str | None = None,
+) -> tuple[Goal, dict[str, Decimal]]:
+    """Apply credit and return ``(goal, per-item allocations)`` for exact reverse."""
     credit = quantize_money(credit)
     if goal.items:
         if not item_id:
@@ -108,6 +168,7 @@ def apply_goal_contribution_credit(
 
         credit_left = credit
         updated: dict[str, GoalItem] = dict(by_id)
+        allocations: dict[str, Decimal] = {}
 
         def _credit_item(iid: str, amount: Decimal) -> Decimal:
             item = updated[iid]
@@ -116,11 +177,18 @@ def apply_goal_contribution_credit(
             room = quantize_money(
                 max(Decimal("0"), item.target_amount - item.current_amount)
             )
-            add = amount if room <= 0 else min(amount, room)
+            # When already at/over target, leave amount for sibling spillover
+            # (or the final overflow dump onto primary).
+            if room <= 0:
+                return amount
+            add = min(amount, room)
             updated[iid] = item.model_copy(
                 update={
                     "current_amount": quantize_money(item.current_amount + add)
                 }
+            )
+            allocations[iid] = quantize_money(
+                allocations.get(iid, Decimal("0")) + add
             )
             return quantize_money(amount - add)
 
@@ -141,13 +209,16 @@ def apply_goal_contribution_credit(
                     )
                 }
             )
+            allocations[item_id] = quantize_money(
+                allocations.get(item_id, Decimal("0")) + credit_left
+            )
         ordered = [updated[item.id] for item in goal.items]
         payload = goal.model_copy(update={"items": ordered})
-        return Goal.model_validate(payload.model_dump())
+        return Goal.model_validate(payload.model_dump()), allocations
     payload = goal.model_copy(
         update={"current_amount": quantize_money(goal.current_amount + credit)}
     )
-    return Goal.model_validate(payload.model_dump())
+    return Goal.model_validate(payload.model_dump()), {}
 
 
 def reverse_goal_contribution_credit(
@@ -155,27 +226,66 @@ def reverse_goal_contribution_credit(
     credit: Decimal,
     *,
     item_id: str | None = None,
+    allocations: dict[str, Decimal] | None = None,
 ) -> Goal:
-    """Undo goal (and optional item) progress when a contribution is removed."""
+    """Undo goal (and optional item) progress when a contribution is removed.
+
+    Prefer exact ``allocations`` from the contribution transaction tags.
+    Without them, fall back to LIFO reverse of apply (overflow → siblings → primary).
+    """
     credit = quantize_money(credit)
     if goal.items:
         if not item_id:
             raise ValueError("Goal item is required")
-        updated_items: list[GoalItem] = []
-        for item in goal.items:
-            if item.id == item_id:
-                updated_items.append(
-                    item.model_copy(
-                        update={
-                            "current_amount": quantize_money(
-                                max(Decimal("0"), item.current_amount - credit)
-                            )
-                        }
-                    )
-                )
-            else:
-                updated_items.append(item)
-        payload = goal.model_copy(update={"items": updated_items})
+        by_id = {item.id: item for item in goal.items}
+        if item_id not in by_id:
+            raise ValueError("Goal item not found")
+
+        updated: dict[str, GoalItem] = dict(by_id)
+
+        def _debit_item(iid: str, amount: Decimal) -> Decimal:
+            """Remove up to ``amount`` from item; return how much was taken."""
+            if iid not in updated:
+                return Decimal("0.00")
+            item = updated[iid]
+            if amount <= 0:
+                return Decimal("0.00")
+            take = min(amount, quantize_money(max(Decimal("0"), item.current_amount)))
+            updated[iid] = item.model_copy(
+                update={
+                    "current_amount": quantize_money(item.current_amount - take)
+                }
+            )
+            return quantize_money(take)
+
+        if allocations:
+            for iid, amount in allocations.items():
+                _debit_item(iid, quantize_money(amount))
+        else:
+            debit_left = credit
+            # 1) Undo overflow parked on the primary above its target.
+            primary = updated[item_id]
+            excess = quantize_money(
+                max(Decimal("0"), primary.current_amount - primary.target_amount)
+            )
+            if excess > 0 and debit_left > 0:
+                taken = _debit_item(item_id, min(excess, debit_left))
+                debit_left = quantize_money(debit_left - taken)
+
+            # 2) Undo spillover into siblings (opposite of forward sort_order).
+            for item in sorted(goal.items, key=lambda i: i.sort_order, reverse=True):
+                if item.id == item_id or debit_left <= 0:
+                    continue
+                taken = _debit_item(item.id, debit_left)
+                debit_left = quantize_money(debit_left - taken)
+
+            # 3) Undo the primary fill itself.
+            if debit_left > 0:
+                taken = _debit_item(item_id, debit_left)
+                debit_left = quantize_money(debit_left - taken)
+
+        ordered = [updated[item.id] for item in goal.items]
+        payload = goal.model_copy(update={"items": ordered})
         return Goal.model_validate(payload.model_dump())
     payload = goal.model_copy(
         update={

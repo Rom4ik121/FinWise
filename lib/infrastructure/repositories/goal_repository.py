@@ -13,7 +13,7 @@ from sqlalchemy import and_, or_, select
 from lib.domain.entities.goal import Goal, GoalItem, GoalStatus
 from lib.domain.repositories.goal_repository import GoalRepository
 from lib.infrastructure.db_models import GoalModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, in_unit_of_work, session_scope
 
 logger = logging.getLogger("finanse.infrastructure.repositories.goal")
 
@@ -125,15 +125,23 @@ class SqlAlchemyGoalRepository(GoalRepository):
         self._session_factory = session_factory
 
     async def create(self, goal: Goal) -> Goal:
+        if in_unit_of_work():
+            return self._create_sync(goal)
         return await asyncio.to_thread(self._create_sync, goal)
 
     async def update(self, goal: Goal) -> Goal:
+        if in_unit_of_work():
+            return self._update_sync(goal)
         return await asyncio.to_thread(self._update_sync, goal)
 
     async def delete(self, goal_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(goal_id)
         return await asyncio.to_thread(self._delete_sync, goal_id)
 
     async def get_by_id(self, goal_id: str) -> Optional[Goal]:
+        if in_unit_of_work():
+            return self._get_by_id_sync(goal_id)
         return await asyncio.to_thread(self._get_by_id_sync, goal_id)
 
     async def list(
@@ -145,6 +153,10 @@ class SqlAlchemyGoalRepository(GoalRepository):
         min_priority: Optional[int] = None,
         sort_by: str = "priority",
     ) -> list[Goal]:
+        if in_unit_of_work():
+            return self._list_sync(
+                status, include_completed, currency, min_priority, sort_by
+            )
         return await asyncio.to_thread(
             self._list_sync,
             status,

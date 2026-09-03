@@ -503,6 +503,11 @@ def build_container(
                     settings=container.settings_repository,
                     notifications=container.notification_service,
                     currencies=container.currency_repository,
+                    **(
+                        {"session_factory": session_factory}
+                        if attr == "update_transaction"
+                        else {}
+                    ),
                 ),
             )
         except Exception as exc:  # pragma: no cover
@@ -705,6 +710,7 @@ def build_container(
         UpdateSubscriptionUseCase,
         "subscription_repository",
         "category_repository",
+        "subscription_audit_repository",
     )
     _wire("delete_subscription", DeleteSubscriptionUseCase, "subscription_repository")
     _wire("list_subscriptions", ListSubscriptionsUseCase, "subscription_repository")
@@ -737,6 +743,7 @@ def build_container(
         "transaction_repository",
         "subscription_repository",
         "delete_transaction",
+        "subscription_audit_repository",
     )
     _wire(
         "get_subscription_analytics",

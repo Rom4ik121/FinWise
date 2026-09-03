@@ -120,3 +120,40 @@ def test_stats_convert_mixed_currencies_to_base(container) -> None:
         assert stats.total_expense == Decimal("1000.00")
 
     run_async(_run())
+
+
+def test_update_rejects_bad_goal_without_reversing_balance(container) -> None:
+    async def _run() -> None:
+        import pytest
+
+        from tests.factories import make_goal
+
+        acc = await container.create_account.execute(make_account(balance="500"))
+        tx = await container.add_transaction.execute(
+            make_transaction(acc.id, amount="40")
+        )
+        mid = await container.account_repository.get_by_id(acc.id)
+        assert mid is not None
+        assert mid.balance == Decimal("460.00")
+
+        goal = await container.create_goal.execute(make_goal(target="100"))
+        await container.close_goal_early.execute(goal.id)
+        with pytest.raises(ValueError, match="archived|completed"):
+            await container.update_transaction.execute(
+                tx.model_copy(
+                    update={
+                        "amount": Decimal("10"),
+                        "goal_id": goal.id,
+                    }
+                )
+            )
+        # Failed validation must not reverse the original expense.
+        after = await container.account_repository.get_by_id(acc.id)
+        assert after is not None
+        assert after.balance == Decimal("460.00")
+        loaded = await container.transaction_repository.get_by_id(tx.id)
+        assert loaded is not None
+        assert loaded.amount == Decimal("40.00")
+        assert loaded.goal_id is None
+
+    run_async(_run())

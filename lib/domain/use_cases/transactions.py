@@ -27,10 +27,14 @@ from lib.domain.use_cases.debts import (
     reverse_debt_payment_credit,
 )
 from lib.domain.use_cases.goals import (
+    allocate_goal_contribution_credit,
     apply_goal_contribution_credit,
     assert_goal_accepts_ledger,
+    encode_goal_allocation_tags,
     goal_credit_amount,
+    parse_goal_allocation_tags,
     reverse_goal_contribution_credit,
+    strip_goal_allocation_tags,
 )
 
 
@@ -52,6 +56,55 @@ def _is_goal_contribution(transaction: Transaction) -> bool:
 
 def _is_goal_withdrawal(transaction: Transaction) -> bool:
     return transaction.type == TransactionType.INCOME and bool(transaction.goal_id)
+
+
+async def _credit_goal_from_transaction(
+    *,
+    goals: GoalRepository,
+    transactions: TransactionRepository,
+    transaction: Transaction,
+) -> None:
+    """Apply contribution and persist exact per-item allocation tags."""
+    if not _is_goal_contribution(transaction):
+        return
+    goal = await goals.get_by_id(transaction.goal_id or "")
+    if goal is None:
+        return
+    credit = goal_credit_amount(transaction)
+    updated, allocations = allocate_goal_contribution_credit(
+        goal,
+        credit,
+        item_id=transaction.goal_item_id,
+    )
+    await goals.update(updated)
+    if not allocations:
+        return
+    clean = strip_goal_allocation_tags(transaction.tags)
+    tagged = transaction.model_copy(
+        update={"tags": clean + encode_goal_allocation_tags(allocations)}
+    )
+    await transactions.update(tagged)
+
+
+async def _debit_goal_from_transaction(
+    *,
+    goals: GoalRepository,
+    transaction: Transaction,
+) -> None:
+    """Reverse contribution using stored allocations when present."""
+    if not _is_goal_contribution(transaction):
+        return
+    goal = await goals.get_by_id(transaction.goal_id or "")
+    if goal is None:
+        return
+    credit = goal_credit_amount(transaction)
+    updated = reverse_goal_contribution_credit(
+        goal,
+        credit,
+        item_id=transaction.goal_item_id,
+        allocations=parse_goal_allocation_tags(transaction.tags),
+    )
+    await goals.update(updated)
 
 
 async def _with_goal_credit(
@@ -337,18 +390,11 @@ class AddTransactionUseCase:
         return created
 
     async def _apply_goal_contribution(self, transaction: Transaction) -> None:
-        if not _is_goal_contribution(transaction):
-            return
-        goal = await self._goals.get_by_id(transaction.goal_id or "")
-        if goal is None:
-            return
-        credit = goal_credit_amount(transaction)
-        updated = apply_goal_contribution_credit(
-            goal,
-            credit,
-            item_id=transaction.goal_item_id,
+        await _credit_goal_from_transaction(
+            goals=self._goals,
+            transactions=self._transactions,
+            transaction=transaction,
         )
-        await self._goals.update(updated)
 
     async def _apply_goal_withdrawal(self, transaction: Transaction) -> None:
         if not _is_goal_withdrawal(transaction):
@@ -390,6 +436,7 @@ class UpdateTransactionUseCase:
         settings: Optional[SettingsRepository] = None,
         notifications: object = None,
         currencies: Optional[CurrencyRepository] = None,
+        session_factory: object = None,
     ) -> None:
         self._transactions = transactions
         self._accounts = accounts
@@ -399,6 +446,7 @@ class UpdateTransactionUseCase:
         self._settings = settings
         self._notifications = notifications
         self._currencies = currencies
+        self._session_factory = session_factory
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Replace an existing transaction and fix derived balances."""
@@ -424,13 +472,6 @@ class UpdateTransactionUseCase:
                 }
             )
 
-        await self._apply_account_delta(
-            existing.account_id,
-            -_balance_delta(existing.type, existing.amount),
-        )
-        await self._reverse_goal_ledger(existing)
-        await self._reverse_debt_payment(existing)
-
         updated = transaction.model_copy(
             update={
                 "amount": quantize_money(transaction.amount),
@@ -451,34 +492,52 @@ class UpdateTransactionUseCase:
                 currencies=self._currencies,
                 accounts=self._accounts,
             )
-        saved = await self._transactions.update(updated)
-
-        await self._apply_account_delta(
-            saved.account_id,
-            _balance_delta(saved.type, saved.amount),
-        )
-        await _validate_goal_link(saved, goals=self._goals, existing=existing)
+        # Validate before reversing balances / persisting so a bad goal or
+        # debt link cannot leave half-applied ledger side effects.
+        await _validate_goal_link(updated, goals=self._goals, existing=existing)
         if self._debts is not None:
-            await _validate_debt_link(saved, debts=self._debts, existing=existing)
-        await self._apply_goal_ledger(saved)
-        await self._apply_debt_payment(saved)
-        await _sync_budget_expense(
-            self._budgets,
-            existing,
-            sign=-1,
-            settings_repo=self._settings,
-            notifications=self._notifications,
-            currencies=self._currencies,
-        )
-        await _sync_budget_expense(
-            self._budgets,
-            saved,
-            sign=1,
-            settings_repo=self._settings,
-            notifications=self._notifications,
-            currencies=self._currencies,
-        )
-        return saved
+            await _validate_debt_link(updated, debts=self._debts, existing=existing)
+
+        async def _persist() -> Transaction:
+            await self._apply_account_delta(
+                existing.account_id,
+                -_balance_delta(existing.type, existing.amount),
+            )
+            await self._reverse_goal_ledger(existing)
+            await self._reverse_debt_payment(existing)
+
+            saved = await self._transactions.update(updated)
+
+            await self._apply_account_delta(
+                saved.account_id,
+                _balance_delta(saved.type, saved.amount),
+            )
+            await self._apply_goal_ledger(saved)
+            await self._apply_debt_payment(saved)
+            await _sync_budget_expense(
+                self._budgets,
+                existing,
+                sign=-1,
+                settings_repo=self._settings,
+                notifications=self._notifications,
+                currencies=self._currencies,
+            )
+            await _sync_budget_expense(
+                self._budgets,
+                saved,
+                sign=1,
+                settings_repo=self._settings,
+                notifications=self._notifications,
+                currencies=self._currencies,
+            )
+            return saved
+
+        if self._session_factory is not None:
+            from lib.infrastructure.repositories._base import unit_of_work
+
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _persist()
+        return await _persist()
 
     async def _apply_account_delta(self, account_id: str, delta: Decimal) -> None:
         account = await self._accounts.get_by_id(account_id)
@@ -489,16 +548,11 @@ class UpdateTransactionUseCase:
 
     async def _apply_goal_ledger(self, transaction: Transaction) -> None:
         if _is_goal_contribution(transaction):
-            goal = await self._goals.get_by_id(transaction.goal_id or "")
-            if goal is None:
-                return
-            credit = goal_credit_amount(transaction)
-            updated = apply_goal_contribution_credit(
-                goal,
-                credit,
-                item_id=transaction.goal_item_id,
+            await _credit_goal_from_transaction(
+                goals=self._goals,
+                transactions=self._transactions,
+                transaction=transaction,
             )
-            await self._goals.update(updated)
         elif _is_goal_withdrawal(transaction):
             goal = await self._goals.get_by_id(transaction.goal_id or "")
             if goal is None:
@@ -513,16 +567,10 @@ class UpdateTransactionUseCase:
 
     async def _reverse_goal_ledger(self, transaction: Transaction) -> None:
         if _is_goal_contribution(transaction):
-            goal = await self._goals.get_by_id(transaction.goal_id or "")
-            if goal is None:
-                return
-            credit = goal_credit_amount(transaction)
-            updated = reverse_goal_contribution_credit(
-                goal,
-                credit,
-                item_id=transaction.goal_item_id,
+            await _debit_goal_from_transaction(
+                goals=self._goals,
+                transaction=transaction,
             )
-            await self._goals.update(updated)
         elif _is_goal_withdrawal(transaction):
             goal = await self._goals.get_by_id(transaction.goal_id or "")
             if goal is None:
@@ -534,34 +582,6 @@ class UpdateTransactionUseCase:
                 item_id=transaction.goal_item_id,
             )
             await self._goals.update(updated)
-
-    async def _apply_goal_contribution(self, transaction: Transaction) -> None:
-        if not _is_goal_contribution(transaction):
-            return
-        goal = await self._goals.get_by_id(transaction.goal_id or "")
-        if goal is None:
-            return
-        credit = goal_credit_amount(transaction)
-        updated = apply_goal_contribution_credit(
-            goal,
-            credit,
-            item_id=transaction.goal_item_id,
-        )
-        await self._goals.update(updated)
-
-    async def _reverse_goal_contribution(self, transaction: Transaction) -> None:
-        if not _is_goal_contribution(transaction):
-            return
-        goal = await self._goals.get_by_id(transaction.goal_id or "")
-        if goal is None:
-            return
-        credit = goal_credit_amount(transaction)
-        updated = reverse_goal_contribution_credit(
-            goal,
-            credit,
-            item_id=transaction.goal_item_id,
-        )
-        await self._goals.update(updated)
 
     async def _apply_debt_payment(self, transaction: Transaction) -> None:
         if self._debts is None or not _is_debt_payment(transaction):
@@ -659,15 +679,10 @@ class DeleteTransactionUseCase:
             await self._accounts.update(account)
 
         if _is_goal_contribution(existing):
-            goal = await self._goals.get_by_id(existing.goal_id or "")
-            if goal is not None:
-                credit = goal_credit_amount(existing)
-                updated = reverse_goal_contribution_credit(
-                    goal,
-                    credit,
-                    item_id=existing.goal_item_id,
-                )
-                await self._goals.update(updated)
+            await _debit_goal_from_transaction(
+                goals=self._goals,
+                transaction=existing,
+            )
         elif _is_goal_withdrawal(existing):
             goal = await self._goals.get_by_id(existing.goal_id or "")
             if goal is not None:

@@ -291,9 +291,11 @@ class UpdateSubscriptionUseCase:
         self,
         subscriptions: SubscriptionRepository,
         categories: Optional[CategoryRepository] = None,
+        audit_repository: Any = None,
     ) -> None:
         self._subscriptions = subscriptions
         self._categories = categories
+        self._audit = audit_repository
 
     async def execute(self, subscription: Subscription) -> Subscription:
         """Update subscription fields."""
@@ -331,7 +333,48 @@ class UpdateSubscriptionUseCase:
         )
         saved = await self._subscriptions.update(updated)
         await sync_subscription_category(self._categories, saved)
+        await self._audit_status_transition(existing, saved)
         return saved
+
+    async def _audit_status_transition(
+        self, before: Subscription, after: Subscription
+    ) -> None:
+        """Record pause/resume when the editor changes status (not a bare update)."""
+        if self._audit is None or before.status == after.status:
+            return
+        from lib.domain.entities.subscription_audit import SubscriptionAuditEntry
+
+        action: str | None = None
+        if (
+            before.status == SubscriptionStatus.ACTIVE
+            and after.status == SubscriptionStatus.PAUSED
+        ):
+            action = "pause"
+        elif (
+            before.status == SubscriptionStatus.PAUSED
+            and after.status == SubscriptionStatus.ACTIVE
+        ):
+            action = "resume"
+        if action is None:
+            return
+        try:
+            await self._audit.append(
+                SubscriptionAuditEntry(
+                    subscription_id=after.id,
+                    action=action,
+                    details={
+                        "from": before.status.value
+                        if isinstance(before.status, SubscriptionStatus)
+                        else str(before.status),
+                        "to": after.status.value
+                        if isinstance(after.status, SubscriptionStatus)
+                        else str(after.status),
+                        "via": "update",
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            return
 
 
 class DeleteSubscriptionUseCase:
@@ -556,17 +599,51 @@ async def _subscription_cash_amount(
 
 
 class DeleteSubscriptionChargeUseCase:
-    """Delete a subscription charge transaction (no next_billing_date recalculation)."""
+    """Delete a subscription charge and roll billing counters back one period."""
 
     def __init__(
         self,
         transactions: TransactionRepository,
         subscriptions: SubscriptionRepository,
         delete_transaction: "DeleteTransactionUseCase",
+        audit_repository: Any = None,
     ) -> None:
         self._transactions = transactions
         self._subscriptions = subscriptions
         self._delete_transaction = delete_transaction
+        self._audit = audit_repository
+
+    async def _status_before_expiry(self, subscription_id: str) -> SubscriptionStatus:
+        """Infer pre-expiry status so un-expire does not silently resume billing.
+
+        Fail closed to PAUSED when audit is missing or ambiguous — safer than
+        re-enabling auto-charge after an expired pause that was recorded as a
+        generic editor ``update``.
+        """
+        if self._audit is None:
+            return SubscriptionStatus.PAUSED
+        try:
+            entries = await self._audit.list_for_subscription(subscription_id, limit=30)
+        except Exception:  # noqa: BLE001
+            return SubscriptionStatus.PAUSED
+        for entry in entries:
+            action = str(getattr(entry, "action", "") or "").strip().lower()
+            if action == "pause":
+                return SubscriptionStatus.PAUSED
+            if action in {"resume", "create"}:
+                return SubscriptionStatus.ACTIVE
+            if action == "update":
+                details = getattr(entry, "details", None) or {}
+                if not isinstance(details, dict):
+                    continue
+                to_status = str(
+                    details.get("to") or details.get("status") or ""
+                ).lower()
+                if to_status == SubscriptionStatus.PAUSED.value:
+                    return SubscriptionStatus.PAUSED
+                if to_status == SubscriptionStatus.ACTIVE.value:
+                    return SubscriptionStatus.ACTIVE
+        return SubscriptionStatus.PAUSED
 
     async def execute(self, transaction_id: str, *, subscription_id: str) -> bool:
         tx = await self._transactions.get_by_id(transaction_id)
@@ -604,7 +681,9 @@ class DeleteSubscriptionChargeUseCase:
                 sub.end_date is None or next_date.date() <= sub.end_date
             )
             if under_max and before_end:
-                status = SubscriptionStatus.ACTIVE
+                # Restore PAUSED when that was the last user intent; never
+                # silently re-enable auto-billing after an expired pause.
+                status = await self._status_before_expiry(subscription_id)
         updated = sub.model_copy(
             update={
                 "last_charged_at": last_charged,
