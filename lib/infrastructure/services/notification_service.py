@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Optional
 from uuid import uuid4
 
+from lib.domain.entities.budget import Budget
 from lib.domain.entities.debt import Debt, DebtStatus
 from lib.domain.entities.subscription import Subscription
 from lib.infrastructure.services.localization import t
@@ -31,6 +32,7 @@ class NotificationKind(str, Enum):
     GOAL_OFF_TRACK = "goal_off_track"
     BUDGET_WARNING = "budget_warning"
     BUDGET_OVER = "budget_over"
+    BUDGET_HALF = "budget_half"
 
 
 @dataclass(slots=True)
@@ -233,6 +235,84 @@ class NotificationService:
 
         logger.info("Scheduled %s subscription reminders", len(created))
         return created
+
+    def notify_subscription_skipped(
+        self,
+        sub: Subscription,
+        *,
+        account_name: str,
+        language: str,
+    ) -> None:
+        """In-app + push when a due charge was skipped (balance / FX)."""
+        if self._has_related(sub.id, NotificationKind.SUBSCRIPTION_SKIPPED):
+            return
+        self.push(
+            title=t("notify.subscription_skipped", language),
+            body=t("notify.subscription_skipped_body", language).format(
+                name=sub.name,
+                amount=sub.amount,
+                currency=sub.currency,
+                account=account_name or sub.account_id,
+            ),
+            kind=NotificationKind.SUBSCRIPTION_SKIPPED,
+            related_id=sub.id,
+        )
+
+    def notify_subscription_expired(
+        self,
+        sub: Subscription,
+        *,
+        language: str,
+    ) -> None:
+        """In-app + push when a subscription hits end_date / max payments."""
+        if self._has_related(sub.id, NotificationKind.SUBSCRIPTION_EXPIRED):
+            return
+        self.push(
+            title=t("notify.subscription_expired", language),
+            body=t("notify.subscription_expired_body", language).format(name=sub.name),
+            kind=NotificationKind.SUBSCRIPTION_EXPIRED,
+            related_id=sub.id,
+        )
+
+    def notify_budget_threshold(
+        self,
+        budget: Budget,
+        *,
+        level: int,
+        language: str,
+        currency: str,
+    ) -> None:
+        """In-app + push when spend crosses 50 / 80 / 100% of the limit."""
+        if level == 100:
+            kind = NotificationKind.BUDGET_OVER
+            title = t("notify.budget_100_title", language)
+            body = t("notifications.budget_100", language).format(
+                category=budget.category_id,
+                spent=budget.spent,
+                limit=budget.amount_limit,
+                currency=currency,
+            )
+        elif level == 80:
+            kind = NotificationKind.BUDGET_WARNING
+            title = t("notify.budget_80_title", language)
+            body = t("notifications.budget_80", language).format(
+                category=budget.category_id,
+                remaining=budget.remaining,
+                currency=currency,
+            )
+        elif level == 50:
+            kind = NotificationKind.BUDGET_HALF
+            title = t("notify.budget_50_title", language)
+            body = t("notifications.budget_50", language).format(
+                category=budget.category_id,
+                remaining=budget.remaining,
+                currency=currency,
+            )
+        else:
+            return
+        if self._has_related(budget.id, kind):
+            return
+        self.push(title, body, kind=kind, related_id=budget.id)
 
     def _has_related(self, related_id: str, kind: NotificationKind) -> bool:
         return any(

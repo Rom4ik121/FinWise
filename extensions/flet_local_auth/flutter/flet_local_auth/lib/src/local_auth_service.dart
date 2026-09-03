@@ -51,7 +51,9 @@ class FinanseLocalAuthService extends FletService {
         ],
         options: AuthenticationOptions(
           biometricOnly: biometricOnly,
-          stickyAuth: true,
+          // stickyAuth re-prompts Face ID after the iOS overlay resumes the
+          // app — that looks like a second biometric check when enabling.
+          stickyAuth: defaultTargetPlatform != TargetPlatform.iOS,
           useErrorDialogs: true,
         ),
       );

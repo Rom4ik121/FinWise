@@ -1084,6 +1084,196 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Behind schedule",
         "uz": "Jadvaldan orqada",
     },
+    "debt.search_hint": {
+        "ru": "Поиск по контрагенту",
+        "en": "Search by counterparty",
+        "uz": "Kontragent bo‘yicha qidirish",
+    },
+    "empty.debts_search": {
+        "ru": "Ничего не найдено",
+        "en": "No matches",
+        "uz": "Topilmadi",
+    },
+    "debt.filter_status_hint": {
+        "ru": "«Открытые» — активные и просроченные",
+        "en": "Open = active and overdue",
+        "uz": "Ochiq — faol va muddati o‘tgan",
+    },
+    "debt.filter_direction_hint": {
+        "ru": "Я должен / мне должны",
+        "en": "I owe / owed to me",
+        "uz": "Men qarzdorman / menga qarzdorlar",
+    },
+    "debt.filter_interest_only": {
+        "ru": "Только с процентами",
+        "en": "With interest only",
+        "uz": "Faqat foizli",
+    },
+    "debt.filter_interest_only_hint": {
+        "ru": "Показать долги, где указана ставка",
+        "en": "Show debts that have an interest rate",
+        "uz": "Foiz stavkasi ko‘rsatilgan qarzlar",
+    },
+    "debt.filter_sort_hint": {
+        "ru": "Порядок карточек в списке",
+        "en": "Order of cards in the list",
+        "uz": "Ro‘yxatdagi tartib",
+    },
+    "empty.debts_filtered": {
+        "ru": "Нет долгов по выбранным фильтрам",
+        "en": "No debts match the filters",
+        "uz": "Filtrga mos qarz yo‘q",
+    },
+    "debts.net_position": {
+        "ru": "Чистая позиция",
+        "en": "Net position",
+        "uz": "Sof pozitsiya",
+    },
+    "debts.net_position_hint": {
+        "ru": "Мне должны минус я должен",
+        "en": "Owed to me minus I owe",
+        "uz": "Menga qarz minus men qarzdor",
+    },
+    "debt.overdue_count": {
+        "ru": "Просрочено: {count}",
+        "en": "Overdue: {count}",
+        "uz": "Muddati o‘tgan: {count}",
+    },
+    "debt.average_monthly": {
+        "ru": "Средний платёж в месяц",
+        "en": "Average monthly payment",
+        "uz": "O‘rtacha oylik to‘lov",
+    },
+    "debt.payment_streak": {
+        "ru": "Серия: {months} мес. подряд",
+        "en": "Streak: {months} months in a row",
+        "uz": "Ketma-ket: {months} oy",
+    },
+    "debt.templates": {
+        "ru": "Шаблоны",
+        "en": "Templates",
+        "uz": "Andozalar",
+    },
+    "debt.templates_hint": {
+        "ru": "Выберите тип — подставим сумму и ставку",
+        "en": "Pick a type to prefill amount and rate",
+        "uz": "Turini tanlang — summa va foiz to‘ldiriladi",
+    },
+    "debt.template.bank_loan": {
+        "ru": "Банковский кредит",
+        "en": "Bank loan",
+        "uz": "Bank krediti",
+    },
+    "debt.template.credit_card": {
+        "ru": "Кредитная карта",
+        "en": "Credit card",
+        "uz": "Kredit karta",
+    },
+    "debt.template.mortgage": {
+        "ru": "Ипотека",
+        "en": "Mortgage",
+        "uz": "Ipoteka",
+    },
+    "debt.template.installment": {
+        "ru": "Рассрочка",
+        "en": "Installment",
+        "uz": "Bo‘lib to‘lash",
+    },
+    "debt.template.friend_loan": {
+        "ru": "Займ у друга",
+        "en": "Loan from friend",
+        "uz": "Do‘stdan qarz",
+    },
+    "debt.template.lent": {
+        "ru": "Дал в долг",
+        "en": "Lent money",
+        "uz": "Qarz bergan",
+    },
+    "debt.template.microloan": {
+        "ru": "Микрозайм",
+        "en": "Microloan",
+        "uz": "Mikroqarz",
+    },
+    "debt.payment_interval": {
+        "ru": "Интервал платежей (мес.)",
+        "en": "Payment interval (months)",
+        "uz": "To‘lov intervali (oy)",
+    },
+    "debt.payment_interval_hint": {
+        "ru": "Через сколько месяцев сдвигается следующий платёж",
+        "en": "Months between scheduled payments",
+        "uz": "Keyingi to‘lov qancha oyda siljiydi",
+    },
+    "debt.forgive": {
+        "ru": "Списать долг",
+        "en": "Forgive debt",
+        "uz": "Qarzni bekor qilish",
+    },
+    "debt.duplicate": {
+        "ru": "Дублировать",
+        "en": "Duplicate",
+        "uz": "Nusxalash",
+    },
+    "debt.pay_scheduled": {
+        "ru": "Платёж по графику: {amount}",
+        "en": "Scheduled payment: {amount}",
+        "uz": "Jadval bo‘yicha: {amount}",
+    },
+    "debt.audit": {
+        "ru": "История изменений",
+        "en": "Change history",
+        "uz": "O‘zgarishlar tarixi",
+    },
+    "debt.audit.create": {
+        "ru": "Долг создан",
+        "en": "Debt created",
+        "uz": "Qarz yaratildi",
+    },
+    "debt.audit.update": {
+        "ru": "Долг обновлён",
+        "en": "Debt updated",
+        "uz": "Qarz yangilandi",
+    },
+    "debt.audit.forgive": {
+        "ru": "Долг списан",
+        "en": "Debt forgiven",
+        "uz": "Qarz bekor qilindi",
+    },
+    "debt.audit.duplicate": {
+        "ru": "Долг продублирован",
+        "en": "Debt duplicated",
+        "uz": "Qarz nusxalandi",
+    },
+    "debt.delete_has_payments": {
+        "ru": "Есть платежи — сначала удалите их или спишите долг",
+        "en": "Has repayments — delete payments first or forgive the debt",
+        "uz": "To‘lovlar bor — avval o‘chiring yoki qarzni bekor qiling",
+    },
+    "debt.archive_unpaid": {
+        "ru": "Архивировать можно только погашенный долг",
+        "en": "Debt must be fully paid before archiving",
+        "uz": "Faqat to‘liq to‘langan qarzni arxivlash mumkin",
+    },
+    "debt.archived_block": {
+        "ru": "Долг в архиве",
+        "en": "Debt is archived",
+        "uz": "Qarz arxivda",
+    },
+    "debt.paid_block": {
+        "ru": "Долг уже погашен",
+        "en": "Debt is already paid",
+        "uz": "Qarz allaqachon to‘langan",
+    },
+    "analytics.debts_count": {
+        "ru": "Долгов: {count}",
+        "en": "Debts: {count}",
+        "uz": "Qarzlar: {count}",
+    },
+    "analytics.debts_breakdown": {
+        "ru": "По долгам",
+        "en": "By debt",
+        "uz": "Qarzlar bo‘yicha",
+    },
     "debt.payments": {
         "ru": "История платежей",
         "en": "Payment history",
@@ -1144,6 +1334,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "No goals yet",
         "uz": "Hali maqsadlar yo‘q",
     },
+    "empty.goals_filtered": {
+        "ru": "Нет целей по фильтру",
+        "en": "No goals match filters",
+        "uz": "Filtr bo‘yicha maqsad yo‘q",
+    },
+    "empty.goals_search": {
+        "ru": "Ничего не найдено",
+        "en": "No matches",
+        "uz": "Topilmadi",
+    },
     "empty.budgets": {
         "ru": "Нет бюджетов на этот месяц",
         "en": "No budgets for this month",
@@ -1153,6 +1353,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Подписок пока нет",
         "en": "No subscriptions yet",
         "uz": "Hali obunalar yo‘q",
+    },
+    "empty.subscriptions_search": {
+        "ru": "Ничего не найдено",
+        "en": "No matches",
+        "uz": "Topilmadi",
+    },
+    "empty.subscriptions_filtered": {
+        "ru": "Нет подписок по выбранным фильтрам",
+        "en": "No subscriptions match the filters",
+        "uz": "Filtrga mos obuna yo‘q",
     },
     "empty.transactions": {
         "ru": "Операций пока нет",
@@ -1430,9 +1640,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Jarayon",
     },
     "goal.progress_hint": {
-        "ru": "Прогресс растёт только когда вы вносите деньги со счёта",
-        "en": "Progress grows only when you contribute from an account",
-        "uz": "Jarayon faqat hisobdan pul qo‘shganingizda oshadi",
+        "ru": "Считается только от взносов",
+        "en": "Counts only from contributions",
+        "uz": "Faqat badallardan hisoblanadi",
     },
     "goal.target": {
         "ru": "Цель",
@@ -1440,9 +1650,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Maqsad",
     },
     "goal.currency": {
-        "ru": "Валюта цели",
-        "en": "Goal currency",
-        "uz": "Maqsad valyutasi",
+        "ru": "Валюта",
+        "en": "Currency",
+        "uz": "Valyuta",
     },
     "goal.copy_suffix": {
         "ru": " (копия)",
@@ -1504,35 +1714,50 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Status",
         "uz": "Holat",
     },
+    "goal.filter_status_hint": {
+        "ru": "Какие цели показывать",
+        "en": "Which goals to show",
+        "uz": "Qaysi maqsadlar ko‘rinsin",
+    },
     "goal.filter_sort": {
         "ru": "Сортировка",
         "en": "Sort",
         "uz": "Saralash",
     },
+    "goal.filter_sort_hint": {
+        "ru": "Порядок в списке",
+        "en": "List order",
+        "uz": "Ro‘yxat tartibi",
+    },
+    "goal.filter_group_hint": {
+        "ru": "Как разбить список",
+        "en": "How to split the list",
+        "uz": "Ro‘yxatni qanday bo‘lish",
+    },
     "goal.sort.priority": {
-        "ru": "По приоритету",
-        "en": "By priority",
-        "uz": "Muhimlik bo‘yicha",
+        "ru": "Приоритет",
+        "en": "Priority",
+        "uz": "Muhimlik",
     },
     "goal.sort.deadline": {
-        "ru": "По дедлайну",
-        "en": "By deadline",
-        "uz": "Muddat bo‘yicha",
+        "ru": "Срок",
+        "en": "Deadline",
+        "uz": "Muddat",
     },
     "goal.sort.progress": {
-        "ru": "По прогрессу",
-        "en": "By progress",
-        "uz": "Jarayon bo‘yicha",
+        "ru": "Прогресс",
+        "en": "Progress",
+        "uz": "Jarayon",
     },
     "goal.sort.created_at": {
-        "ru": "По дате создания",
-        "en": "By created date",
-        "uz": "Yaratilgan sana bo‘yicha",
+        "ru": "Новые",
+        "en": "Newest",
+        "uz": "Yangi",
     },
     "goal.group_by_category": {
-        "ru": "Группировать по категориям",
-        "en": "Group by category",
-        "uz": "Kategoriya bo‘yicha guruhlash",
+        "ru": "По названию",
+        "en": "By name",
+        "uz": "Nom bo‘yicha",
     },
     "goal.uncategorized": {
         "ru": "Без категории",
@@ -1545,9 +1770,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Prognoz",
     },
     "goal.required_monthly": {
-        "ru": "Нужно в месяц",
-        "en": "Required monthly",
-        "uz": "Oyiga kerak",
+        "ru": "В месяц",
+        "en": "Per month",
+        "uz": "Oyiga",
     },
     "goal.required_monthly_short": {
         "ru": "≈ {amount}/мес",
@@ -1555,9 +1780,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "≈ {amount}/oy",
     },
     "goal.overfund_warn": {
-        "ru": "Взнос больше остатка ({remaining}) — цель может переполниться",
-        "en": "Contribution exceeds remaining ({remaining}) — goal may overfund",
-        "uz": "Badal qolganidan ({remaining}) katta — maqsad ortiqcha to‘lishi mumkin",
+        "ru": "Больше остатка ({remaining})",
+        "en": "Exceeds remaining ({remaining})",
+        "uz": "Qolganidan ko‘p ({remaining})",
     },
     "goal.archived_block": {
         "ru": "Цель в архиве — взнос невозможен",
@@ -1570,24 +1795,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Maqsad allaqachon bajarilgan",
     },
     "goal.category_link": {
-        "ru": "Категория накопления",
-        "en": "Savings category",
-        "uz": "Jamg‘arma kategoriyasi",
+        "ru": "Категория",
+        "en": "Category",
+        "uz": "Kategoriya",
     },
     "goal.currency_change_hint": {
-        "ru": "Если смените валюту, уже накопленная сумма пересчитается по текущему курсу",
-        "en": "If you change the currency, your saved amount is recalculated at the current rate",
-        "uz": "Valyutani o‘zgartirsangiz, jamg‘arilgan summa joriy kurs bo‘yicha qayta hisoblanadi",
+        "ru": "При смене валюты сумма пересчитается по курсу",
+        "en": "Changing currency recalculates saved amount",
+        "uz": "Valyuta o‘zgarganda summa kurs bo‘yicha qayta hisoblanadi",
     },
     "goal.delete_keep_txs": {
-        "ru": "Удалить «{name}»? Взносы останутся расходами на счетах, связь с целью снимется.",
-        "en": "Delete “{name}”? Contributions stay as account expenses; the goal link is cleared.",
-        "uz": "“{name}” o‘chirilsinmi? Badallar hisobdagi xarajat sifatida qoladi; bog‘lanish olib tashlanadi.",
+        "ru": "Удалить «{name}»? Взносы останутся в операциях",
+        "en": "Delete “{name}”? Contributions stay in transactions",
+        "uz": "«{name}» o‘chirilsinmi? Badallar amaliyotlarda qoladi",
     },
     "goal.projected_date": {
-        "ru": "Прогноз завершения",
-        "en": "Projected completion",
-        "uz": "Tugash prognozi",
+        "ru": "Ожидается",
+        "en": "Expected",
+        "uz": "Kutilmoqda",
     },
     "goal.on_track": {
         "ru": "В графике",
@@ -1605,14 +1830,104 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Badallar tarixi",
     },
     "goal.converted_amount": {
-        "ru": "В валюте цели: {amount}",
-        "en": "In goal currency: {amount}",
-        "uz": "Maqsad valyutasida: {amount}",
+        "ru": "≈ {amount} в валюте цели",
+        "en": "≈ {amount} in goal currency",
+        "uz": "Maqsad valyutasida ≈ {amount}",
     },
     "goal.no_rate": {
-        "ru": "Нет курса для {pair}. Взнос невозможен.",
-        "en": "No rate for {pair}. Contribution blocked.",
-        "uz": "{pair} kursi yo‘q. Badal mumkin emas.",
+        "ru": "Нет курса {pair}",
+        "en": "No rate for {pair}",
+        "uz": "{pair} kursi yo‘q",
+    },
+    "goal.multi_items": {
+        "ru": "Несколько позиций",
+        "en": "Multiple items",
+        "uz": "Bir nechta pozitsiya",
+    },
+    "goal.add_item": {
+        "ru": "Добавить позицию",
+        "en": "Add item",
+        "uz": "Pozitsiya qo‘shish",
+    },
+    "goal.item_name": {
+        "ru": "Позиция",
+        "en": "Item",
+        "uz": "Pozitsiya",
+    },
+    "goal.item_row": {
+        "ru": "Позиция {n}",
+        "en": "Item {n}",
+        "uz": "Pozitsiya {n}",
+    },
+    "goal.item_target": {
+        "ru": "Сумма позиции",
+        "en": "Item amount",
+        "uz": "Pozitsiya summasi",
+    },
+    "goal.items_total": {
+        "ru": "Итого по позициям: {amount}",
+        "en": "Items total: {amount}",
+        "uz": "Pozitsiyalar jami: {amount}",
+    },
+    "goal.items_total_count": {
+        "ru": "Позиций: {count} · Итого: {amount}",
+        "en": "Items: {count} · Total: {amount}",
+        "uz": "Pozitsiyalar: {count} · Jami: {amount}",
+    },
+    "goal.items_section": {
+        "ru": "Позиции",
+        "en": "Items",
+        "uz": "Pozitsiyalar",
+    },
+    "goal.item_progress": {
+        "ru": "{saved} / {target}",
+        "en": "{saved} / {target}",
+        "uz": "{saved} / {target}",
+    },
+    "goal.item_closed": {
+        "ru": "Закрыта",
+        "en": "Closed",
+        "uz": "Yopilgan",
+    },
+    "goal.item_open": {
+        "ru": "Открыта",
+        "en": "Open",
+        "uz": "Ochiq",
+    },
+    "goal.close_item": {
+        "ru": "Закрыть позицию",
+        "en": "Close item",
+        "uz": "Pozitsiyani yopish",
+    },
+    "goal.close_item_confirm": {
+        "ru": "Закрыть «{name}»?",
+        "en": "Close “{name}”?",
+        "uz": "«{name}» yopilsinmi?",
+    },
+    "goal.close_early": {
+        "ru": "Закрыть досрочно",
+        "en": "Close early",
+        "uz": "Muddatidan oldin yopish",
+    },
+    "goal.close_early_confirm": {
+        "ru": "Закрыть «{name}»? Взносы будут недоступны",
+        "en": "Close “{name}”? Contributions will be blocked",
+        "uz": "«{name}» yopilsinmi? Badallar bloklanadi",
+    },
+    "goal.badge.closed_early": {
+        "ru": "Досрочно",
+        "en": "Closed early",
+        "uz": "Muddatidan oldin",
+    },
+    "goal.select_item": {
+        "ru": "Позиция",
+        "en": "Item",
+        "uz": "Pozitsiya",
+    },
+    "goal.items_required": {
+        "ru": "Добавьте позицию или отключите режим",
+        "en": "Add an item or turn off multi-item mode",
+        "uz": "Pozitsiya qo‘shing yoki rejimni o‘chiring",
     },
     "goals.total_remaining": {
         "ru": "Ещё нужно",
@@ -1628,6 +1943,506 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Всего по целям",
         "en": "Goals total",
         "uz": "Maqsadlar jami",
+    },
+    "goal.search_hint": {
+        "ru": "Название или позиция",
+        "en": "Name or item",
+        "uz": "Nom yoki pozitsiya",
+    },
+    "goal.group_mode": {
+        "ru": "Группировка",
+        "en": "Grouping",
+        "uz": "Guruhlash",
+    },
+    "goal.group_none": {
+        "ru": "Список",
+        "en": "List",
+        "uz": "Ro‘yxat",
+    },
+    "goal.group_by_priority": {
+        "ru": "Приоритет",
+        "en": "Priority",
+        "uz": "Muhimlik",
+    },
+    "goal.priority_block": {
+        "ru": "Приоритет P{n}",
+        "en": "Priority P{n}",
+        "uz": "Muhimlik P{n}",
+    },
+    "goal.quick_contribute": {
+        "ru": "Быстрый взнос",
+        "en": "Quick contribute",
+        "uz": "Tez badal",
+    },
+    "goal.quick_plus_percent": {
+        "ru": "+10%",
+        "en": "+10%",
+        "uz": "+10%",
+    },
+    "goal.quick_plus_fixed": {
+        "ru": "+{amount}",
+        "en": "+{amount}",
+        "uz": "+{amount}",
+    },
+    "goal.top_up_item": {
+        "ru": "Пополнить «{name}»",
+        "en": "Top up “{name}”",
+        "uz": "«{name}» to‘ldirish",
+    },
+    "goal.contribution_trend": {
+        "ru": "Взносы за 6 мес.",
+        "en": "Last 6 months",
+        "uz": "6 oylik badallar",
+    },
+    "goal.streak": {
+        "ru": "{months} мес. подряд",
+        "en": "{months} mo. in a row",
+        "uz": "Ketma-ket {months} oy",
+    },
+    "goal.budget_link": {
+        "ru": "Бюджет «{category}»: {spent} / {limit}",
+        "en": "Budget “{category}”: {spent} / {limit}",
+        "uz": "«{category}» byudjeti: {spent} / {limit}",
+    },
+    "goal.open_budgets": {
+        "ru": "Открыть бюджеты",
+        "en": "Open budgets",
+        "uz": "Byudjetlarni ochish",
+    },
+    "goal.audit_log": {
+        "ru": "История изменений",
+        "en": "Change history",
+        "uz": "O‘zgarishlar tarixi",
+    },
+    "goal.audit.updated": {
+        "ru": "Цель обновлена",
+        "en": "Goal updated",
+        "uz": "Maqsad yangilandi",
+    },
+    "goal.audit.created": {
+        "ru": "Цель создана",
+        "en": "Goal created",
+        "uz": "Maqsad yaratildi",
+    },
+    "goal.withdraw": {
+        "ru": "Вывести",
+        "en": "Withdraw",
+        "uz": "Yechib olish",
+    },
+    "goal.withdraw_confirm": {
+        "ru": "Вывести {amount} из «{name}» на счёт?",
+        "en": "Withdraw {amount} from “{name}” to account?",
+        "uz": "«{name}»dan {amount} hisobga o‘tkazilsinmi?",
+    },
+    "goal.withdraw_exceeds_item": {
+        "ru": "Сумма больше накопленного по позиции",
+        "en": "Amount exceeds item balance",
+        "uz": "Summa pozitsiya balansidan katta",
+    },
+    "goal.complete_archive_title": {
+        "ru": "Цель достигнута",
+        "en": "Goal completed",
+        "uz": "Maqsad bajarildi",
+    },
+    "goal.complete_archive_message": {
+        "ru": "«{name}» выполнена. Перенести в архив?",
+        "en": "“{name}” is complete. Move to archive?",
+        "uz": "«{name}» bajarildi. Arxivga o‘tkazilsinmi?",
+    },
+    "goal.templates": {
+        "ru": "Шаблоны",
+        "en": "Templates",
+        "uz": "Shablonlar",
+    },
+    "goal.templates_hint": {
+        "ru": "Быстрый старт с готовыми позициями",
+        "en": "Quick start with preset items",
+        "uz": "Tayyor pozitsiyalar bilan tez boshlash",
+    },
+    "goal.form_main_hint": {
+        "ru": "Сумма и срок можно менять позже",
+        "en": "Amount and deadline can be changed later",
+        "uz": "Summa va muddatni keyinroq o‘zgartirish mumkin",
+    },
+    "goal.planned_monthly": {
+        "ru": "План в месяц",
+        "en": "Planned monthly",
+        "uz": "Oy rejasi",
+    },
+    "goal.monthly_hint_required": {
+        "ru": "К сроку: ≈ {amount}/мес",
+        "en": "By deadline: ≈ {amount}/mo",
+        "uz": "Muddatga: ≈ {amount}/oy",
+    },
+    "goal.projected_from_plan": {
+        "ru": "По плану: до {date}",
+        "en": "At plan pace: by {date}",
+        "uz": "Reja bo‘yicha: {date} gacha",
+    },
+    "goal.item_name_required": {
+        "ru": "Введите название",
+        "en": "Enter a name",
+        "uz": "Nom kiriting",
+    },
+    "goal.item_amount_invalid": {
+        "ru": "Введите сумму",
+        "en": "Enter an amount",
+        "uz": "Summa kiriting",
+    },
+    "notify.goal_milestone_percent": {
+        "ru": "Цель «{name}»: {percent}%",
+        "en": "Goal “{name}”: {percent}%",
+        "uz": "«{name}» maqsadi: {percent}%",
+    },
+    "notify.goal_item_milestone_percent": {
+        "ru": "«{item}»: {percent}%",
+        "en": "“{item}”: {percent}%",
+        "uz": "«{item}»: {percent}%",
+    },
+    "notify.goal_contribute_title": {
+        "ru": "Пора внести в цель",
+        "en": "Time to contribute",
+        "uz": "Maqsadga badal vaqti",
+    },
+    "notify.goal_contribute_body": {
+        "ru": "«{name}» отстаёт. Рекомендуем ≈ {amount} в месяц",
+        "en": "“{name}” is behind. Aim for about {amount} per month",
+        "uz": "«{name}» orqada. Oyiga taxminan {amount} tavsiya etiladi",
+    },
+    "goal.template.vacation": {
+        "ru": "Отпуск",
+        "en": "Vacation",
+        "uz": "Ta’til",
+    },
+    "goal.template.vacation.tickets": {
+        "ru": "Билеты",
+        "en": "Tickets",
+        "uz": "Chiptalar",
+    },
+    "goal.template.vacation.hotel": {
+        "ru": "Отель",
+        "en": "Hotel",
+        "uz": "Mehmonxona",
+    },
+    "goal.template.vacation.spending": {
+        "ru": "На месте",
+        "en": "Spending money",
+        "uz": "Joyida xarajat",
+    },
+    "goal.template.cushion": {
+        "ru": "Подушка",
+        "en": "Safety cushion",
+        "uz": "Zaxira",
+    },
+    "goal.template.tech": {
+        "ru": "Техника",
+        "en": "Tech",
+        "uz": "Texnika",
+    },
+    "goal.template.tech.device": {
+        "ru": "Устройство",
+        "en": "Device",
+        "uz": "Qurilma",
+    },
+    "goal.template.tech.accessories": {
+        "ru": "Аксессуары",
+        "en": "Accessories",
+        "uz": "Aksessuarlar",
+    },
+    "goal.template.car": {
+        "ru": "Авто",
+        "en": "Car",
+        "uz": "Avto",
+    },
+    "goal.template.car.down": {
+        "ru": "Первый взнос",
+        "en": "Down payment",
+        "uz": "Bosh to‘lov",
+    },
+    "goal.template.car.insurance": {
+        "ru": "Страховка",
+        "en": "Insurance",
+        "uz": "Sug‘urta",
+    },
+    "goal.template.car.registration": {
+        "ru": "Оформление",
+        "en": "Registration",
+        "uz": "Rasmiylashtirish",
+    },
+    "goal.template.home": {
+        "ru": "Жильё",
+        "en": "Home",
+        "uz": "Uy",
+    },
+    "goal.template.home.down": {
+        "ru": "Первый взнос",
+        "en": "Down payment",
+        "uz": "Bosh to‘lov",
+    },
+    "goal.template.home.renovation": {
+        "ru": "Ремонт",
+        "en": "Renovation",
+        "uz": "Ta’mirlash",
+    },
+    "goal.template.home.furniture": {
+        "ru": "Мебель",
+        "en": "Furniture",
+        "uz": "Mebel",
+    },
+    "goal.template.wedding": {
+        "ru": "Свадьба",
+        "en": "Wedding",
+        "uz": "To‘y",
+    },
+    "goal.template.wedding.rings": {
+        "ru": "Кольца",
+        "en": "Rings",
+        "uz": "Uzuklar",
+    },
+    "goal.template.wedding.banquet": {
+        "ru": "Банкет",
+        "en": "Banquet",
+        "uz": "Banket",
+    },
+    "goal.template.wedding.outfit": {
+        "ru": "Наряд",
+        "en": "Outfit",
+        "uz": "Kiyim",
+    },
+    "goal.template.education": {
+        "ru": "Учёба",
+        "en": "Education",
+        "uz": "Ta’lim",
+    },
+    "goal.template.education.tuition": {
+        "ru": "Обучение",
+        "en": "Tuition",
+        "uz": "O‘qish",
+    },
+    "goal.template.education.books": {
+        "ru": "Книги",
+        "en": "Books",
+        "uz": "Kitoblar",
+    },
+    "goal.template.education.laptop": {
+        "ru": "Ноутбук",
+        "en": "Laptop",
+        "uz": "Noutbuk",
+    },
+    "goal.template.baby": {
+        "ru": "Ребёнок",
+        "en": "Baby",
+        "uz": "Bola",
+    },
+    "goal.template.baby.crib": {
+        "ru": "Кроватка",
+        "en": "Crib",
+        "uz": "Krovat",
+    },
+    "goal.template.baby.stroller": {
+        "ru": "Коляска",
+        "en": "Stroller",
+        "uz": "Aravacha",
+    },
+    "goal.template.baby.clothes": {
+        "ru": "Одежда",
+        "en": "Clothes",
+        "uz": "Kiyim",
+    },
+    "goal.template.health": {
+        "ru": "Здоровье",
+        "en": "Health",
+        "uz": "Salomatlik",
+    },
+    "goal.template.health.treatment": {
+        "ru": "Лечение",
+        "en": "Treatment",
+        "uz": "Davolash",
+    },
+    "goal.template.health.checkups": {
+        "ru": "Обследования",
+        "en": "Checkups",
+        "uz": "Tekshiruvlar",
+    },
+    "goal.template.renovation": {
+        "ru": "Ремонт",
+        "en": "Renovation",
+        "uz": "Ta’mirlash",
+    },
+    "goal.template.renovation.materials": {
+        "ru": "Материалы",
+        "en": "Materials",
+        "uz": "Materiallar",
+    },
+    "goal.template.renovation.labor": {
+        "ru": "Работа",
+        "en": "Labor",
+        "uz": "Ish haqi",
+    },
+    "goal.template.business": {
+        "ru": "Бизнес",
+        "en": "Business",
+        "uz": "Biznes",
+    },
+    "goal.template.business.equipment": {
+        "ru": "Оборудование",
+        "en": "Equipment",
+        "uz": "Jihozlar",
+    },
+    "goal.template.business.stock": {
+        "ru": "Товар",
+        "en": "Stock",
+        "uz": "Tovar",
+    },
+    "goal.template.business.marketing": {
+        "ru": "Реклама",
+        "en": "Marketing",
+        "uz": "Reklama",
+    },
+    "goal.template.phone": {
+        "ru": "Телефон",
+        "en": "Phone",
+        "uz": "Telefon",
+    },
+    "goal.template.phone.device": {
+        "ru": "Смартфон",
+        "en": "Smartphone",
+        "uz": "Smartfon",
+    },
+    "goal.template.phone.accessories": {
+        "ru": "Аксессуары",
+        "en": "Accessories",
+        "uz": "Aksessuarlar",
+    },
+    "goal.template.sport": {
+        "ru": "Спорт",
+        "en": "Sport",
+        "uz": "Sport",
+    },
+    "goal.template.sport.gear": {
+        "ru": "Снаряжение",
+        "en": "Gear",
+        "uz": "Jihoz",
+    },
+    "goal.template.sport.membership": {
+        "ru": "Абонемент",
+        "en": "Membership",
+        "uz": "Abonement",
+    },
+    "goal.template.gifts": {
+        "ru": "Подарки",
+        "en": "Gifts",
+        "uz": "Sovg‘alar",
+    },
+    "goal.template.gifts.holidays": {
+        "ru": "Праздники",
+        "en": "Holidays",
+        "uz": "Bayramlar",
+    },
+    "goal.template.gifts.birthdays": {
+        "ru": "Дни рождения",
+        "en": "Birthdays",
+        "uz": "Tug‘ilgan kunlar",
+    },
+    "goal.template.emergency": {
+        "ru": "Резерв",
+        "en": "Emergency fund",
+        "uz": "Zaxira",
+    },
+    "goal.template.investment": {
+        "ru": "Инвестиции",
+        "en": "Investments",
+        "uz": "Investitsiya",
+    },
+    "goal.template.motorcycle": {
+        "ru": "Мото",
+        "en": "Motorcycle",
+        "uz": "Mototsikl",
+    },
+    "goal.template.motorcycle.bike": {
+        "ru": "Мотоцикл",
+        "en": "Bike",
+        "uz": "Mototsikl",
+    },
+    "goal.template.motorcycle.gear": {
+        "ru": "Экипировка",
+        "en": "Gear",
+        "uz": "Ekipirovka",
+    },
+    "goal.template.motorcycle.insurance": {
+        "ru": "Страховка",
+        "en": "Insurance",
+        "uz": "Sug‘urta",
+    },
+    "goal.template.pet": {
+        "ru": "Питомец",
+        "en": "Pet",
+        "uz": "Uy hayvoni",
+    },
+    "goal.template.pet.vet": {
+        "ru": "Ветеринар",
+        "en": "Vet care",
+        "uz": "Veterinar",
+    },
+    "goal.template.pet.supplies": {
+        "ru": "Расходники",
+        "en": "Supplies",
+        "uz": "Ta’minot",
+    },
+    "goal.template.move": {
+        "ru": "Переезд",
+        "en": "Move",
+        "uz": "Ko‘chish",
+    },
+    "goal.template.move.transport": {
+        "ru": "Перевозка",
+        "en": "Moving",
+        "uz": "Tashish",
+    },
+    "goal.template.move.deposit": {
+        "ru": "Депозит",
+        "en": "Deposit",
+        "uz": "Depozit",
+    },
+    "goal.template.move.setup": {
+        "ru": "Обустройство",
+        "en": "Setup",
+        "uz": "Jihozlash",
+    },
+    "goal.template.laptop": {
+        "ru": "Ноутбук",
+        "en": "Laptop",
+        "uz": "Noutbuk",
+    },
+    "goal.template.courses": {
+        "ru": "Курсы",
+        "en": "Courses",
+        "uz": "Kurslar",
+    },
+    "goal.template.celebration": {
+        "ru": "Праздник",
+        "en": "Party",
+        "uz": "Bayram",
+    },
+    "goal.template.celebration.venue": {
+        "ru": "Площадка",
+        "en": "Venue",
+        "uz": "Joy",
+    },
+    "goal.template.celebration.catering": {
+        "ru": "Кейтеринг",
+        "en": "Catering",
+        "uz": "Ovqatlanish",
+    },
+    "goal.template.celebration.decor": {
+        "ru": "Декор",
+        "en": "Decor",
+        "uz": "Dekor",
+    },
+    "goal.template.furniture": {
+        "ru": "Мебель",
+        "en": "Furniture",
+        "uz": "Mebel",
     },
     "icon_group.cards": {
         "ru": "Карты и кошельки",
@@ -1964,6 +2779,146 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "No budgets for this month",
         "uz": "Bu oy uchun byudjetlar yo‘q",
     },
+    "budgets.no_previous": {
+        "ru": "За прошлый месяц бюджетов нет",
+        "en": "No budgets in the previous month",
+        "uz": "O‘tgan oyda byudjet yo‘q",
+    },
+    "budgets.copy_previous": {
+        "ru": "Скопировать с прошлого месяца",
+        "en": "Copy from last month",
+        "uz": "O‘tgan oydan nusxalash",
+    },
+    "budgets.copied": {
+        "ru": "Скопировано категорий: {count}",
+        "en": "Copied {count} categories",
+        "uz": "Nusxalandi: {count}",
+    },
+    "budgets.this_month": {
+        "ru": "Этот месяц",
+        "en": "This month",
+        "uz": "Shu oy",
+    },
+    "budgets.search_hint": {
+        "ru": "Категория",
+        "en": "Category",
+        "uz": "Toifa",
+    },
+    "budgets.filter.all": {
+        "ru": "Все",
+        "en": "All",
+        "uz": "Hammasi",
+    },
+    "budgets.filter.warning": {
+        "ru": "Близко к лимиту",
+        "en": "Near limit",
+        "uz": "Limitga yaqin",
+    },
+    "budgets.filter.over": {
+        "ru": "Сверх лимита",
+        "en": "Over limit",
+        "uz": "Limitdan oshgan",
+    },
+    "budgets.pace_ok": {
+        "ru": "В темпе · {daily}/день до конца месяца",
+        "en": "On pace · {daily}/day left",
+        "uz": "Jadvalda · oy oxirigacha {daily}/kun",
+    },
+    "budgets.pace_fast": {
+        "ru": "Быстрее плана · осталось {daily}/день",
+        "en": "Ahead of plan · {daily}/day left",
+        "uz": "Jadvaldan oldin · {daily}/kun qoldi",
+    },
+    "budgets.pace_over": {
+        "ru": "Лимит исчерпан",
+        "en": "Limit used up",
+        "uz": "Limit tugadi",
+    },
+    "budgets.overspend": {
+        "ru": "Перерасход",
+        "en": "Overspent",
+        "uz": "Ortiqcha sarf",
+    },
+    "budgets.suggest_avg": {
+        "ru": "Среднее за 3 месяца: {amount}",
+        "en": "3-month average: {amount}",
+        "uz": "3 oylik o‘rtacha: {amount}",
+    },
+    "budgets.use_suggest": {
+        "ru": "Подставить",
+        "en": "Use",
+        "uz": "Qo‘llash",
+    },
+    "budgets.from_subs": {
+        "ru": "Из подписок",
+        "en": "From subscriptions",
+        "uz": "Obunalardan",
+    },
+    "budgets.month_hint": {
+        "ru": "Лимиты на {period}",
+        "en": "Limits for {period}",
+        "uz": "{period} limitlari",
+    },
+    "budgets.operations": {
+        "ru": "Операции за месяц",
+        "en": "This month's transactions",
+        "uz": "Shu oydagi amaliyotlar",
+    },
+    "budgets.empty_filtered": {
+        "ru": "Нет категорий с таким фильтром",
+        "en": "No categories match this filter",
+        "uz": "Filtrga mos toifa yo‘q",
+    },
+    "budgets.template.food": {
+        "ru": "Еда",
+        "en": "Food",
+        "uz": "Ovqat",
+    },
+    "budgets.template.transport": {
+        "ru": "Транспорт",
+        "en": "Transport",
+        "uz": "Transport",
+    },
+    "budgets.template.housing": {
+        "ru": "Жильё",
+        "en": "Housing",
+        "uz": "Uy-joy",
+    },
+    "budgets.template.utilities": {
+        "ru": "Коммунальные",
+        "en": "Utilities",
+        "uz": "Kommunal",
+    },
+    "budgets.template.health": {
+        "ru": "Здоровье",
+        "en": "Health",
+        "uz": "Salomatlik",
+    },
+    "budgets.template.entertainment": {
+        "ru": "Развлечения",
+        "en": "Entertainment",
+        "uz": "Ko‘ngilochar",
+    },
+    "budgets.template.clothes": {
+        "ru": "Одежда",
+        "en": "Clothes",
+        "uz": "Kiyim",
+    },
+    "budgets.template.education": {
+        "ru": "Образование",
+        "en": "Education",
+        "uz": "Ta’lim",
+    },
+    "analytics.budgets_breakdown": {
+        "ru": "По категориям",
+        "en": "By category",
+        "uz": "Toifalar bo‘yicha",
+    },
+    "analytics.budgets_trend": {
+        "ru": "Лимит и расходы по месяцам",
+        "en": "Limits vs spend by month",
+        "uz": "Oylik limit va xarajat",
+    },
     "budgets.category_required": {
         "ru": "Выберите категорию",
         "en": "Choose a category",
@@ -2041,6 +2996,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Goal \"{name}\" is behind schedule. Contribute about {amount} per month",
         "uz": "\"{name}\" maqsadi jadvaldan orqada. Oyiga taxminan {amount} kerak",
     },
+    "notify.budget_50_title": {
+        "ru": "Половина бюджета",
+        "en": "Half the budget used",
+        "uz": "Byudjetning yarmi",
+    },
     "notify.budget_80_title": {
         "ru": "Бюджет почти исчерпан",
         "en": "Budget nearly used up",
@@ -2050,6 +3010,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Бюджет превышен",
         "en": "Budget exceeded",
         "uz": "Byudjet oshib ketdi",
+    },
+    "notifications.budget_50": {
+        "ru": "Бюджет категории {category} израсходован наполовину. Осталось: {remaining} {currency}",
+        "en": "Budget for \"{category}\" is 50% used. Remaining: {remaining} {currency}",
+        "uz": "\"{category}\" byudjetining yarmi ishlatildi. Qoldi: {remaining} {currency}",
     },
     "notifications.budget_80": {
         "ru": "Бюджет категории {category} израсходован на 80%. Осталось: {remaining} {currency}",
@@ -2331,6 +3296,51 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Notifications",
         "uz": "Bildirishnomalar",
     },
+    "settings.notifications_enable": {
+        "ru": "Включить уведомления",
+        "en": "Enable notifications",
+        "uz": "Bildirishnomalarni yoqish",
+    },
+    "settings.notifications_reminders": {
+        "ru": "Напоминания",
+        "en": "Reminders",
+        "uz": "Eslatmalar",
+    },
+    "settings.notifications_alerts": {
+        "ru": "Оповещения",
+        "en": "Alerts",
+        "uz": "Ogohlantirishlar",
+    },
+    "settings.notifications_schedule": {
+        "ru": "Расписание",
+        "en": "Schedule",
+        "uz": "Jadval",
+    },
+    "settings.export_hint": {
+        "ru": "Сохраните данные в файл на устройстве. Зашифрованный JSON защищён паролем.",
+        "en": "Save data to a file on your device. Encrypted JSON is protected with a password.",
+        "uz": "Ma’lumotlarni qurilmadagi faylga saqlang. Shifrlangan JSON parol bilan himoyalangan.",
+    },
+    "settings.sections_hint": {
+        "ru": "Быстрый переход к разделам приложения",
+        "en": "Quick links to app sections",
+        "uz": "Ilova bo‘limlariga tez o‘tish",
+    },
+    "settings.security_pin": {
+        "ru": "Блокировка PIN",
+        "en": "PIN lock",
+        "uz": "PIN bilan qulflash",
+    },
+    "settings.security_biometric": {
+        "ru": "Биометрия",
+        "en": "Biometrics",
+        "uz": "Biometriya",
+    },
+    "settings.pin_hint": {
+        "ru": "При запуске приложение попросит PIN, если он установлен",
+        "en": "On launch the app asks for your PIN when one is set",
+        "uz": "Ishga tushganda PIN o‘rnatilgan bo‘lsa, ilova so‘raydi",
+    },
     "settings.pin": {
         "ru": "PIN-код",
         "en": "PIN code",
@@ -2542,9 +3552,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Yechib olish tarixi",
     },
     "subscription.delete_charge_hint": {
-        "ru": "Списание удалится из истории. Дата следующего платежа сама не сдвинется",
-        "en": "The charge is removed from history. The next payment date won’t move by itself",
-        "uz": "To‘lov tarixdan o‘chiriladi. Keyingi to‘lov sanasi o‘zi siljimaydi",
+        "ru": "Списание удалится, остаток на счёте и дата следующего платежа откатятся",
+        "en": "The charge is removed; account balance and next billing date roll back",
+        "uz": "To‘lov o‘chadi, balans va keyingi sana orqaga qaytadi",
     },
     "subscription.insufficient_funds": {
         "ru": "Недостаточно средств на счёте",
@@ -2560,6 +3570,321 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Ежегодно",
         "en": "Yearly",
         "uz": "Har yil",
+    },
+    "subscription.search_hint": {
+        "ru": "Поиск по названию",
+        "en": "Search by name",
+        "uz": "Nom bo‘yicha qidirish",
+    },
+    "subscription.filter.active": {
+        "ru": "Активные",
+        "en": "Active",
+        "uz": "Faol",
+    },
+    "subscription.filter.paused": {
+        "ru": "Пауза",
+        "en": "Paused",
+        "uz": "Pauza",
+    },
+    "subscription.filter.expired": {
+        "ru": "Истекшие",
+        "en": "Expired",
+        "uz": "Muddati o‘tgan",
+    },
+    "subscription.filter.cancelled": {
+        "ru": "Отменённые",
+        "en": "Cancelled",
+        "uz": "Bekor qilingan",
+    },
+    "subscription.filter.all": {
+        "ru": "Все",
+        "en": "All",
+        "uz": "Hammasi",
+    },
+    "subscription.filter.all_periods": {
+        "ru": "Все периоды",
+        "en": "All periods",
+        "uz": "Barcha davrlar",
+    },
+    "subscription.filter_status": {
+        "ru": "Статус",
+        "en": "Status",
+        "uz": "Holat",
+    },
+    "subscription.filter_status_hint": {
+        "ru": "По умолчанию только активные",
+        "en": "Active only by default",
+        "uz": "Standart — faqat faol",
+    },
+    "subscription.filter_period": {
+        "ru": "Период",
+        "en": "Period",
+        "uz": "Davr",
+    },
+    "subscription.filter_sort": {
+        "ru": "Сортировка",
+        "en": "Sort",
+        "uz": "Saralash",
+    },
+    "subscription.filter_auto_only": {
+        "ru": "Только автосписание",
+        "en": "Auto-charge only",
+        "uz": "Faqat avtoyechish",
+    },
+    "subscription.filter_auto_only_hint": {
+        "ru": "Скрыть подписки без автосписания",
+        "en": "Hide subscriptions without auto-charge",
+        "uz": "Avtoyechishsiz obunalarni yashirish",
+    },
+    "subscription.filter_due_soon": {
+        "ru": "Скоро списать",
+        "en": "Due soon",
+        "uz": "Tez orada",
+    },
+    "subscription.filter_due_soon_hint": {
+        "ru": "Следующие 7 дней",
+        "en": "Next 7 days",
+        "uz": "Keyingi 7 kun",
+    },
+    "subscription.sort.next_billing": {
+        "ru": "По дате списания",
+        "en": "By billing date",
+        "uz": "To‘lov sanasi",
+    },
+    "subscription.sort.amount": {
+        "ru": "По сумме",
+        "en": "By amount",
+        "uz": "Summa",
+    },
+    "subscription.sort.name": {
+        "ru": "По имени",
+        "en": "By name",
+        "uz": "Nom",
+    },
+    "subscription.sort.monthly": {
+        "ru": "По месячной стоимости",
+        "en": "By monthly cost",
+        "uz": "Oylik narx",
+    },
+    "subscription.skip_period": {
+        "ru": "Пропустить период",
+        "en": "Skip period",
+        "uz": "Davrni o‘tkazib yuborish",
+    },
+    "subscription.duplicate": {
+        "ru": "Дублировать",
+        "en": "Duplicate",
+        "uz": "Nusxalash",
+    },
+    "subscription.copy_suffix": {
+        "ru": " (копия)",
+        "en": " (copy)",
+        "uz": " (nusxa)",
+    },
+    "subscription.cancel": {
+        "ru": "Отменить подписку",
+        "en": "Cancel subscription",
+        "uz": "Obunani bekor qilish",
+    },
+    "subscription.delete_hint": {
+        "ru": "Удалить «{name}»? Списания останутся в операциях",
+        "en": "Delete “{name}”? Charges stay in transactions",
+        "uz": "«{name}» o‘chirilsinmi? To‘lovlar amaliyotlarda qoladi",
+    },
+    "subscription.catchup_title": {
+        "ru": "Пропущенные периоды",
+        "en": "Missed periods",
+        "uz": "O‘tkazib yuborilgan davrlar",
+    },
+    "subscription.catchup_body": {
+        "ru": "Пропущено списаний: {count}",
+        "en": "Missed charges: {count}",
+        "uz": "O‘tkazib yuborilgan: {count}",
+    },
+    "subscription.catchup_one": {
+        "ru": "Списать один период",
+        "en": "Charge one period",
+        "uz": "Bitta davrni yechish",
+    },
+    "subscription.catchup_all": {
+        "ru": "Списать все пропущенные",
+        "en": "Charge all missed",
+        "uz": "Hammasini yechish",
+    },
+    "subscription.catchup_skip": {
+        "ru": "Пропустить пропущенные",
+        "en": "Skip missed periods",
+        "uz": "O‘tkazib yuborish",
+    },
+    "subscription.catchup_none": {
+        "ru": "Списать не удалось — проверьте баланс и курс",
+        "en": "Nothing charged — check balance and exchange rate",
+        "uz": "Yechilmadi — balans va kursni tekshiring",
+    },
+    "subscription.section_due_soon": {
+        "ru": "Скоро",
+        "en": "Due soon",
+        "uz": "Tez orada",
+    },
+    "subscription.section_other": {
+        "ru": "Остальные",
+        "en": "Others",
+        "uz": "Qolganlari",
+    },
+    "subscription.due_this_week": {
+        "ru": "На этой неделе: {count}",
+        "en": "This week: {count}",
+        "uz": "Bu hafta: {count}",
+    },
+    "subscription.audit": {
+        "ru": "История изменений",
+        "en": "Change history",
+        "uz": "O‘zgarishlar tarixi",
+    },
+    "subscription.audit.create": {
+        "ru": "Подписка создана",
+        "en": "Subscription created",
+        "uz": "Obuna yaratildi",
+    },
+    "subscription.audit.update": {
+        "ru": "Подписка обновлена",
+        "en": "Subscription updated",
+        "uz": "Obuna yangilandi",
+    },
+    "subscription.audit.pause": {
+        "ru": "На паузе",
+        "en": "Paused",
+        "uz": "Pauzada",
+    },
+    "subscription.audit.resume": {
+        "ru": "Возобновлена",
+        "en": "Resumed",
+        "uz": "Davom ettirildi",
+    },
+    "subscription.audit.charge": {
+        "ru": "Списание",
+        "en": "Charged",
+        "uz": "Yechib olindi",
+    },
+    "subscription.audit.catchup": {
+        "ru": "Догон пропущенных",
+        "en": "Catch-up charges",
+        "uz": "Qoldiq to‘lovlar",
+    },
+    "subscription.audit.skip": {
+        "ru": "Период пропущен",
+        "en": "Period skipped",
+        "uz": "Davr o‘tkazib yuborildi",
+    },
+    "subscription.audit.duplicate": {
+        "ru": "Продублирована",
+        "en": "Duplicated",
+        "uz": "Nusxalandi",
+    },
+    "subscription.audit.cancel": {
+        "ru": "Отменена",
+        "en": "Cancelled",
+        "uz": "Bekor qilindi",
+    },
+    "subscription.ended_block": {
+        "ru": "Подписка истекла",
+        "en": "Subscription has ended",
+        "uz": "Obuna muddati tugagan",
+    },
+    "subscription.cancelled_block": {
+        "ru": "Подписка отменена",
+        "en": "Subscription is cancelled",
+        "uz": "Obuna bekor qilingan",
+    },
+    "subscription.cannot_charge": {
+        "ru": "Эту подписку нельзя списать",
+        "en": "This subscription cannot be charged",
+        "uz": "Bu obunani yechib bo‘lmaydi",
+    },
+    "subscription.limit_reached": {
+        "ru": "Достигнут лимит списаний",
+        "en": "Payment limit reached",
+        "uz": "To‘lov limiti tugadi",
+    },
+    "subscription.resume_cancelled": {
+        "ru": "Отменённую подписку нельзя возобновить — создайте новую",
+        "en": "A cancelled subscription cannot be resumed — create a new one",
+        "uz": "Bekor qilingan obunani davom ettirib bo‘lmaydi",
+    },
+    "subscription.cancel_via_action": {
+        "ru": "Отмените подписку кнопкой на карточке, не через статус",
+        "en": "Cancel from the subscription card, not by changing status",
+        "uz": "Obunani kartochkadagi tugma bilan bekor qiling",
+    },
+    "subscription.status_locked_hint": {
+        "ru": "Статус меняется кнопками паузы и отмены, не из этой формы",
+        "en": "Change status with pause or cancel, not from this form",
+        "uz": "Holatni pauza yoki bekor qilish tugmalari bilan o‘zgartiring",
+    },
+    "subscription.template.netflix": {
+        "ru": "Netflix",
+        "en": "Netflix",
+        "uz": "Netflix",
+    },
+    "subscription.template.spotify": {
+        "ru": "Spotify",
+        "en": "Spotify",
+        "uz": "Spotify",
+    },
+    "subscription.template.youtube": {
+        "ru": "YouTube",
+        "en": "YouTube",
+        "uz": "YouTube",
+    },
+    "subscription.template.cloud": {
+        "ru": "Облако",
+        "en": "Cloud",
+        "uz": "Bulut",
+    },
+    "subscription.template.gym": {
+        "ru": "Спортзал",
+        "en": "Gym",
+        "uz": "Sport zal",
+    },
+    "subscription.template.mobile": {
+        "ru": "Связь",
+        "en": "Mobile",
+        "uz": "Aloqa",
+    },
+    "subscription.template.internet": {
+        "ru": "Интернет",
+        "en": "Internet",
+        "uz": "Internet",
+    },
+    "subscription.template.insurance": {
+        "ru": "Страховка",
+        "en": "Insurance",
+        "uz": "Sug‘urta",
+    },
+    "subscription.template.rent": {
+        "ru": "Аренда",
+        "en": "Rent",
+        "uz": "Ijara",
+    },
+    "subscription.template.custom": {
+        "ru": "Своя",
+        "en": "Custom",
+        "uz": "O‘zimniki",
+    },
+    "subscriptions.active_count": {
+        "ru": "Активных: {count}",
+        "en": "Active: {count}",
+        "uz": "Faol: {count}",
+    },
+    "subscriptions.per_month_short": {
+        "ru": "мес",
+        "en": "/mo",
+        "uz": "oy",
+    },
+    "subscriptions.monthly_hint": {
+        "ru": "Средняя стоимость активных подписок",
+        "en": "Average cost of active subscriptions",
+        "uz": "Faol obunalarning o‘rtacha narxi",
     },
     "subscriptions.calendar": {
         "ru": "Календарь списаний",
@@ -2605,6 +3930,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Цели",
         "en": "Goals",
         "uz": "Maqsadlar",
+    },
+    "analytics.goals_saved_of": {
+        "ru": "из {target}",
+        "en": "of {target}",
+        "uz": "{target} dan",
+    },
+    "analytics.goals_count": {
+        "ru": "Целей: {count}",
+        "en": "Goals: {count}",
+        "uz": "Maqsadlar: {count}",
+    },
+    "analytics.goals_breakdown": {
+        "ru": "По целям",
+        "en": "By goal",
+        "uz": "Maqsadlar bo‘yicha",
     },
     "analytics.tab.debts": {
         "ru": "Долги",
@@ -2730,6 +4070,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Топ подписок",
         "en": "Top subscriptions",
         "uz": "Eng ko‘p obunalar",
+    },
+    "analytics.subscriptions_breakdown": {
+        "ru": "По подпискам",
+        "en": "By subscription",
+        "uz": "Obunalar bo‘yicha",
+    },
+    "analytics.subscriptions_trend": {
+        "ru": "Динамика списаний",
+        "en": "Charge trend",
+        "uz": "To‘lov dinamikasi",
     },
     "tags.hint": {
         "ru": "еда, такси",

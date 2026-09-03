@@ -68,6 +68,7 @@ def _to_entity(model: TransactionModel) -> Transaction:
         type=TransactionType(model.type),
         currency=model.currency,
         goal_id=model.goal_id,
+        goal_item_id=getattr(model, "goal_item_id", None),
         debt_id=getattr(model, "debt_id", None),
         subscription_id=getattr(model, "subscription_id", None),
         goal_credit_amount=(
@@ -99,6 +100,7 @@ def _apply_entity(model: TransactionModel, entity: Transaction) -> None:
     model.type = entity.type.value if isinstance(entity.type, TransactionType) else str(entity.type)
     model.currency = entity.currency
     model.goal_id = entity.goal_id
+    model.goal_item_id = entity.goal_item_id
     model.debt_id = entity.debt_id
     model.subscription_id = entity.subscription_id
     model.goal_credit_amount = entity.goal_credit_amount

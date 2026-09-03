@@ -126,9 +126,8 @@ def reminder_fire_at(
     fire_utc = fire_local.astimezone(timezone.utc)
     if fire_utc > moment:
         return fire_utc
-    if due_aware > moment:
-        return moment + timedelta(seconds=20)
-    return None
+    # Still arm an OS alert for due/overdue items (app may be killed).
+    return moment + timedelta(seconds=20)
 
 
 def _icon_path() -> str:
@@ -265,6 +264,7 @@ async def schedule_os_notification(
     schedule = getattr(svc, "schedule_notification", None) if svc is not None else None
     if when_utc is not None and callable(schedule):
         try:
+            await request_push_permissions()
             await schedule(
                 nid,
                 title or APP_ID,
@@ -277,8 +277,6 @@ async def schedule_os_notification(
         except Exception:  # noqa: BLE001
             logger.exception("Failed to schedule OS notification")
 
-    if when_utc is not None:
-        return False
     return await show_os_notification(
         title,
         body,

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-from lib.domain.entities.subscription import Periodicity
-from lib.domain.use_cases.subscriptions import _add_months, _advance_billing_date, monthly_equivalent
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+
+from lib.domain.entities.subscription import Periodicity, Subscription
+from lib.domain.use_cases.subscriptions import (
+    _add_months,
+    _advance_billing_date,
+    count_missed_periods,
+    monthly_equivalent,
+    retreat_billing_date,
+)
 
 
 def test_add_months_clamps_day() -> None:
@@ -42,3 +48,31 @@ def test_monthly_equivalent() -> None:
     assert monthly_equivalent(
         Decimal("10"), Periodicity.CUSTOM, custom_interval_days=10
     ) == Decimal("30.44")
+
+
+def test_retreat_is_inverse_of_advance() -> None:
+    base = datetime(2024, 5, 15, 12, 0, tzinfo=timezone.utc)
+    for period in (
+        Periodicity.DAILY,
+        Periodicity.WEEKLY,
+        Periodicity.BIWEEKLY,
+        Periodicity.MONTHLY,
+        Periodicity.QUARTERLY,
+        Periodicity.YEARLY,
+    ):
+        fwd = _advance_billing_date(base, period)
+        back = retreat_billing_date(fwd, period)
+        assert back == base
+
+
+def test_count_missed_periods() -> None:
+    due = datetime.now(timezone.utc) - timedelta(days=70)
+    sub = Subscription(
+        name="X",
+        amount=Decimal("10"),
+        account_id="a1",
+        next_billing_date=due,
+        periodicity=Periodicity.MONTHLY,
+    )
+    missed = count_missed_periods(sub)
+    assert missed >= 2

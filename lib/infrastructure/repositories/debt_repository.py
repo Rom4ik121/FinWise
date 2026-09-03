@@ -45,6 +45,15 @@ def _to_entity(model: DebtModel) -> Debt:
         last_interest_accrued_at=ensure_utc(
             getattr(model, "last_interest_accrued_at", None)
         ),
+        icon=getattr(model, "icon", None) or "credit_card",
+        color=getattr(model, "color", None) or "#F87171",
+        cached_projection=(
+            dict(model.cached_projection)
+            if isinstance(getattr(model, "cached_projection", None), dict)
+            else getattr(model, "cached_projection", None)
+        ),
+        forgiven_early=bool(getattr(model, "forgiven_early", False)),
+        payment_interval_months=int(getattr(model, "payment_interval_months", 1) or 1),
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
@@ -74,6 +83,13 @@ def _apply_entity(model: DebtModel, entity: Debt) -> None:
     model.accrue_interest = bool(entity.accrue_interest)
     model.accrued_interest = entity.accrued_interest
     model.last_interest_accrued_at = ensure_utc(entity.last_interest_accrued_at)
+    model.icon = getattr(entity, "icon", None) or "credit_card"
+    model.color = getattr(entity, "color", None) or "#F87171"
+    model.cached_projection = entity.cached_projection
+    model.forgiven_early = bool(getattr(entity, "forgiven_early", False))
+    model.payment_interval_months = max(
+        1, int(getattr(entity, "payment_interval_months", 1) or 1)
+    )
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 

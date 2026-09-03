@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Optional
 
@@ -112,16 +112,49 @@ class TransactionsPage(ft.Column):
             border_radius=12,
             filled=True,
             bgcolor=ft.Colors.SURFACE_CONTAINER,
+            expand=True,
         )
         from lib.presentation.form_keyboard import configure_field, wire_field_chain
 
         configure_field(self._search, "search")
         wire_field_chain(page, [self._search])
+
+        # --- Day / range navigator ---
+        self._selected_date: date = date.today()
+        self._range_mode = False  # True when user sets date_from/date_to in filters
+        self._range_from: date | None = None
+        self._range_to: date | None = None
+        self._day_label = ft.Text(
+            self._format_day_label(lang),
+            weight=ft.FontWeight.W_700,
+            size=15,
+            expand=True,
+            text_align=ft.TextAlign.CENTER,
+        )
+        self._nav_prev = ft.IconButton(
+            icon=ft.Icons.CHEVRON_LEFT,
+            on_click=lambda _e: self._shift_day(-1),
+        )
+        self._nav_next = ft.IconButton(
+            icon=ft.Icons.CHEVRON_RIGHT,
+            on_click=lambda _e: self._shift_day(1),
+        )
+        self._day_nav = ft.Row(
+            spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                self._nav_prev,
+                self._day_label,
+                self._nav_next,
+            ],
+        )
+
         # Filter values (controls are created fresh inside the dialog).
         self._type_value = "all"
         self._category_value = "all"
-        self._date_from_value = ""
-        self._date_to_value = ""
+        _init_fr, _init_to = self._day_date_range()
+        self._date_from_value = _init_fr
+        self._date_to_value = _init_to
         self._group_by_value = StatsPeriod.DAY.value
         self._filter_summary = ft.Text(
             "",
@@ -138,6 +171,12 @@ class TransactionsPage(ft.Column):
                 page_header(
                     tr("nav.transactions", lang),
                     actions=[
+                        ft.IconButton(
+                            icon=ft.Icons.TUNE,
+                            icon_color=ft.Colors.PRIMARY,
+                            tooltip=tr("action.filters", lang),
+                            on_click=lambda _e: self._open_filters(),
+                        ),
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
@@ -159,24 +198,7 @@ class TransactionsPage(ft.Column):
                         tight=True,
                         controls=[
                             self._search,
-                            ft.Row(
-                                spacing=8,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    ft.OutlinedButton(
-                                        tr("action.filters", lang),
-                                        icon=ft.Icons.TUNE,
-                                        style=ft.ButtonStyle(
-                                            shape=ft.RoundedRectangleBorder(radius=12),
-                                            padding=ft.Padding.symmetric(
-                                                horizontal=14, vertical=12
-                                            ),
-                                        ),
-                                        on_click=lambda _e: self._open_filters(),
-                                    ),
-                                    self._filter_summary,
-                                ],
-                            ),
+                            self._day_nav,
                         ],
                     ),
                 ),
@@ -193,6 +215,96 @@ class TransactionsPage(ft.Column):
     def _on_state(self, state: "AppState") -> None:
         if state.transactions_token != self._token:
             run_async(self._page, self.reload)
+
+    # --- Day navigation ---
+
+    _MONTH_NAMES_RU = [
+        "", "Января", "Февраля", "Марта", "Апреля", "Мая", "Июня",
+        "Июля", "Августа", "Сентября", "Октября", "Ноября", "Декабря",
+    ]
+    _MONTH_NAMES_EN = [
+        "", "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ]
+
+    def _format_day_label(self, lang: str) -> str:
+        if self._range_mode and self._range_from and self._range_to:
+            return self._format_range_label(self._range_from, self._range_to, lang)
+        d = self._selected_date
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        if lang == "ru":
+            if d == today:
+                return f"Сегодня, {d.day} {self._MONTH_NAMES_RU[d.month]}"
+            if d == yesterday:
+                return f"Вчера, {d.day} {self._MONTH_NAMES_RU[d.month]}"
+            return f"{d.day} {self._MONTH_NAMES_RU[d.month]} {d.year}"
+        if d == today:
+            return f"Today, {d.strftime('%b %d')}"
+        if d == yesterday:
+            return f"Yesterday, {d.strftime('%b %d')}"
+        return d.strftime("%b %d, %Y")
+
+    def _format_range_label(self, fr: date, to: date, lang: str) -> str:
+        if lang == "ru":
+            f_str = f"{fr.day} {self._MONTH_NAMES_RU[fr.month]}"
+            t_str = f"{to.day} {self._MONTH_NAMES_RU[to.month]}"
+            if fr.year != to.year:
+                f_str += f" {fr.year}"
+                t_str += f" {to.year}"
+            return f"{f_str} – {t_str}"
+        f_str = fr.strftime("%b %d")
+        t_str = to.strftime("%b %d")
+        if fr.year != to.year:
+            f_str = fr.strftime("%b %d, %Y")
+            t_str = to.strftime("%b %d, %Y")
+        return f"{f_str} – {t_str}"
+
+    def _shift_day(self, delta: int) -> None:
+        if self._range_mode and self._range_from and self._range_to:
+            span = (self._range_to - self._range_from).days + 1
+            shift = timedelta(days=span * delta)
+            self._range_from += shift
+            self._range_to += shift
+        else:
+            self._selected_date += timedelta(days=delta)
+        self._apply_day_filter()
+
+    def _day_date_range(self) -> tuple[str, str]:
+        """UTC date window that fully covers the selected local day or range."""
+        if self._range_mode and self._range_from and self._range_to:
+            return (
+                (self._range_from - timedelta(days=1)).strftime("%Y-%m-%d"),
+                (self._range_to + timedelta(days=1)).strftime("%Y-%m-%d"),
+            )
+        d = self._selected_date
+        return (
+            (d - timedelta(days=1)).strftime("%Y-%m-%d"),
+            (d + timedelta(days=1)).strftime("%Y-%m-%d"),
+        )
+
+    @staticmethod
+    def _tx_local_date(tx: Transaction) -> date:
+        dt = tx.date
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().date()
+
+    def _tx_in_selected_range(self, tx: Transaction) -> bool:
+        """Check if a transaction falls within the selected day or range."""
+        local = self._tx_local_date(tx)
+        if self._range_mode and self._range_from and self._range_to:
+            return self._range_from <= local <= self._range_to
+        return local == self._selected_date
+
+    def _apply_day_filter(self) -> None:
+        lang = self._state.language
+        fr, to = self._day_date_range()
+        self._date_from_value = fr
+        self._date_to_value = to
+        self._day_label.value = self._format_day_label(lang)
+        safe_update(self._day_label)
+        run_async(self._page, self.reload)
 
     def _filter_summary_text(self) -> str:
         lang = self._state.language
@@ -290,18 +402,29 @@ class TransactionsPage(ft.Column):
             dense=True,
             expand=True,
         )
+        # Pre-fill date fields with range if in range mode, else empty.
+        _df_init = (
+            datetime.combine(self._range_from, datetime.min.time()).replace(tzinfo=timezone.utc)
+            if self._range_mode and self._range_from
+            else None
+        )
+        _dt_init = (
+            datetime.combine(self._range_to, datetime.min.time()).replace(tzinfo=timezone.utc)
+            if self._range_mode and self._range_to
+            else None
+        )
         date_from = DateTimeField(
             self._page,
             lang=lang,
             label=tr("filter.date_from", lang),
-            value=_parse_date(self._date_from_value),
+            value=_df_init,
             allow_clear=True,
         )
         date_to = DateTimeField(
             self._page,
             lang=lang,
             label=tr("filter.date_to", lang),
-            value=_parse_date(self._date_to_value),
+            value=_dt_init,
             allow_clear=True,
         )
 
@@ -309,23 +432,34 @@ class TransactionsPage(ft.Column):
             self._type_value = type_dd.value or "all"
             self._category_value = category_dd.value or "all"
             self._group_by_value = group_dd.value or StatsPeriod.DAY.value
-            self._date_from_value = date_from.date_text
-            self._date_to_value = date_to.date_text
+            # If user set date range in filters → switch to range mode.
+            df_text = date_from.date_text.strip()
+            dt_text = date_to.date_text.strip()
+            if df_text and dt_text:
+                try:
+                    self._range_from = datetime.strptime(df_text[:10], "%Y-%m-%d").date()
+                    self._range_to = datetime.strptime(dt_text[:10], "%Y-%m-%d").date()
+                    self._range_mode = True
+                except ValueError:
+                    self._range_mode = False
+            elif df_text or dt_text:
+                # Partial range — use as single bound, stay in day mode.
+                self._range_mode = False
+            else:
+                self._range_mode = False
             close()
-            self._filter_summary.value = self._filter_summary_text()
-            safe_update(self._filter_summary)
-            await self.reload()
+            self._apply_day_filter()
 
         def _reset(_e: ft.ControlEvent | None = None) -> None:
             self._type_value = "all"
             self._category_value = "all"
-            self._date_from_value = ""
-            self._date_to_value = ""
             self._group_by_value = StatsPeriod.DAY.value
+            self._range_mode = False
+            self._range_from = None
+            self._range_to = None
+            self._selected_date = date.today()
             close()
-            self._filter_summary.value = self._filter_summary_text()
-            safe_update(self._filter_summary)
-            run_async(self._page, self.reload)
+            self._apply_day_filter()
 
         close = open_fullscreen_form(
             self._page,
@@ -537,9 +671,9 @@ class TransactionsPage(ft.Column):
                     offset=0,
                     **filters,
                 )
-                self._search_cache = [
-                    tx for tx in scanned if _matches_query(tx, query)
-                ]
+                matched = [tx for tx in scanned if _matches_query(tx, query)]
+                matched = [tx for tx in matched if self._tx_in_selected_range(tx)]
+                self._search_cache = matched
                 self._shown = self._search_cache[:_PAGE_SIZE]
                 self._offset = len(self._shown)
                 self._has_more = len(self._search_cache) > _PAGE_SIZE
@@ -551,6 +685,7 @@ class TransactionsPage(ft.Column):
                     offset=0,
                     **filters,
                 )
+                rows = [tx for tx in rows if self._tx_in_selected_range(tx)]
                 self._search_cache = []
                 self._has_more = len(rows) > _PAGE_SIZE
                 self._shown = rows[:_PAGE_SIZE]

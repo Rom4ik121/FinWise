@@ -38,6 +38,26 @@ _NAV_BAR_H = 54.0
 _NAV_SLIDE = ft.Animation(380, ft.AnimationCurve.EASE_IN_OUT_CUBIC)
 _BACKGROUND_LOCK_SECONDS = 15.0
 
+# iOS sends ``inactive`` for Face ID, Control Center, and app-switch
+# transitions. That is NOT backgrounding — treating it as hide locked the
+# app immediately and also started the 15s timer at the wrong moment.
+_BACKGROUND_LIFECYCLE = frozenset(
+    {"pause", "paused", "hide", "hidden", "detach", "detached"}
+)
+_FOREGROUND_LIFECYCLE = frozenset(
+    {"resume", "resumed", "show", "shown", "restart", "restarted"}
+)
+
+
+def lifecycle_token(event: Any) -> str:
+    """Normalize Flet/Flutter lifecycle payload to a short token."""
+    state = getattr(event, "data", None) or getattr(event, "state", None)
+    raw = str(getattr(state, "value", state) or "").strip().lower()
+    if "." in raw:
+        raw = raw.rsplit(".", 1)[-1]
+    return raw
+
+
 
 class FinanseApp:
     """Root UI controller: floating NavigationBar shell + secondary routes."""
@@ -227,18 +247,18 @@ class FinanseApp:
                     previous(e)
                 except Exception:  # noqa: BLE001
                     logger.exception("Previous lifecycle handler failed")
-            state = getattr(e, "data", None) or getattr(e, "state", None)
-            raw = str(getattr(state, "value", state) or "").strip().lower()
-            if raw in {"hide", "pause", "inactive", "detach"}:
+            state_token = lifecycle_token(e)
+            if state_token in _BACKGROUND_LIFECYCLE:
                 if self._backgrounded_at is None:
                     self._backgrounded_at = time.monotonic()
                 return
-            if raw in {"resume", "show", "restart"}:
+            if state_token in _FOREGROUND_LIFECYCLE:
                 started = self._backgrounded_at
                 self._backgrounded_at = None
                 if started is None:
                     return
-                if time.monotonic() - started < _BACKGROUND_LOCK_SECONDS:
+                elapsed = time.monotonic() - started
+                if elapsed < _BACKGROUND_LOCK_SECONDS:
                     return
                 self.lock_session()
 

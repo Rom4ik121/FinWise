@@ -66,6 +66,8 @@ def _to_entity(model: SubscriptionModel) -> Subscription:
         last_charged_at=ensure_utc(model.last_charged_at),
         last_skip_date=_to_date(getattr(model, "last_skip_date", None)),
         comment=model.comment or "",
+        icon=getattr(model, "icon", None) or "autorenew",
+        color=getattr(model, "color", None) or "#A78BFA",
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
@@ -102,6 +104,8 @@ def _apply_entity(model: SubscriptionModel, entity: Subscription) -> None:
     model.last_charged_at = ensure_utc(entity.last_charged_at)
     model.last_skip_date = entity.last_skip_date
     model.comment = entity.comment or ""
+    model.icon = getattr(entity, "icon", None) or "autorenew"
+    model.color = getattr(entity, "color", None) or "#A78BFA"
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 

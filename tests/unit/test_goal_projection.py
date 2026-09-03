@@ -8,6 +8,7 @@ from decimal import Decimal
 from lib.domain.entities.goal import Goal, GoalStatus
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.transaction import Transaction, TransactionType
+from lib.domain.use_cases.goal_insights import net_goal_credit_flow, projected_date_from_planned
 from lib.domain.use_cases.goals import GetGoalProjectionUseCase, goal_credit_amount
 from tests.conftest import run_async
 
@@ -126,6 +127,76 @@ def test_projection_off_track_when_no_contributions() -> None:
         assert projection.is_on_track is False
 
     run_async(_run())
+
+
+def test_projection_net_flow_subtracts_withdrawals() -> None:
+    async def _run() -> None:
+        now = datetime.now(timezone.utc)
+        goal = Goal(
+            name="Mixed",
+            target_amount=Decimal("1000"),
+            current_amount=Decimal("500"),
+            currency="RUB",
+            deadline=now + timedelta(days=90),
+            created_at=now - timedelta(days=180),
+            status=GoalStatus.ACTIVE,
+        )
+        contribute = Transaction(
+            account_id="a1",
+            amount=Decimal("600"),
+            category="Накопление",
+            date=now - timedelta(days=20),
+            type=TransactionType.EXPENSE,
+            currency="RUB",
+            goal_id=goal.id,
+            goal_credit_amount=Decimal("600"),
+        )
+        withdraw = Transaction(
+            account_id="a1",
+            amount=Decimal("100"),
+            category="Накопление",
+            date=now - timedelta(days=10),
+            type=TransactionType.INCOME,
+            currency="RUB",
+            goal_id=goal.id,
+            goal_credit_amount=Decimal("100"),
+        )
+        uc = GetGoalProjectionUseCase(
+            _FakeGoals(goal),
+            _FakeTx([contribute, withdraw]),
+            lookback_months=6,
+        )
+        projection = await uc.execute(goal.id)
+        assert net_goal_credit_flow([contribute, withdraw]) == Decimal("500.00")
+        uc_contrib_only = GetGoalProjectionUseCase(
+            _FakeGoals(goal),
+            _FakeTx([contribute]),
+            lookback_months=6,
+        )
+        contrib_only = await uc_contrib_only.execute(goal.id)
+        assert projection.average_monthly_contribution < contrib_only.average_monthly_contribution
+
+    run_async(_run())
+
+
+def test_projected_date_from_planned_caps_unrealistic_pace() -> None:
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    projected = projected_date_from_planned(
+        Decimal("2000000"),
+        Decimal("1"),
+        now=now,
+    )
+    assert projected is None
+
+
+def test_projected_date_from_planned_reasonable_pace() -> None:
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    projected = projected_date_from_planned(
+        Decimal("1200"),
+        Decimal("100"),
+        now=now,
+    )
+    assert projected == datetime(2027, 9, 1, tzinfo=timezone.utc)
 
 
 def test_goal_status_auto_completes_from_amount() -> None:

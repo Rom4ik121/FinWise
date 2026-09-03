@@ -19,7 +19,15 @@ from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 from lib.infrastructure.services.localization import normalize_lang
 from lib.infrastructure.services.push_notifier import request_push_permissions
 from lib.presentation.dropdown_options import icon_dropdown_option
-from lib.presentation.styles import card_surface, labeled_field, labeled_switch, page_header, section_title
+from lib.presentation.styles import (
+    card_surface,
+    form_hint,
+    labeled_field,
+    labeled_switch,
+    page_header,
+    polish_form_control,
+    section_title,
+)
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
 from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, snack_exception, tr
@@ -105,6 +113,81 @@ def _settings_section(
     return section
 
 
+def _settings_divider() -> ft.Control:
+    return ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT)
+
+
+def _settings_subsection(title: str) -> ft.Control:
+    return ft.Text(
+        title,
+        size=12,
+        weight=ft.FontWeight.W_700,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+    )
+
+
+def _settings_nav_tile(
+    label: str,
+    icon: ft.IconData,
+    on_click: Callable[[ft.ControlEvent], None],
+) -> ft.Container:
+    """Compact shortcut tile for secondary app screens."""
+    skin = get_active_skin()
+    return ft.Container(
+        expand=True,
+        ink=True,
+        on_click=on_click,
+        border_radius=14,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=14),
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+        content=ft.Column(
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=8,
+            tight=True,
+            controls=[
+                ft.Container(
+                    width=40,
+                    height=40,
+                    border_radius=12,
+                    bgcolor=skin.badge_bg(dark=True),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(icon, size=20, color=skin.badge_fg(dark=True)),
+                ),
+                ft.Text(
+                    label,
+                    size=12,
+                    weight=ft.FontWeight.W_600,
+                    text_align=ft.TextAlign.CENTER,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
+            ],
+        ),
+    )
+
+
+def _settings_nav_grid(pairs: Sequence[tuple[str, ft.IconData, Callable]]) -> ft.Control:
+    """Two-column grid of navigation shortcuts."""
+    rows: list[ft.Control] = []
+    items = list(pairs)
+    for i in range(0, len(items), 2):
+        chunk = items[i : i + 2]
+        row_controls: list[ft.Control] = []
+        for label, icon, handler in chunk:
+            row_controls.append(_settings_nav_tile(label, icon, handler))
+        if len(chunk) == 1:
+            row_controls.append(ft.Container(expand=True))
+        rows.append(
+            ft.Row(
+                spacing=10,
+                expand=True,
+                controls=row_controls,
+            )
+        )
+    return ft.Column(spacing=10, tight=True, controls=rows)
+
+
 class SettingsPage(ft.Column):
     """Application preferences and data tools, grouped by section."""
 
@@ -175,6 +258,7 @@ class SettingsPage(ft.Column):
             dense=True,
             **dropdown_select_kwargs(lambda _e: self._autosave()),
         )
+        polish_form_control(self._theme)
         self._ui_style = normalize_skin_id(getattr(s, "ui_style", None))
         self._style_host = ft.Row(
             spacing=8,
@@ -195,6 +279,7 @@ class SettingsPage(ft.Column):
             dense=True,
             **dropdown_select_kwargs(lambda _e: self._autosave()),
         )
+        polish_form_control(self._language)
         self._interval = ft.TextField(
             value=str(s.exchange_update_interval_minutes),
             keyboard_type=ft.KeyboardType.NUMBER,
@@ -302,21 +387,9 @@ class SettingsPage(ft.Column):
         voice_controls: list[ft.Control] = []
         if feature_voice_available():
             voice_controls = [
-                ft.Text(
-                    tr("voice.shortcut_how", lang),
-                    size=12,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
-                ft.Text(
-                    tr("voice.shortcut_android", lang),
-                    size=11,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
-                ft.Text(
-                    tr("voice.shortcut_ios", lang),
-                    size=11,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
+                form_hint(tr("voice.shortcut_how", lang)),
+                form_hint(tr("voice.shortcut_android", lang), size=11),
+                form_hint(tr("voice.shortcut_ios", lang), size=11),
                 ft.FilledTonalButton(
                     tr("voice.grant_permissions", lang),
                     icon=ft.Icons.SETTINGS_VOICE,
@@ -340,12 +413,28 @@ class SettingsPage(ft.Column):
         else:
             self._voice_section = ft.Container(height=0, visible=False)
 
+        def _open_secondary(route: str) -> Callable[[ft.ControlEvent], None]:
+            return lambda _e: state.open_secondary(route)
+
         scroll_body = ft.ListView(
             expand=True,
             spacing=14,
             padding=ft.Padding.only(bottom=40),
             auto_scroll=False,
             controls=[
+                section(
+                    tr("settings.basics", lang),
+                    ft.Icons.TUNE_OUTLINED,
+                    [
+                        self._language,
+                        self._currency,
+                        form_hint(tr("settings.currency_hint", lang)),
+                        labeled_field(
+                            tr("settings.exchange_interval", lang), self._interval
+                        ),
+                    ],
+                    expanded=True,
+                ),
                 section(
                     tr("settings.appearance", lang),
                     ft.Icons.PALETTE_OUTLINED,
@@ -357,34 +446,20 @@ class SettingsPage(ft.Column):
                             color=ft.Colors.ON_SURFACE,
                         ),
                         self._style_host,
-                        ft.Text(
-                            tr("settings.style.hint", lang),
-                            size=11,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
+                        form_hint(tr("settings.style.hint", lang)),
                         self._theme,
-                        self._language,
-                        self._currency,
-                        ft.Text(
-                            tr("settings.currency_hint", lang),
-                            size=11,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
                     ],
-                    expanded=True,
-                ),
-                section(
-                    tr("settings.rates", lang),
-                    ft.Icons.CURRENCY_EXCHANGE,
-                    [labeled_field(tr("settings.exchange_interval", lang), self._interval)],
                 ),
                 section(
                     tr("settings.notifications", lang),
                     ft.Icons.NOTIFICATIONS_OUTLINED,
                     [
                         labeled_switch(
-                            tr("settings.notifications", lang), self._notifications
+                            tr("settings.notifications_enable", lang),
+                            self._notifications,
                         ),
+                        _settings_divider(),
+                        _settings_subsection(tr("settings.notifications_reminders", lang)),
                         labeled_switch(
                             tr("settings.debt_reminders", lang), self._debt_reminders
                         ),
@@ -392,16 +467,20 @@ class SettingsPage(ft.Column):
                             tr("settings.subscription_reminders", lang),
                             self._sub_reminders,
                         ),
-                        labeled_switch(
-                            tr("settings.check_balance_before_subscription", lang),
-                            self._check_balance_sub,
-                        ),
+                        _settings_divider(),
+                        _settings_subsection(tr("settings.notifications_alerts", lang)),
                         labeled_switch(
                             tr("settings.goal_milestones", lang), self._goal_milestones
                         ),
                         labeled_switch(
                             tr("settings.budget_alerts", lang), self._budget_alerts
                         ),
+                        labeled_switch(
+                            tr("settings.check_balance_before_subscription", lang),
+                            self._check_balance_sub,
+                        ),
+                        _settings_divider(),
+                        _settings_subsection(tr("settings.notifications_schedule", lang)),
                         labeled_field(
                             tr("settings.reminder_time", lang), self._reminder_time
                         ),
@@ -414,8 +493,8 @@ class SettingsPage(ft.Column):
                     tr("settings.security", lang),
                     ft.Icons.SECURITY,
                     [
-                        labeled_switch(tr("settings.biometric", lang), self._biometric),
-                        self._biometric_hint,
+                        _settings_subsection(tr("settings.security_pin", lang)),
+                        form_hint(tr("settings.pin_hint", lang)),
                         labeled_field(tr("settings.pin", lang), self._pin_tf),
                         ft.Row(
                             spacing=8,
@@ -436,6 +515,10 @@ class SettingsPage(ft.Column):
                                 ),
                             ],
                         ),
+                        _settings_divider(),
+                        _settings_subsection(tr("settings.security_biometric", lang)),
+                        labeled_switch(tr("settings.biometric", lang), self._biometric),
+                        self._biometric_hint,
                     ],
                 ),
                 self._voice_section,
@@ -443,59 +526,36 @@ class SettingsPage(ft.Column):
                     tr("settings.sections", lang),
                     ft.Icons.APPS_OUTLINED,
                     [
-                        ft.Row(
-                            wrap=True,
-                            spacing=8,
-                            run_spacing=8,
-                            controls=[
-                                ft.OutlinedButton(
-                                    tr("nav.goals", lang),
-                                    icon=ft.Icons.FLAG_OUTLINED,
-                                    style=btn_style,
-                                    on_click=lambda _e: state.open_secondary(
-                                        "goals"
-                                    ),
-                                ),
-                                ft.OutlinedButton(
-                                    tr("nav.debts", lang),
-                                    icon=ft.Icons.CREDIT_SCORE,
-                                    style=btn_style,
-                                    on_click=lambda _e: state.open_secondary(
-                                        "debts"
-                                    ),
-                                ),
-                                ft.OutlinedButton(
+                        form_hint(tr("settings.sections_hint", lang)),
+                        _settings_nav_grid(
+                            [
+                                (tr("nav.goals", lang), ft.Icons.FLAG_OUTLINED, _open_secondary("goals")),
+                                (tr("nav.debts", lang), ft.Icons.CREDIT_SCORE, _open_secondary("debts")),
+                                (
                                     tr("nav.subscriptions", lang),
-                                    icon=ft.Icons.EVENT_REPEAT,
-                                    style=btn_style,
-                                    on_click=lambda _e: state.open_secondary(
-                                        "subscriptions"
-                                    ),
+                                    ft.Icons.EVENT_REPEAT,
+                                    _open_secondary("subscriptions"),
                                 ),
-                                ft.OutlinedButton(
+                                (
                                     tr("nav.currencies", lang),
-                                    icon=ft.Icons.CURRENCY_EXCHANGE,
-                                    style=btn_style,
-                                    on_click=lambda _e: state.open_secondary(
-                                        "currencies"
-                                    ),
+                                    ft.Icons.CURRENCY_EXCHANGE,
+                                    _open_secondary("currencies"),
                                 ),
-                                ft.OutlinedButton(
+                                (
                                     tr("nav.budgets", lang),
-                                    icon=ft.Icons.PIE_CHART,
-                                    style=btn_style,
-                                    on_click=lambda _e: state.open_secondary(
-                                        "budgets"
-                                    ),
+                                    ft.Icons.PIE_CHART,
+                                    _open_secondary("budgets"),
                                 ),
-                            ],
+                            ]
                         ),
                     ],
                 ),
                 section(
-                    tr("settings.export", lang),
-                    ft.Icons.FILE_DOWNLOAD_OUTLINED,
+                    tr("settings.data", lang),
+                    ft.Icons.STORAGE_OUTLINED,
                     [
+                        _settings_subsection(tr("settings.export", lang)),
+                        form_hint(tr("settings.export_hint", lang)),
                         ft.Row(
                             wrap=True,
                             spacing=8,
@@ -507,14 +567,6 @@ class SettingsPage(ft.Column):
                                     style=btn_style,
                                     on_click=lambda _e: run_async(
                                         page, self.export_json
-                                    ),
-                                ),
-                                ft.OutlinedButton(
-                                    tr("settings.export_json_encrypted", lang),
-                                    icon=ft.Icons.LOCK_OUTLINE,
-                                    style=btn_style,
-                                    on_click=lambda _e: run_async(
-                                        page, self.export_json_encrypted
                                     ),
                                 ),
                                 ft.OutlinedButton(
@@ -533,14 +585,19 @@ class SettingsPage(ft.Column):
                                         page, self.export_pdf
                                     ),
                                 ),
+                                ft.OutlinedButton(
+                                    tr("settings.export_json_encrypted", lang),
+                                    icon=ft.Icons.LOCK_OUTLINE,
+                                    style=btn_style,
+                                    on_click=lambda _e: run_async(
+                                        page, self.export_json_encrypted
+                                    ),
+                                ),
                             ],
                         ),
-                    ],
-                ),
-                section(
-                    tr("settings.backup_restore", lang),
-                    ft.Icons.CLOUD_SYNC_OUTLINED,
-                    [
+                        _settings_divider(),
+                        _settings_subsection(tr("settings.backup_restore", lang)),
+                        form_hint(tr("settings.daily_backup_hint", lang)),
                         ft.Row(
                             wrap=True,
                             spacing=8,
@@ -564,34 +621,43 @@ class SettingsPage(ft.Column):
                                 ),
                             ],
                         ),
-                        ft.Text(
-                            tr("settings.daily_backup_hint", lang),
-                            size=11,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
                     ],
                 ),
                 section(
                     tr("settings.danger", lang),
                     ft.Icons.WARNING_AMBER_OUTLINED,
                     [
-                        ft.Text(
-                            tr("settings.delete_all_confirm", lang),
-                            size=12,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                        ft.FilledButton(
-                            tr("settings.delete_all_data", lang),
-                            icon=ft.Icons.DELETE_FOREVER,
-                            style=ft.ButtonStyle(
-                                bgcolor=ft.Colors.ERROR,
-                                color=ft.Colors.ON_ERROR,
-                                shape=ft.RoundedRectangleBorder(radius=12),
-                                padding=ft.Padding.symmetric(
-                                    horizontal=16, vertical=12
-                                ),
+                        ft.Container(
+                            padding=12,
+                            border_radius=12,
+                            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ERROR),
+                            border=ft.Border.all(
+                                1, ft.Colors.with_opacity(0.25, ft.Colors.ERROR)
                             ),
-                            on_click=lambda _e: self._confirm_wipe(),
+                            content=ft.Column(
+                                spacing=12,
+                                tight=True,
+                                controls=[
+                                    ft.Text(
+                                        tr("settings.delete_all_confirm", lang),
+                                        size=12,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
+                                    ),
+                                    ft.FilledButton(
+                                        tr("settings.delete_all_data", lang),
+                                        icon=ft.Icons.DELETE_FOREVER,
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ft.Colors.ERROR,
+                                            color=ft.Colors.ON_ERROR,
+                                            shape=ft.RoundedRectangleBorder(radius=12),
+                                            padding=ft.Padding.symmetric(
+                                                horizontal=16, vertical=12
+                                            ),
+                                        ),
+                                        on_click=lambda _e: self._confirm_wipe(),
+                                    ),
+                                ],
+                            ),
                         ),
                     ],
                 ),
@@ -794,6 +860,15 @@ class SettingsPage(ft.Column):
         if not enabled:
             await self.save(silent=True)
             return
+        if getattr(self, "_bio_toggle_busy", False):
+            return
+        self._bio_toggle_busy = True
+        try:
+            await self._enable_biometric(lang)
+        finally:
+            self._bio_toggle_busy = False
+
+    async def _enable_biometric(self, lang: str) -> None:
         repo = self._state.container.settings_repository
         has_pin = False
         if repo is not None and hasattr(repo, "get_pin_credentials"):

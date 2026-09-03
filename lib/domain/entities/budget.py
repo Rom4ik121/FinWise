@@ -77,7 +77,7 @@ class Budget(BaseModel):
     @classmethod
     def _valid_alert_level(cls, value: int) -> int:
         level = int(value or 0)
-        if level not in (0, 80, 100):
+        if level not in (0, 50, 80, 100):
             return 0
         return level
 
@@ -99,9 +99,13 @@ class Budget(BaseModel):
 
     @property
     def remaining(self) -> Decimal:
-        """Unused limit (never negative)."""
-        left = self.amount_limit - self.spent
-        return quantize_money(left if left > 0 else Decimal("0"))
+        """Unused limit; negative when overspent."""
+        return quantize_money(self.amount_limit - self.spent)
+
+    @property
+    def overspend(self) -> Decimal:
+        extra = self.spent - self.amount_limit
+        return quantize_money(extra if extra > 0 else Decimal("0"))
 
     @property
     def is_over_budget(self) -> bool:

@@ -7,6 +7,7 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.domain.entities.subscription import Periodicity, Subscription, SubscriptionStatus
+from lib.presentation.account_icons import account_icon_badge
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import alert_corner, card_surface, muted_text, style_popup_menu
 from lib.presentation.utils import format_date, format_money_compact
@@ -53,6 +54,7 @@ class SubscriptionCard(ft.Container):
         *,
         language: str = "ru",
         alert: bool = False,
+        sparkline: Optional[ft.Control] = None,
         on_open: Optional[Callable[[Subscription], None]] = None,
         on_edit: Optional[Callable[[Subscription], None]] = None,
         on_delete: Optional[Callable[[Subscription], None]] = None,
@@ -67,85 +69,94 @@ class SubscriptionCard(ft.Container):
         status = subscription.status
         status_label = tr(f"subscription.status.{status.value}", language)
         open_cb = on_open or on_edit
-        muted_parts = [f"{subscription.category} · {period}"]
+        icon_key = getattr(subscription, "icon", None) or "autorenew"
+        icon_color = getattr(subscription, "color", None) or get_active_skin().primary_hex(
+            dark=True
+        )
+        muted_parts = [period]
         if not subscription.auto_charge:
             muted_parts.append(tr("subscription.auto_charge_off", language))
-        body = ft.Column(
-            spacing=8,
-            tight=True,
-            controls=[
-                ft.Row(
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                    controls=[
-                        ft.Text(
-                            subscription.name,
-                            weight=ft.FontWeight.W_700,
-                            size=16,
-                            expand=True,
-                            max_lines=2,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                        ft.Text(
-                            format_money_compact(subscription.amount, subscription.currency),
-                            weight=ft.FontWeight.W_700,
-                            color=get_active_skin().primary_hex(dark=True),
-                            size=14,
-                            max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                            text_align=ft.TextAlign.RIGHT,
-                        ),
-                        style_popup_menu(
-                            ft.PopupMenuButton(
-                                icon=ft.Icons.MORE_VERT,
-                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                                items=[
-                                    ft.PopupMenuItem(
-                                        content=ft.Text(tr("action.edit", language)),
-                                        icon=ft.Icons.EDIT_OUTLINED,
-                                        on_click=lambda _e: on_edit(subscription)
-                                        if on_edit
-                                        else None,
-                                    ),
-                                    ft.PopupMenuItem(
-                                        content=ft.Text(tr("action.delete", language)),
-                                        icon=ft.Icons.DELETE_OUTLINE,
-                                        on_click=lambda _e: on_delete(subscription)
-                                        if on_delete
-                                        else None,
-                                    ),
-                                ],
-                            )
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=8, vertical=2),
-                    border_radius=999,
-                    bgcolor=ft.Colors.with_opacity(
-                        0.12, _STATUS_COLOR.get(status, ft.Colors.PRIMARY)
+        body_controls: list[ft.Control] = [
+            ft.Row(
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+                controls=[
+                    account_icon_badge(
+                        icon_key,
+                        color=icon_color,
+                        size=36,
+                        glyph_size=18,
                     ),
-                    content=ft.Text(
-                        status_label,
-                        size=11,
-                        color=_STATUS_COLOR.get(status, ft.Colors.PRIMARY),
-                        weight=ft.FontWeight.W_600,
+                    ft.Text(
+                        subscription.name,
+                        weight=ft.FontWeight.W_700,
+                        size=16,
+                        expand=True,
+                        max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
-                ),
-                muted_text(" · ".join(muted_parts)),
-                ft.Text(
-                    tr(
-                        "subscription.next_billing",
-                        language,
-                        date=format_date(subscription.next_billing_date),
+                    ft.Text(
+                        format_money_compact(subscription.amount, subscription.currency),
+                        weight=ft.FontWeight.W_700,
+                        color=icon_color,
+                        size=14,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        text_align=ft.TextAlign.RIGHT,
                     ),
-                    size=12,
-                    weight=ft.FontWeight.W_500,
-                    max_lines=2,
-                    overflow=ft.TextOverflow.ELLIPSIS,
+                    style_popup_menu(
+                        ft.PopupMenuButton(
+                            icon=ft.Icons.MORE_VERT,
+                            icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                            items=[
+                                ft.PopupMenuItem(
+                                    content=ft.Text(tr("action.edit", language)),
+                                    icon=ft.Icons.EDIT_OUTLINED,
+                                    on_click=lambda _e: on_edit(subscription)
+                                    if on_edit
+                                    else None,
+                                ),
+                                ft.PopupMenuItem(
+                                    content=ft.Text(tr("action.delete", language)),
+                                    icon=ft.Icons.DELETE_OUTLINE,
+                                    on_click=lambda _e: on_delete(subscription)
+                                    if on_delete
+                                    else None,
+                                ),
+                            ],
+                        )
+                    ),
+                ],
+            ),
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
+                border_radius=999,
+                bgcolor=ft.Colors.with_opacity(
+                    0.12, _STATUS_COLOR.get(status, ft.Colors.PRIMARY)
                 ),
-            ],
-        )
+                content=ft.Text(
+                    status_label,
+                    size=11,
+                    color=_STATUS_COLOR.get(status, ft.Colors.PRIMARY),
+                    weight=ft.FontWeight.W_600,
+                ),
+            ),
+            muted_text(" · ".join(muted_parts)),
+            ft.Text(
+                tr(
+                    "subscription.next_billing",
+                    language,
+                    date=format_date(subscription.next_billing_date),
+                ),
+                size=12,
+                weight=ft.FontWeight.W_500,
+                max_lines=2,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+        ]
+        if sparkline is not None:
+            body_controls.append(sparkline)
+        body = ft.Column(spacing=8, tight=True, controls=body_controls)
         card = card_surface(
             body,
             ink=True,

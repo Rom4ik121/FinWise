@@ -5,20 +5,26 @@ from __future__ import annotations
 from calendar import monthrange
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Callable, Optional, Protocol, Sequence
+from typing import Optional, Protocol, Sequence
+
+from pydantic import BaseModel
 
 from lib.domain.entities.budget import Budget, BudgetProgress
 from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.settings import AppSettings
+from lib.domain.entities.subscription import SubscriptionStatus
 from lib.domain.entities.transaction import TransactionType
 from lib.domain.repositories.budget_repository import BudgetRepository
 from lib.domain.repositories.category_repository import CategoryRepository
 from lib.domain.repositories.currency_repository import CurrencyRepository
 from lib.domain.repositories.settings_repository import SettingsRepository
+from lib.domain.repositories.subscription_repository import SubscriptionRepository
 from lib.domain.repositories.transaction_repository import TransactionRepository
 from lib.domain.services.rate_book import RateBook
+from lib.domain.use_cases.budget_insights import shift_month
+from lib.domain.use_cases.subscriptions import monthly_equivalent
 
 
 def _utc_now() -> datetime:
@@ -78,17 +84,14 @@ def _to_base_amount(
 class BudgetNotifier(Protocol):
     """Minimal notification port used by budget threshold alerts."""
 
-    def push(
+    def notify_budget_threshold(
         self,
-        title: str,
-        body: str,
+        budget: Budget,
         *,
-        kind: object = None,
-        related_id: Optional[str] = None,
+        level: int,
+        language: str,
+        currency: str,
     ) -> object: ...
-
-
-TranslateFn = Callable[..., str]
 
 
 class SetBudgetUseCase:
@@ -278,6 +281,124 @@ class RecalculateBudgetSpentUseCase:
         return updated
 
 
+class CopyBudgetsFromPreviousMonthUseCase:
+    """Copy category limits from the previous calendar month."""
+
+    def __init__(self, budgets: BudgetRepository, set_budget: SetBudgetUseCase) -> None:
+        self._budgets = budgets
+        self._set_budget = set_budget
+
+    async def execute(self, month: int, year: int) -> int:
+        prev_year, prev_month = shift_month(year, month, -1)
+        source = await self._budgets.list_for_month(prev_month, prev_year)
+        if not source:
+            raise ValueError("No budgets in the previous month")
+        created = 0
+        for row in source:
+            existing = await self._budgets.get_by_category_and_month(
+                row.category_id, month, year
+            )
+            if existing is not None:
+                continue
+            await self._set_budget.execute(
+                row.category_id, month, year, row.amount_limit
+            )
+            created += 1
+        return created
+
+
+class SuggestBudgetLimitUseCase:
+    """Average spend for a category over the previous three months."""
+
+    def __init__(
+        self,
+        transactions: TransactionRepository,
+        currencies: Optional[CurrencyRepository] = None,
+        settings: Optional[SettingsRepository] = None,
+    ) -> None:
+        self._transactions = transactions
+        self._currencies = currencies
+        self._settings = settings
+
+    async def execute(self, category_id: str, month: int, year: int) -> Decimal:
+        name = (category_id or "").strip()
+        if not name:
+            return Decimal("0.00")
+        totals: list[Decimal] = []
+        for step in range(1, 4):
+            y, m = shift_month(year, month, -step)
+            spent = await _sum_expenses(
+                self._transactions,
+                name,
+                m,
+                y,
+                currencies=self._currencies,
+                settings=self._settings,
+            )
+            totals.append(spent)
+        if not totals:
+            return Decimal("0.00")
+        return quantize_money(sum(totals, Decimal("0")) / Decimal(len(totals)))
+
+
+class SubscriptionBudgetHint(BaseModel):
+    """Suggested envelope from an active subscription's monthly cost."""
+
+    name: str
+    monthly: Decimal
+    icon: str = "autorenew"
+    color: str = "#A78BFA"
+    has_budget: bool = False
+
+
+class SuggestSubscriptionBudgetsUseCase:
+    """Active subscriptions that can become category budgets this month."""
+
+    def __init__(
+        self,
+        subscriptions: SubscriptionRepository,
+        budgets: BudgetRepository,
+        currencies: Optional[CurrencyRepository] = None,
+        settings: Optional[SettingsRepository] = None,
+    ) -> None:
+        self._subscriptions = subscriptions
+        self._budgets = budgets
+        self._currencies = currencies
+        self._settings = settings
+
+    async def execute(self, month: int, year: int) -> list[SubscriptionBudgetHint]:
+        book, base = await _load_budget_fx(self._currencies, self._settings)
+        existing = {
+            b.category_id for b in await self._budgets.list_for_month(month, year)
+        }
+        hints: list[SubscriptionBudgetHint] = []
+        for sub in await self._subscriptions.list(active_only=False):
+            if sub.status != SubscriptionStatus.ACTIVE:
+                continue
+            monthly = monthly_equivalent(
+                sub.amount,
+                sub.periodicity,
+                custom_interval_days=sub.custom_interval_days,
+            )
+            converted = _to_base_amount(book, monthly, sub.currency, base)
+            if converted is None:
+                continue
+            name = (sub.name or "").strip()
+            if not name:
+                continue
+            hints.append(
+                SubscriptionBudgetHint(
+                    name=name,
+                    monthly=converted,
+                    icon=getattr(sub, "icon", None) or "autorenew",
+                    color=getattr(sub, "color", None) or "#A78BFA",
+                    has_budget=name in existing,
+                )
+            )
+        hints.sort(key=lambda h: (h.has_budget, -float(h.monthly), h.name.lower()))
+        return hints
+
+
 async def apply_expense_delta(
     budgets: BudgetRepository,
     *,
@@ -287,7 +408,6 @@ async def apply_expense_delta(
     sign: int,
     settings: Optional[AppSettings] = None,
     notifications: Optional[BudgetNotifier] = None,
-    translate: Optional[TranslateFn] = None,
     currency: str = "RUB",
     language: str = "ru",
     amount_currency: Optional[str] = None,
@@ -324,7 +444,6 @@ async def apply_expense_delta(
         updated,
         settings=settings,
         notifications=notifications,
-        translate=translate,
         currency=base,
         language=language,
     )
@@ -337,7 +456,6 @@ async def _maybe_notify(
     *,
     settings: Optional[AppSettings],
     notifications: Optional[BudgetNotifier],
-    translate: Optional[TranslateFn],
     currency: str,
     language: str,
 ) -> None:
@@ -354,6 +472,8 @@ async def _maybe_notify(
         level = 100
     elif percent >= 80:
         level = 80
+    elif percent >= 50:
+        level = 50
     if level == 0:
         if budget.last_alert_level != 0:
             await budgets.save(
@@ -364,54 +484,14 @@ async def _maybe_notify(
         return
     if level <= budget.last_alert_level:
         return
-
-    tr = translate
-    if tr is None:
-        def tr(key: str, lang: str = "ru", **kwargs: object) -> str:
-            try:
-                from lib.infrastructure.services.localization import t
-
-                text = t(str(key), lang)
-                return text.format(**kwargs) if kwargs else text
-            except Exception:  # noqa: BLE001
-                return str(key)
-    if level == 80:
-        body = tr(
-            "notifications.budget_80",
-            language,
-            category=budget.category_id,
-            remaining=str(budget.remaining),
-            currency=currency,
-        )
-        title = tr("notify.budget_80_title", language)
-    else:
-        body = tr(
-            "notifications.budget_100",
-            language,
-            category=budget.category_id,
-            spent=str(budget.spent),
-            limit=str(budget.amount_limit),
-            currency=currency,
-        )
-        title = tr("notify.budget_100_title", language)
-
-    kind = None
-    try:
-        from lib.infrastructure.services.notification_service import NotificationKind
-
-        kind = (
-            NotificationKind.BUDGET_OVER
-            if level == 100
-            else NotificationKind.BUDGET_WARNING
-        )
-    except Exception:  # noqa: BLE001
-        kind = None
-    notifications.push(
-        title,
-        body,
-        kind=kind,
-        related_id=budget.id,
-    )
+    notify = getattr(notifications, "notify_budget_threshold", None)
+    if callable(notify):
+        try:
+            notify(
+                budget, level=level, language=language, currency=currency
+            )
+        except Exception:  # noqa: BLE001
+            pass
     await budgets.save(
         budget.model_copy(update={"last_alert_level": level, "updated_at": _utc_now()})
     )
@@ -454,7 +534,8 @@ async def _month_category_spent(
                 continue
             converted = _to_base_amount(book, amount, tx.currency, base)
             if converted is None:
-                continue
+                src = normalize_currency_code(tx.currency or base)
+                raise ValueError(f"No exchange rate for {src}/{base}")
             totals[category] = totals.get(category, Decimal("0")) + converted
     return {k: quantize_money(v) for k, v in totals.items()}
 

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Optional
 
@@ -14,6 +15,7 @@ from lib.domain.use_cases.debts import (
     debt_credit_amount,
     debt_interest_from_tags,
 )
+from lib.domain.use_cases.debt_insights import bucket_payments_by_month
 from lib.presentation.notification_badges import (
     DEBT_ALERT_KINDS,
     mark_related_read,
@@ -23,15 +25,22 @@ from lib.presentation.dropdown_options import (
     account_dropdown_option,
     icon_dropdown_option,
 )
-from lib.presentation.skins import get_active_skin
+from lib.core.config import ACCOUNT_COLORS
+from lib.presentation.account_icons import (
+    account_icon_badge,
+    account_icon_control,
+    account_icon_groups,
+)
+from lib.presentation.debts_templates import DEBT_TEMPLATES, DebtTemplate, debt_template_chip
 from lib.presentation.styles import (
     card_surface,
+    choice_chips,
     form_hint,
     form_section,
+    ICON_CATALOG_GLYPH,
     labeled_switch,
     muted_text,
     page_header,
-    summary_strip,
 )
 from lib.presentation.money_input import (
     attach_grouped_digits,
@@ -53,10 +62,15 @@ from lib.presentation.utils import (
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.date_time_field import DateTimeField
+from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.debt_card import DebtCard
+from lib.presentation.widgets.debt_progress import debt_projection_card
+from lib.presentation.widgets.debt_sparkline import debt_payment_sparkline
+from lib.presentation.widgets.debt_summary_ring import debts_summary_ring
+from lib.presentation.widgets.debt_swipe_card import swipe_debt_card
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
-from lib.presentation.layout import h_chip_row, make_v_scroll
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 
 if TYPE_CHECKING:
@@ -88,9 +102,19 @@ class DebtsPage(ft.Column):
         self._direction_filter = "all"
         self._sort_by = "due_date"
         self._interest_only = False
-        self._presets_host = ft.Container(height=32)
+        self._search_query = ""
         self._alert_ids: set[str] = set()
         self._token = -1
+        self._debt_state_synced = False
+        self._search_tf = ft.TextField(
+            hint_text=tr("debt.search_hint", state.language),
+            prefix_icon=ft.Icons.SEARCH,
+            dense=True,
+            border_radius=12,
+            filled=True,
+            expand=True,
+            on_change=self._on_search_change,
+        )
         super().__init__(
             expand=True,
             spacing=0,
@@ -103,6 +127,11 @@ class DebtsPage(ft.Column):
                     ),
                     actions=[
                         ft.IconButton(
+                            icon=ft.Icons.TUNE,
+                            tooltip=tr("action.filters", state.language),
+                            on_click=lambda _e: self._open_filters(),
+                        ),
+                        ft.IconButton(
                             icon=ft.Icons.ADD,
                             tooltip=tr("action.add", state.language),
                             on_click=lambda _e: self._open_editor(),
@@ -110,169 +139,72 @@ class DebtsPage(ft.Column):
                     ],
                 ),
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=16, vertical=4),
-                    content=self._presets_host,
+                    padding=ft.Padding.only(left=12, right=12, top=8, bottom=4),
+                    content=self._search_tf,
                 ),
                 ft.Container(
                     expand=True,
-                    padding=ft.Padding.symmetric(horizontal=16),
+                    padding=ft.Padding.symmetric(horizontal=12),
                     content=self._list,
                 ),
             ],
         )
         state.subscribe(self._on_state)
-        self._rebuild_presets()
         run_async(page, self.reload)
-
-    def _rebuild_presets(self) -> None:
-        lang = self._state.language
-
-        def _chip(key: str, label: str, *, selected: bool) -> ft.Container:
-            skin = get_active_skin()
-            return ft.Container(
-                height=28,
-                padding=ft.Padding.symmetric(horizontal=10, vertical=3),
-                border_radius=999,
-                alignment=ft.Alignment.CENTER,
-                bgcolor=skin.badge_bg(dark=True) if selected else ft.Colors.SURFACE_CONTAINER,
-                border=ft.Border.all(
-                    1,
-                    skin.primary_hex(dark=True)
-                    if selected
-                    else ft.Colors.OUTLINE_VARIANT,
-                ),
-                ink=True,
-                on_click=lambda _e, k=key: self._apply_preset(k),
-                content=ft.Text(
-                    label,
-                    size=11,
-                    weight=ft.FontWeight.W_600,
-                    no_wrap=True,
-                    color=skin.badge_fg(dark=True)
-                    if selected
-                    else ft.Colors.ON_SURFACE_VARIANT,
-                ),
-            )
-
-        active_sel = (
-            self._status_filter == _OPEN_FILTER
-            and self._direction_filter == "all"
-            and not self._interest_only
-        )
-        self._presets_host.content = h_chip_row(
-            _chip("active", tr("debt.preset.active", lang), selected=active_sel),
-            _chip(
-                "i_owe",
-                tr("debt.preset.i_owe", lang),
-                selected=self._direction_filter == DebtDirection.I_OWE.value
-                and self._status_filter == _OPEN_FILTER
-                and not self._interest_only,
-            ),
-            _chip(
-                "owed",
-                tr("debt.preset.owed", lang),
-                selected=self._direction_filter == DebtDirection.OWED_TO_ME.value
-                and self._status_filter == _OPEN_FILTER
-                and not self._interest_only,
-            ),
-            _chip(
-                "overdue",
-                tr("debt.preset.overdue", lang),
-                selected=self._status_filter == "overdue" and not self._interest_only,
-            ),
-            _chip(
-                "interest",
-                tr("debt.preset.interest", lang),
-                selected=self._interest_only,
-            ),
-            height=32,
-        )
-        try:
-            safe_update(self._presets_host)
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _apply_preset(self, key: str) -> None:
-        self._interest_only = False
-        if key == "active":
-            self._status_filter = _OPEN_FILTER
-            self._direction_filter = "all"
-        elif key == "i_owe":
-            self._status_filter = _OPEN_FILTER
-            self._direction_filter = DebtDirection.I_OWE.value
-        elif key == "owed":
-            self._status_filter = _OPEN_FILTER
-            self._direction_filter = DebtDirection.OWED_TO_ME.value
-        elif key == "overdue":
-            self._status_filter = "overdue"
-            self._direction_filter = "all"
-        elif key == "interest":
-            self._status_filter = _OPEN_FILTER
-            self._direction_filter = "all"
-            self._interest_only = True
-        self._rebuild_presets()
-        run_async(self._page, self.reload)
 
     def _on_state(self, state: "AppState") -> None:
         if state.debts_token != self._token:
             run_async(self._page, self.reload)
 
+    def _on_search_change(self, e: ft.ControlEvent) -> None:
+        self._search_query = str(getattr(e.control, "value", "") or "")
+        run_async(self._page, self.reload)
+
+    def _filter_debts(self, debts: list[Debt]) -> list[Debt]:
+        q = self._search_query.strip().lower()
+        if not q:
+            return debts
+        return [d for d in debts if q in (d.counterparty or "").lower()]
+
     def _open_filters(self) -> None:
         lang = self._state.language
-        status_dd = ft.Dropdown(
-            label=tr("debt.filter_status", lang),
-            dense=True,
-            value=self._status_filter,
-            options=[
-                icon_dropdown_option(
-                    key,
-                    tr(f"debt.filter.{key}", lang),
-                    ft.Icons.FILTER_LIST if key == "all" else ft.Icons.FLAG_OUTLINED,
-                )
-                for key in _STATUS_FILTERS
-            ],
+        holder = {
+            "status": self._status_filter,
+            "direction": self._direction_filter,
+            "sort": self._sort_by,
+            "interest_only": self._interest_only,
+        }
+        status_chips = choice_chips(
+            [(key, tr(f"debt.filter.{key}", lang)) for key in _STATUS_FILTERS],
+            value=holder["status"],
+            on_changed=lambda value: holder.__setitem__("status", value),
         )
-        direction_dd = ft.Dropdown(
-            label=tr("debt.filter_direction", lang),
-            dense=True,
-            value=self._direction_filter,
-            options=[
-                icon_dropdown_option(
-                    "all",
-                    tr("debt.filter_all_directions", lang),
-                    ft.Icons.SWAP_VERT,
-                ),
-                icon_dropdown_option(
-                    DebtDirection.I_OWE.value,
-                    tr("debt.i_owe", lang),
-                    ft.Icons.CALL_MADE,
-                    icon_color=ft.Colors.ERROR,
-                ),
-                icon_dropdown_option(
-                    DebtDirection.OWED_TO_ME.value,
-                    tr("debt.owed_to_me", lang),
-                    ft.Icons.CALL_RECEIVED,
-                    icon_color=ft.Colors.PRIMARY,
-                ),
+        direction_chips = choice_chips(
+            [
+                ("all", tr("debt.filter_all_directions", lang)),
+                (DebtDirection.I_OWE.value, tr("debt.i_owe", lang)),
+                (DebtDirection.OWED_TO_ME.value, tr("debt.owed_to_me", lang)),
             ],
+            value=holder["direction"],
+            on_changed=lambda value: holder.__setitem__("direction", value),
         )
-        sort_dd = ft.Dropdown(
-            label=tr("debt.filter_sort", lang),
-            dense=True,
-            value=self._sort_by,
-            options=[
-                ft.DropdownOption(
-                    key=key,
-                    text=tr(f"debt.sort.{key}", lang),
-                )
-                for key in _SORT_KEYS
-            ],
+        sort_chips = choice_chips(
+            [(key, tr(f"debt.sort.{key}", lang)) for key in _SORT_KEYS],
+            value=holder["sort"],
+            on_changed=lambda value: holder.__setitem__("sort", value),
+        )
+        interest_sw = ft.Switch(
+            value=bool(holder["interest_only"]),
+            on_change=lambda e: holder.__setitem__(
+                "interest_only", bool(getattr(e.control, "value", False))
+            ),
         )
 
         async def _apply() -> None:
-            self._status_filter = str(status_dd.value or _OPEN_FILTER)
-            self._direction_filter = str(direction_dd.value or "all")
-            self._sort_by = str(sort_dd.value or "due_date")
+            self._status_filter = str(holder["status"] or _OPEN_FILTER)
+            self._direction_filter = str(holder["direction"] or "all")
+            self._sort_by = str(holder["sort"] or "due_date")
+            self._interest_only = bool(holder["interest_only"])
             close()
             await self.reload()
 
@@ -281,11 +213,54 @@ class DebtsPage(ft.Column):
             title=tr("action.filters", lang),
             lang=lang,
             overlay_key="debt_filters",
-            body=[status_dd, direction_dd, sort_dd],
+            body=[
+                form_section(
+                    tr("debt.filter_status", lang),
+                    [status_chips],
+                    hint=tr("debt.filter_status_hint", lang),
+                    icon=ft.Icons.FILTER_LIST,
+                ),
+                form_section(
+                    tr("debt.filter_direction", lang),
+                    [direction_chips],
+                    hint=tr("debt.filter_direction_hint", lang),
+                    icon=ft.Icons.SWAP_HORIZ,
+                ),
+                form_section(
+                    None,
+                    [labeled_switch(tr("debt.filter_interest_only", lang), interest_sw)],
+                    hint=tr("debt.filter_interest_only_hint", lang),
+                    icon=ft.Icons.PERCENT,
+                ),
+                form_section(
+                    tr("debt.filter_sort", lang),
+                    [sort_chips],
+                    hint=tr("debt.filter_sort_hint", lang),
+                    icon=ft.Icons.SORT,
+                ),
+            ],
             on_save=_apply,
             save_label=tr("action.apply", lang, default=tr("action.save", lang)),
             save_icon=ft.Icons.CHECK,
         )
+
+    async def _sync_debt_state(self) -> None:
+        """Run interest accrual and overdue marking once per page session."""
+        if self._debt_state_synced:
+            return
+        self._debt_state_synced = True
+        accrue = getattr(self._state.container, "accrue_debt_interest", None)
+        if accrue is not None:
+            try:
+                await accrue.execute()
+            except Exception:  # noqa: BLE001
+                pass
+        mark = getattr(self._state.container, "mark_overdue_debts", None)
+        if mark is not None:
+            try:
+                await mark.execute()
+            except Exception:  # noqa: BLE001
+                pass
 
     async def reload(self) -> None:
         """Reload debts list for the current filters."""
@@ -305,24 +280,14 @@ class DebtsPage(ft.Column):
         if self._alert_ids:
             self._state.bump_refresh("dashboard")
 
+        await self._sync_debt_state()
+
         direction = (
             None
             if self._direction_filter in ("", "all", None)
             else self._direction_filter
         )
         try:
-            accrue = getattr(self._state.container, "accrue_debt_interest", None)
-            if accrue is not None:
-                try:
-                    await accrue.execute()
-                except Exception:  # noqa: BLE001
-                    pass
-            mark = getattr(self._state.container, "mark_overdue_debts", None)
-            if mark is not None:
-                try:
-                    await mark.execute()
-                except Exception:  # noqa: BLE001
-                    pass
             status_arg = (
                 None
                 if self._status_filter in (_OPEN_FILTER, "", "all", None)
@@ -346,6 +311,7 @@ class DebtsPage(ft.Column):
                 ]
             if self._interest_only:
                 debts = [d for d in debts if d.interest_rate is not None]
+            debts = self._filter_debts(debts)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
@@ -353,9 +319,20 @@ class DebtsPage(ft.Column):
             return
 
         if not debts:
+            search_active = bool(self._search_query.strip())
+            if search_active:
+                empty_key = "empty.debts_search"
+            elif (
+                self._status_filter != _OPEN_FILTER
+                or self._direction_filter not in ("", "all", None)
+                or self._interest_only
+            ):
+                empty_key = "empty.debts_filtered"
+            else:
+                empty_key = "empty.debts"
             self._list.controls = [
                 EmptyState(
-                    tr("empty.debts", lang),
+                    tr(empty_key, lang),
                     action_label=tr("action.add", lang),
                     on_action=lambda _e: self._open_editor(),
                 )
@@ -369,10 +346,13 @@ class DebtsPage(ft.Column):
             book = await load_rate_book(self._state.container)
             i_owe = Decimal("0")
             owed_to_me = Decimal("0")
+            overdue_count = 0
             fx_ok = True
             for debt in debts:
                 if debt.status not in (DebtStatus.ACTIVE, DebtStatus.OVERDUE):
                     continue
+                if debt.status == DebtStatus.OVERDUE:
+                    overdue_count += 1
                 converted = book.convert(
                     debt.remaining_amount,
                     debt.currency,
@@ -391,22 +371,29 @@ class DebtsPage(ft.Column):
             if not fx_ok:
                 snack(self._page, tr("fx.missing_rates", lang), error=True)
             cards.append(
-                summary_strip(
-                    [
-                        (
-                            tr("debts.total_i_owe", lang),
-                            format_money(i_owe, base),
-                            ft.Colors.ERROR,
-                        ),
-                        (
-                            tr("debts.total_owed_to_me", lang),
-                            format_money(owed_to_me, base),
-                            ft.Colors.SECONDARY,
-                        ),
-                    ]
+                debts_summary_ring(
+                    i_owe=i_owe,
+                    owed_to_me=owed_to_me,
+                    currency=base,
+                    language=lang,
+                    overdue_count=overdue_count,
                 )
             )
-            cards.append(ft.Container(height=2))
+            cards.append(ft.Container(height=4))
+
+        now = datetime.now(timezone.utc)
+        lookback = now - timedelta(days=6 * 31)
+        try:
+            recent_txs = await self._state.container.list_transactions.execute(
+                date_from=lookback
+            )
+        except Exception:  # noqa: BLE001
+            recent_txs = []
+        txs_by_debt: dict[str, list] = defaultdict(list)
+        for tx in recent_txs:
+            if not tx.debt_id or "debt_principal" in (tx.tags or []):
+                continue
+            txs_by_debt[tx.debt_id].append(tx)
 
         for debt in debts:
             interest = None
@@ -416,16 +403,38 @@ class DebtsPage(ft.Column):
                 except Exception:  # noqa: BLE001
                     interest = None
             can_repay = debt.status in (DebtStatus.ACTIVE, DebtStatus.OVERDUE)
+            sparkline = None
+            buckets = bucket_payments_by_month(
+                txs_by_debt.get(debt.id, []), months=6, now=now
+            )
+            if any(v > 0 for _, v in buckets):
+                sparkline = debt_payment_sparkline(
+                    buckets,
+                    color=getattr(debt, "color", None),
+                )
+            repay_label = (
+                tr("debt.repay", lang)
+                if debt.direction == DebtDirection.I_OWE
+                else tr("debt.receive", lang)
+            )
+            card = DebtCard(
+                debt,
+                language=lang,
+                interest_amount=interest,
+                alert=debt.id in self._alert_ids,
+                sparkline=sparkline,
+                on_click=self._open_detail,
+                on_edit=self._open_editor,
+                on_delete=self._confirm_delete,
+                on_repay=self._repay if can_repay else None,
+            )
             cards.append(
-                DebtCard(
-                    debt,
+                swipe_debt_card(
+                    card,
                     language=lang,
-                    interest_amount=interest,
-                    alert=debt.id in self._alert_ids,
-                    on_click=self._open_detail,
-                    on_edit=self._open_editor,
-                    on_delete=self._confirm_delete,
-                    on_repay=self._repay if can_repay else None,
+                    repay_label=repay_label,
+                    on_repay=(lambda d=debt: self._repay(d)) if can_repay else None,
+                    on_edit=lambda d=debt: self._open_editor(d),
                 )
             )
         self._list.controls = cards
@@ -435,8 +444,18 @@ class DebtsPage(ft.Column):
         lang = self._state.language
 
         async def _do() -> None:
-            await self._state.container.delete_debt.execute(debt.id)
-            self._state.bump_refresh("dashboard")
+            try:
+                await self._state.container.delete_debt.execute(debt.id, force=True)
+            except ValueError as exc:
+                # Domain guards (e.g. repayments exist) must be shown to the user.
+                snack_exception(self._page, exc, lang=lang)
+                return
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
+            self._state.bump_refresh(
+                "dashboard", "accounts", "transactions", "debts"
+            )
             await self.reload()
 
         confirm_dialog(
@@ -764,31 +783,32 @@ class DebtsPage(ft.Column):
                 shown = []
             offset = {"n": len(txs[:_PAYMENT_PAGE])}
 
-            proj_rows: list[ft.Control] = [
-                ft.Text(tr("debt.projection", lang), weight=ft.FontWeight.W_700),
-            ]
-            if projection.recommended_monthly_payment is not None:
-                proj_rows.append(
-                    ft.Text(
-                        f"{tr('debt.recommended_monthly', lang)}: "
-                        f"{format_money(projection.recommended_monthly_payment, debt_obj.currency)}"
-                    )
-                )
-            if projection.projected_payoff_date is not None:
-                proj_rows.append(
-                    ft.Text(
-                        f"{tr('debt.projected_date', lang)}: "
-                        f"{format_date(projection.projected_payoff_date)}"
-                    )
-                )
-            if projection.is_on_track is True:
-                proj_rows.append(
-                    ft.Text(tr("debt.on_track", lang), color=ft.Colors.PRIMARY)
-                )
-            elif projection.is_on_track is False:
-                proj_rows.append(
-                    ft.Text(tr("debt.off_track", lang), color=ft.Colors.ERROR)
-                )
+            streak = 0
+            sparkline_ctrl = ft.Container(height=0)
+            series_uc = getattr(
+                self._state.container, "get_debt_payment_series", None
+            )
+            if series_uc is not None:
+                try:
+                    series = await series_uc.execute(debt_obj.id, months=6)
+                    streak = series.streak_months
+                    if any(v > 0 for _, v in series.buckets):
+                        sparkline_ctrl = debt_payment_sparkline(
+                            series.buckets,
+                            color=getattr(debt_obj, "color", None),
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+
+            projection_card = debt_projection_card(
+                language=lang,
+                currency=debt_obj.currency,
+                recommended_monthly=projection.recommended_monthly_payment,
+                average_monthly=projection.average_monthly_payment,
+                projected_date=projection.projected_payoff_date,
+                is_on_track=projection.is_on_track,
+                streak_months=streak,
+            )
 
             payments_col = ft.Column(spacing=8, tight=True)
             payments_col.controls = [
@@ -895,6 +915,60 @@ class DebtsPage(ft.Column):
                         on_click=lambda e: run_async(self._page, _do_archive, e),
                     )
                 )
+            elif debt_obj.status in (DebtStatus.ACTIVE, DebtStatus.OVERDUE):
+                async def _forgive(_e: ft.ControlEvent | None = None) -> None:
+                    forgive = getattr(self._state.container, "forgive_debt", None)
+                    if forgive is None:
+                        return
+                    try:
+                        await forgive.execute(debt_obj.id)
+                        audit = getattr(self._state.container, "append_debt_audit", None)
+                        if audit is not None:
+                            await audit.execute(debt_obj.id, "forgive")
+                    except Exception as exc:  # noqa: BLE001
+                        snack_exception(self._page, exc, lang=lang)
+                        return
+                    self._state.bump_refresh("dashboard", "debts")
+                    _close_detail()
+                    await self.reload()
+                    snack(self._page, tr("action.saved", lang))
+
+                actions.append(
+                    ft.OutlinedButton(
+                        tr("debt.forgive", lang),
+                        icon=ft.Icons.CHECK_CIRCLE_OUTLINE,
+                        on_click=lambda e: run_async(self._page, _forgive, e),
+                    )
+                )
+
+            async def _duplicate(_e: ft.ControlEvent | None = None) -> None:
+                dup = getattr(self._state.container, "duplicate_debt", None)
+                if dup is None:
+                    return
+                try:
+                    copy = await dup.execute(debt_obj.id)
+                    audit = getattr(self._state.container, "append_debt_audit", None)
+                    if audit is not None:
+                        await audit.execute(
+                            debt_obj.id,
+                            "duplicate",
+                            details={"copy_id": copy.id},
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
+                    return
+                self._state.bump_refresh("debts")
+                _close_detail()
+                await self.reload()
+                snack(self._page, tr("action.saved", lang))
+
+            actions.append(
+                ft.TextButton(
+                    tr("debt.duplicate", lang),
+                    icon=ft.Icons.CONTENT_COPY,
+                    on_click=lambda e: run_async(self._page, _duplicate, e),
+                )
+            )
 
             interest = None
             if debt_obj.interest_rate is not None:
@@ -906,16 +980,60 @@ class DebtsPage(ft.Column):
                 except Exception:  # noqa: BLE001
                     interest = None
 
+            schedule_btn: ft.Control = ft.Container(height=0)
+            if (
+                debt_obj.status in (DebtStatus.ACTIVE, DebtStatus.OVERDUE)
+                and debt_obj.next_payment_amount is not None
+                and debt_obj.next_payment_amount > 0
+            ):
+                schedule_btn = ft.OutlinedButton(
+                    tr(
+                        "debt.pay_scheduled",
+                        lang,
+                        amount=format_money(
+                            debt_obj.next_payment_amount, debt_obj.currency
+                        ),
+                    ),
+                    icon=ft.Icons.EVENT,
+                    on_click=_repay_action,
+                )
+
+            audit_rows: list[ft.Control] = []
+            list_audit = getattr(self._state.container, "list_debt_audit", None)
+            if list_audit is not None:
+                try:
+                    entries = await list_audit.execute(debt_obj.id, limit=8)
+                    if entries:
+                        audit_rows.append(
+                            ft.Text(tr("debt.audit", lang), weight=ft.FontWeight.W_700)
+                        )
+                        for entry in entries:
+                            action_key = f"debt.audit.{entry.action}"
+                            label = tr(action_key, lang)
+                            if label == action_key:
+                                label = entry.action
+                            audit_rows.append(
+                                muted_text(
+                                    f"{format_date(entry.created_at)} · {label}"
+                                )
+                            )
+                except Exception:  # noqa: BLE001
+                    pass
+
             body.controls = [
                 DebtCard(
                     debt_obj,
                     language=lang,
                     interest_amount=interest,
+                    projected_payoff_date=projection.projected_payoff_date,
                 ),
-                card_surface(ft.Column(proj_rows, spacing=6, tight=True)),
+                projection_card,
+                sparkline_ctrl,
+                schedule_btn,
                 ft.Row(wrap=True, spacing=8, controls=actions),
                 payments_col,
                 load_more_btn,
+                *audit_rows,
             ]
             safe_update(body)
 
@@ -1151,9 +1269,131 @@ class DebtsPage(ft.Column):
                 value=debt.comment if debt else "",
             )
             configure_field(comment_tf, "text")
+            interval_tf = ft.TextField(
+                label=tr("debt.payment_interval", lang),
+                value=str(getattr(debt, "payment_interval_months", 1) if debt else 1),
+            )
+            configure_field(interval_tf, "number")
             wire_field_chain(
                 self._page,
-                [name_tf, amount_tf, rate_tf, next_amt_tf, comment_tf],
+                [name_tf, amount_tf, rate_tf, next_amt_tf, interval_tf, comment_tf],
+            )
+
+            initial_icon = getattr(debt, "icon", None) or "credit_card"
+            initial_color = getattr(debt, "color", None) or "#F87171"
+            selected_icon = {"value": initial_icon}
+            selected_color = {"value": initial_color}
+            icon_preview = ft.Container(
+                width=48,
+                height=48,
+                border_radius=24,
+                alignment=ft.Alignment.CENTER,
+                bgcolor=initial_color,
+                content=account_icon_control(
+                    initial_icon,
+                    size=24,
+                    color=ICON_CATALOG_GLYPH,
+                ),
+            )
+            color_preview = ft.Container(
+                width=48,
+                height=48,
+                border_radius=24,
+                bgcolor=initial_color,
+                border=ft.Border.all(2, ft.Colors.OUTLINE_VARIANT),
+            )
+
+            def _refresh_previews() -> None:
+                icon_preview.content = account_icon_control(
+                    selected_icon["value"],
+                    size=24,
+                    color=ICON_CATALOG_GLYPH,
+                )
+                icon_preview.bgcolor = selected_color["value"]
+                color_preview.bgcolor = selected_color["value"]
+                try:
+                    safe_update(icon_preview)
+                    safe_update(color_preview)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            def _select_icon(key: str) -> None:
+                selected_icon["value"] = key
+                _refresh_previews()
+
+            def _select_color(color: str) -> None:
+                selected_color["value"] = color
+                _refresh_previews()
+
+            _refresh_previews()
+            appearance_row = ft.Row(
+                spacing=12,
+                controls=[
+                    ft.GestureDetector(content=icon_preview, on_tap=lambda _e: open_icon_picker(
+                        self._page,
+                        lang=lang,
+                        groups=account_icon_groups(include_exchanges=False),
+                        selected=selected_icon["value"],
+                        on_select=_select_icon,
+                        render_icon=lambda key: account_icon_control(
+                            key, size=22, color=ICON_CATALOG_GLYPH
+                        ),
+                        overlay_key="debt_icon_picker",
+                    )),
+                    ft.GestureDetector(content=color_preview, on_tap=lambda _e: open_color_picker(
+                        self._page,
+                        lang=lang,
+                        colors=ACCOUNT_COLORS,
+                        selected=selected_color["value"],
+                        on_select=_select_color,
+                        overlay_key="debt_color_picker",
+                    )),
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
+                        expand=True,
+                        controls=[
+                            ft.Text(tr("picker.choose_icon", lang), size=13),
+                            ft.Text(
+                                tr("picker.choose_color", lang),
+                                size=12,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
+                        ],
+                    ),
+                ],
+            )
+
+            def _apply_template(template: DebtTemplate) -> None:
+                name_tf.value = tr(template.name_key, lang)
+                selected_icon["value"] = template.icon
+                selected_color["value"] = template.color
+                direction_dd.value = template.direction.value
+                accrue_sw.value = template.accrue_interest
+                interval_tf.value = str(template.payment_interval_months)
+                if template.default_amount:
+                    amount_tf.value = template.default_amount
+                if template.interest_rate:
+                    rate_tf.value = template.interest_rate
+                else:
+                    rate_tf.value = ""
+                if template.next_payment_amount:
+                    next_amt_tf.value = template.next_payment_amount
+                _refresh_previews()
+                for ctrl in (name_tf, amount_tf, rate_tf, next_amt_tf, direction_dd):
+                    try:
+                        safe_update(ctrl)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            template_strip = h_scroll(
+                [
+                    debt_template_chip(t, language=lang, on_click=_apply_template)
+                    for t in DEBT_TEMPLATES
+                ],
+                spacing=10,
+                height=52,
+                padding=ft.Padding.only(bottom=4),
             )
 
             controls_main: list[ft.Control] = []
@@ -1218,16 +1458,27 @@ class DebtsPage(ft.Column):
                 due_field,
                 next_pay_field,
                 next_amt_tf,
+                interval_tf,
+                form_hint(tr("debt.payment_interval_hint", lang), size=11),
             ]
-            detail_bits: list[ft.Control] = [comment_tf]
+            detail_bits: list[ft.Control] = [comment_tf, appearance_row]
 
-            body_sections: list[ft.Control] = [
+            body_sections: list[ft.Control] = []
+            if debt is None:
+                body_sections.append(
+                    form_section(
+                        tr("debt.templates", lang),
+                        [template_strip],
+                        hint=tr("debt.templates_hint", lang),
+                    )
+                )
+            body_sections.append(
                 form_section(
                     tr("form.section.main", lang),
                     controls_main,
                     icon=ft.Icons.ACCOUNT_BALANCE,
-                ),
-            ]
+                )
+            )
             if account_bits:
                 body_sections.append(
                     form_section(
@@ -1275,6 +1526,13 @@ class DebtsPage(ft.Column):
                 except (InvalidOperation, ValueError):
                     snack(self._page, tr("invalid_amount", lang), error=True)
                     return
+                try:
+                    interval_months = max(
+                        1, int(str(interval_tf.value or "1").strip() or "1")
+                    )
+                except ValueError:
+                    snack(self._page, tr("invalid_amount", lang), error=True)
+                    return
                 due = due_field.value
                 preferred_account = (
                     str(account_dd.value)
@@ -1308,11 +1566,17 @@ class DebtsPage(ft.Column):
                     account_id=preferred_account,
                     started_at=debt.started_at if debt else datetime.now(timezone.utc),
                     comment=comment_tf.value or "",
+                    icon=selected_icon["value"],
+                    color=selected_color["value"],
+                    payment_interval_months=interval_months,
                     created_at=debt.created_at if debt else datetime.now(timezone.utc),
                 )
                 try:
                     if debt:
                         await self._state.container.update_debt.execute(entity)
+                        audit = getattr(self._state.container, "append_debt_audit", None)
+                        if audit is not None:
+                            await audit.execute(debt.id, "update")
                     else:
                         cash_id = None
                         if (
@@ -1337,10 +1601,13 @@ class DebtsPage(ft.Column):
                                     error=True,
                                 )
                                 return
-                        await self._state.container.create_debt.execute(
+                        created = await self._state.container.create_debt.execute(
                             entity,
                             account_id=cash_id,
                         )
+                        audit = getattr(self._state.container, "append_debt_audit", None)
+                        if audit is not None:
+                            await audit.execute(created.id, "create")
                 except Exception as exc:  # noqa: BLE001
                     snack_exception(self._page, exc, lang=self._state.language)
                     return

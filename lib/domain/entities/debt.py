@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -105,6 +105,11 @@ class Debt(BaseModel):
     accrue_interest: bool = False
     accrued_interest: Decimal = Decimal("0.00")
     last_interest_accrued_at: Optional[datetime] = None
+    icon: str = "credit_card"
+    color: str = "#F87171"
+    cached_projection: Optional[dict[str, Any]] = None
+    forgiven_early: bool = False
+    payment_interval_months: int = 1
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 
@@ -114,7 +119,10 @@ class Debt(BaseModel):
         principal = quantize_money(self.amount)
         if principal <= 0:
             return 1.0 if self.remaining_amount <= 0 else 0.0
-        paid = principal - min(quantize_money(self.remaining_amount), principal)
+        accrued = quantize_money(getattr(self, "accrued_interest", Decimal("0")))
+        remaining = quantize_money(self.remaining_amount)
+        principal_remaining = max(Decimal("0"), remaining - accrued)
+        paid = principal - min(principal_remaining, principal)
         ratio = float(paid / principal)
         return max(0.0, min(1.0, ratio))
 
@@ -150,6 +158,17 @@ class Debt(BaseModel):
         if value is None or value == "":
             return None
         return Decimal(str(value))
+
+    @field_validator("payment_interval_months", mode="before")
+    @classmethod
+    def _coerce_interval(cls, value: object) -> int:
+        if value is None or value == "":
+            return 1
+        try:
+            months = int(value)
+        except (TypeError, ValueError):
+            return 1
+        return max(1, min(months, 120))
 
     @field_validator(
         "due_date",

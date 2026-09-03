@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -55,14 +56,130 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _months_between(start: datetime, end: datetime) -> float:
-    if end <= start:
-        return 0.0
-    return max((end - start).total_seconds() / 86400.0 / 30.4375, 0.0)
+def assert_debt_accepts_ledger(debt: Debt) -> None:
+    """Raise when the debt cannot receive repayments."""
+    status = (
+        debt.status
+        if isinstance(debt.status, DebtStatus)
+        else DebtStatus(str(debt.status))
+    )
+    if status == DebtStatus.ARCHIVED:
+        raise ValueError("Debt is archived")
+    if status == DebtStatus.PAID or debt.remaining_amount <= 0:
+        raise ValueError("Debt is already paid")
+
+
+def _payment_met_schedule(debt: Debt, credit: Decimal) -> bool:
+    scheduled = debt.next_payment_amount
+    if scheduled is None or scheduled <= 0:
+        return credit > 0
+    return credit >= scheduled
+
+
+def apply_debt_payment_credit(
+    debt: Debt,
+    credit: Decimal,
+    *,
+    transaction: Transaction | None = None,
+    roll_schedule: bool = True,
+) -> Debt:
+    """Reduce remaining (and accrued interest) after a repayment transaction."""
+    credit = quantize_money(credit)
+    if credit <= 0:
+        return debt
+    interest = (
+        debt_interest_from_tags(transaction)
+        if transaction is not None
+        else Decimal("0.00")
+    )
+    accrued = debt.accrued_interest
+    if debt.accrue_interest:
+        if interest > 0:
+            accrued = quantize_money(max(Decimal("0"), accrued - interest))
+        else:
+            accrued = quantize_money(max(Decimal("0"), accrued - min(accrued, credit)))
+    remaining = quantize_money(max(Decimal("0"), debt.remaining_amount - credit))
+    next_pay = debt.next_payment_date
+    if (
+        roll_schedule
+        and remaining > 0
+        and next_pay is not None
+        and debt.status not in (DebtStatus.PAID, DebtStatus.ARCHIVED)
+        and _payment_met_schedule(debt, credit)
+    ):
+        interval = max(1, int(getattr(debt, "payment_interval_months", 1) or 1))
+        next_pay = _add_months(next_pay, float(interval))
+    status = resolve_debt_status(
+        remaining_amount=remaining,
+        due_date=debt.due_date,
+        next_payment_date=next_pay,
+        current=debt.status,
+    )
+    return debt.model_copy(
+        update={
+            "remaining_amount": remaining,
+            "accrued_interest": accrued,
+            "next_payment_date": next_pay,
+            "status": status,
+            "updated_at": _utc_now(),
+        }
+    )
+
+
+def reverse_debt_payment_credit(
+    debt: Debt,
+    credit: Decimal,
+    *,
+    transaction: Transaction | None = None,
+    roll_schedule: bool = True,
+) -> Debt:
+    """Restore remaining (and accrued interest) when undoing a repayment."""
+    credit = quantize_money(credit)
+    if credit <= 0:
+        return debt
+    interest = (
+        debt_interest_from_tags(transaction)
+        if transaction is not None
+        else Decimal("0.00")
+    )
+    accrued = debt.accrued_interest
+    if debt.accrue_interest and interest > 0:
+        accrued = quantize_money(accrued + interest)
+    remaining = quantize_money(debt.remaining_amount + credit)
+    next_pay = debt.next_payment_date
+    if (
+        roll_schedule
+        and next_pay is not None
+        and debt.status not in (DebtStatus.PAID, DebtStatus.ARCHIVED)
+        and _payment_met_schedule(debt, credit)
+    ):
+        interval = max(1, int(getattr(debt, "payment_interval_months", 1) or 1))
+        next_pay = _add_months(next_pay, -float(interval))
+    status = resolve_debt_status(
+        remaining_amount=remaining,
+        due_date=debt.due_date,
+        next_payment_date=next_pay,
+        current=debt.status,
+    )
+    return debt.model_copy(
+        update={
+            "remaining_amount": remaining,
+            "accrued_interest": accrued,
+            "next_payment_date": next_pay,
+            "status": status,
+            "updated_at": _utc_now(),
+        }
+    )
 
 
 def _add_months(dt: datetime, months: float) -> datetime:
     return dt + timedelta(days=months * 30.4375)
+
+
+def _months_between(start: datetime, end: datetime) -> float:
+    from lib.domain.use_cases.debt_insights import fractional_months_between
+
+    return fractional_months_between(start, end)
 
 
 def _pace_divisor_months(
@@ -251,6 +368,8 @@ class UpdateDebtUseCase:
 
         requested = debt.status if isinstance(debt.status, DebtStatus) else DebtStatus(debt.status)
         if requested == DebtStatus.ARCHIVED:
+            if remaining > 0:
+                raise ValueError("Debt must be fully paid before archiving")
             status = DebtStatus.ARCHIVED
         else:
             status = resolve_debt_status(
@@ -291,12 +410,19 @@ class DeleteDebtUseCase:
         self._transactions = transactions
         self._delete_transaction = delete_transaction
 
-    async def execute(self, debt_id: str) -> bool:
-        if self._transactions is not None and self._delete_transaction is not None:
+    async def execute(self, debt_id: str, *, force: bool = False) -> bool:
+        linked: list[Transaction] = []
+        if self._transactions is not None:
             linked = await self._transactions.list(debt_id=debt_id)
+            if not force:
+                payments = [tx for tx in linked if not is_debt_principal_tx(tx)]
+                if payments:
+                    raise ValueError(
+                        "Debt has repayments; delete payments first or forgive the debt"
+                    )
+        if self._transactions is not None and self._delete_transaction is not None:
             for tx in linked:
-                if is_debt_principal_tx(tx):
-                    await self._delete_transaction.execute(tx.id)
+                await self._delete_transaction.execute(tx.id)
         return await self._debts.delete(debt_id)
 
 
@@ -377,11 +503,13 @@ class RepayDebtUseCase:
         accounts: AccountRepository,
         add_transaction: "AddTransactionUseCase",
         currencies: CurrencyRepository,
+        transactions: TransactionRepository | None = None,
     ) -> None:
         self._debts = debts
         self._accounts = accounts
         self._add_transaction = add_transaction
         self._currencies = currencies
+        self._transactions = transactions
 
     async def execute(
         self,
@@ -466,6 +594,12 @@ class RepayDebtUseCase:
         if interest > 0:
             comment = f"{debt.counterparty} · interest {interest} {debt.currency}"
             tags.append(f"{DEBT_INTEREST_TAG_PREFIX}{interest}")
+        elif debt.accrue_interest:
+            auto_accrued = quantize_money(
+                min(debt.accrued_interest, credit_to_remaining)
+            )
+            if auto_accrued > 0:
+                tags.append(f"{DEBT_INTEREST_TAG_PREFIX}{auto_accrued}")
 
         tx_type = (
             TransactionType.EXPENSE
@@ -490,32 +624,19 @@ class RepayDebtUseCase:
         if updated is None:
             raise ValueError(f"Debt not found after payment: {debt_id}")
 
-        # Persist preferred repay account + roll installment schedule forward.
         patch: dict = {}
-        if interest > 0 and debt.accrue_interest:
-            new_accrued = quantize_money(
-                max(Decimal("0"), updated.accrued_interest - interest)
-            )
-            if new_accrued != updated.accrued_interest:
-                patch["accrued_interest"] = new_accrued
         if (account_id or "").strip():
             patch["account_id"] = account_id.strip()
-        if (
-            updated.remaining_amount > 0
-            and updated.next_payment_date is not None
-            and updated.status
-            not in (DebtStatus.PAID, DebtStatus.ARCHIVED)
-        ):
-            patch["next_payment_date"] = _add_months(updated.next_payment_date, 1.0)
-            patch["status"] = resolve_debt_status(
-                remaining_amount=updated.remaining_amount,
-                due_date=updated.due_date,
-                next_payment_date=patch["next_payment_date"],
-                current=updated.status,
-            )
         if patch:
             patch["updated_at"] = _utc_now()
             updated = await self._debts.update(updated.model_copy(update=patch))
+        if self._transactions is not None:
+            try:
+                await GetDebtProjectionUseCase(
+                    self._debts, self._transactions
+                ).execute(debt_id)
+            except Exception:  # noqa: BLE001
+                pass
         return updated
 
 
@@ -549,37 +670,36 @@ class GetDebtProjectionUseCase:
             projection.recommended_monthly_payment = Decimal("0.00")
             projection.projected_payoff_date = now
             projection.is_on_track = True
+            await self._cache(debt, projection)
             return projection
 
-        monthly_interest = _monthly_interest(debt)
+        from lib.domain.use_cases.debt_insights import (
+            monthly_interest_for_debt,
+            net_debt_payment_flow,
+            required_monthly_for_debt,
+        )
+
+        monthly_interest = monthly_interest_for_debt(debt)
         if debt.due_date is not None:
-            months_left = _months_between(now, debt.due_date)
-            if months_left <= 0:
-                projection.recommended_monthly_payment = remaining
-            else:
-                projection.recommended_monthly_payment = quantize_money(
-                    remaining / Decimal(str(months_left)) + monthly_interest
-                )
+            projection.recommended_monthly_payment = required_monthly_for_debt(
+                remaining,
+                debt.due_date,
+                monthly_interest=monthly_interest,
+                now=now,
+            )
 
         lookback_start = now - timedelta(days=self._lookback_months * 30.4375)
         txs = await self._transactions.list(debt_id=debt.id, date_from=lookback_start)
-        total_paid = sum(
-            (
-                debt_credit_amount(tx)
-                for tx in txs
-                if not is_debt_principal_tx(tx)
-            ),
-            Decimal("0"),
-        )
+        net_flow = net_debt_payment_flow(txs)
         divisor = _pace_divisor_months(
             now,
             self._lookback_months,
             debt.started_at or debt.created_at,
         )
-        avg = quantize_money(total_paid / divisor)
+        avg = quantize_money(net_flow / divisor) if net_flow > 0 else Decimal("0.00")
         projection.average_monthly_payment = avg
 
-        principal_pace = avg - monthly_interest
+        principal_pace = quantize_money(max(Decimal("0"), avg - monthly_interest))
         if principal_pace > 0:
             months_needed = float(remaining / principal_pace)
             projection.projected_payoff_date = _add_months(now, months_needed)
@@ -597,7 +717,32 @@ class GetDebtProjectionUseCase:
                 projection.projected_payoff_date <= debt.due_date
             )
 
+        await self._cache(debt, projection)
         return projection
+
+    async def _cache(self, debt: Debt, projection: DebtProjection) -> None:
+        payload: dict[str, Any] = {
+            "recommended_monthly_payment": (
+                str(projection.recommended_monthly_payment)
+                if projection.recommended_monthly_payment is not None
+                else None
+            ),
+            "projected_payoff_date": (
+                projection.projected_payoff_date.isoformat()
+                if projection.projected_payoff_date
+                else None
+            ),
+            "is_on_track": projection.is_on_track,
+            "average_monthly_payment": str(projection.average_monthly_payment),
+            "remaining_amount": str(projection.remaining_amount),
+            "lookback_months": projection.lookback_months,
+            "computed_at": _utc_now().isoformat(),
+        }
+        updated = debt.model_copy(update={"cached_projection": payload})
+        try:
+            await self._debts.update(updated)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class DeleteDebtPaymentUseCase:
@@ -710,20 +855,20 @@ class AccrueDebtInterestUseCase:
                 last = debt.last_interest_accrued_at or debt.started_at or debt.created_at
                 if last.tzinfo is None:
                     last = last.replace(tzinfo=timezone.utc)
-                months = int(_months_between(last, moment))
-                if months < 1:
+                months_frac = _months_between(last, moment)
+                if months_frac < 1.0 / 30.4375:
                     continue
                 monthly = _monthly_interest(debt)
                 if monthly <= 0:
                     continue
-                add = quantize_money(monthly * Decimal(months))
+                add = quantize_money(monthly * Decimal(str(months_frac)))
                 new_remaining = quantize_money(debt.remaining_amount + add)
                 new_accrued = quantize_money(debt.accrued_interest + add)
                 updated = debt.model_copy(
                     update={
                         "remaining_amount": new_remaining,
                         "accrued_interest": new_accrued,
-                        "last_interest_accrued_at": moment,
+                        "last_interest_accrued_at": _add_months(last, months_frac),
                         "status": resolve_debt_status(
                             remaining_amount=new_remaining,
                             due_date=debt.due_date,
@@ -783,3 +928,88 @@ class ListDebtCounterpartiesUseCase:
                 if name:
                     names.add(name)
         return sorted(names, key=str.casefold)
+
+
+class DuplicateDebtUseCase:
+    """Create a similar debt with fresh balance (same principal, zero progress)."""
+
+    def __init__(self, debts: DebtRepository) -> None:
+        self._debts = debts
+
+    async def execute(self, debt_id: str, *, name_suffix: str = " (копия)") -> Debt:
+        source = await self._debts.get_by_id(debt_id)
+        if source is None:
+            raise ValueError(f"Debt not found: {debt_id}")
+        copy = source.model_copy(
+            update={
+                "id": str(uuid4()),
+                "counterparty": f"{source.counterparty}{name_suffix}",
+                "remaining_amount": source.amount,
+                "status": DebtStatus.ACTIVE,
+                "forgiven_early": False,
+                "cached_projection": None,
+                "accrued_interest": Decimal("0.00"),
+                "last_interest_accrued_at": None,
+                "created_at": _utc_now(),
+                "updated_at": _utc_now(),
+                "started_at": _utc_now(),
+            }
+        )
+        return await self._debts.create(Debt.model_validate(copy.model_dump()))
+
+
+class ForgiveDebtUseCase:
+    """Write off remaining balance without a cash transaction."""
+
+    def __init__(self, debts: DebtRepository) -> None:
+        self._debts = debts
+
+    async def execute(self, debt_id: str) -> Debt:
+        debt = await self._debts.get_by_id(debt_id)
+        if debt is None:
+            raise ValueError(f"Debt not found: {debt_id}")
+        if debt.status == DebtStatus.ARCHIVED:
+            raise ValueError("Debt is archived")
+        if debt.status == DebtStatus.PAID or debt.remaining_amount <= 0:
+            raise ValueError("Debt is already paid")
+        updated = debt.model_copy(
+            update={
+                "remaining_amount": Decimal("0.00"),
+                "accrued_interest": Decimal("0.00"),
+                "status": DebtStatus.PAID,
+                "forgiven_early": True,
+                "cached_projection": None,
+                "updated_at": _utc_now(),
+            }
+        )
+        return await self._debts.update(updated)
+
+
+class AppendDebtAuditUseCase:
+    """Record a debt audit log entry."""
+
+    def __init__(self, audit_repository) -> None:
+        self._audit = audit_repository
+
+    async def execute(
+        self,
+        debt_id: str,
+        action: str,
+        *,
+        details: dict | None = None,
+    ) -> None:
+        from lib.domain.entities.debt_audit import DebtAuditEntry
+
+        await self._audit.append(
+            DebtAuditEntry(debt_id=debt_id, action=action, details=details)
+        )
+
+
+class ListDebtAuditUseCase:
+    """List audit entries for one debt."""
+
+    def __init__(self, audit_repository) -> None:
+        self._audit = audit_repository
+
+    async def execute(self, debt_id: str, *, limit: int = 30) -> list:
+        return await self._audit.list_for_debt(debt_id, limit=limit)

@@ -10,7 +10,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from lib.core.config import DEFAULT_SAVINGS_CATEGORY, normalize_savings_category
-from lib.domain.entities.goal import Goal, GoalStatus
+from lib.domain.entities.goal import Goal, GoalItem, GoalItemStatus, GoalStatus
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.repositories.account_repository import AccountRepository
@@ -31,15 +31,31 @@ def _utc_now() -> datetime:
 
 
 def _savings_category(goal: Goal) -> str:
+    """Ledger category for contributions — the goal name."""
+    name = (goal.name or "").strip()
+    if name:
+        return name
     return normalize_savings_category(goal.category_link)
 
 
 def _months_between(start: datetime, end: datetime) -> float:
     """Approximate fractional months between two UTC datetimes."""
-    if end <= start:
-        return 0.0
-    days = (end - start).total_seconds() / 86400.0
-    return max(days / 30.4375, 0.0)
+    from lib.domain.use_cases.goal_insights import fractional_months_between
+
+    return fractional_months_between(start, end)
+
+
+def assert_goal_accepts_ledger(goal: Goal) -> None:
+    """Raise when the goal cannot receive contributions or withdrawals."""
+    status = (
+        goal.status
+        if isinstance(goal.status, GoalStatus)
+        else GoalStatus(str(goal.status))
+    )
+    if status == GoalStatus.ARCHIVED:
+        raise ValueError("Goal is archived")
+    if status != GoalStatus.ACTIVE:
+        raise ValueError("Goal is already completed")
 
 
 def _add_months(dt: datetime, months: float) -> datetime:
@@ -73,6 +89,123 @@ def goal_credit_amount(transaction: Transaction) -> Decimal:
     return quantize_money(transaction.amount)
 
 
+def apply_goal_contribution_credit(
+    goal: Goal,
+    credit: Decimal,
+    *,
+    item_id: str | None = None,
+) -> Goal:
+    """Increase goal (and optional item) progress after a contribution."""
+    credit = quantize_money(credit)
+    if goal.items:
+        if not item_id:
+            raise ValueError("Goal item is required")
+        by_id = {item.id: item for item in goal.items}
+        if item_id not in by_id:
+            raise ValueError("Goal item not found")
+        if by_id[item_id].is_closed:
+            raise ValueError("Goal item is already closed")
+
+        credit_left = credit
+        updated: dict[str, GoalItem] = dict(by_id)
+
+        def _credit_item(iid: str, amount: Decimal) -> Decimal:
+            item = updated[iid]
+            if item.is_closed or amount <= 0:
+                return amount
+            room = quantize_money(
+                max(Decimal("0"), item.target_amount - item.current_amount)
+            )
+            add = amount if room <= 0 else min(amount, room)
+            updated[iid] = item.model_copy(
+                update={
+                    "current_amount": quantize_money(item.current_amount + add)
+                }
+            )
+            return quantize_money(amount - add)
+
+        credit_left = _credit_item(item_id, credit_left)
+        if credit_left > 0:
+            for item in sorted(goal.items, key=lambda i: i.sort_order):
+                if item.id == item_id or item.is_closed:
+                    continue
+                if credit_left <= 0:
+                    break
+                credit_left = _credit_item(item.id, credit_left)
+        if credit_left > 0:
+            primary = updated[item_id]
+            updated[item_id] = primary.model_copy(
+                update={
+                    "current_amount": quantize_money(
+                        primary.current_amount + credit_left
+                    )
+                }
+            )
+        ordered = [updated[item.id] for item in goal.items]
+        payload = goal.model_copy(update={"items": ordered})
+        return Goal.model_validate(payload.model_dump())
+    payload = goal.model_copy(
+        update={"current_amount": quantize_money(goal.current_amount + credit)}
+    )
+    return Goal.model_validate(payload.model_dump())
+
+
+def reverse_goal_contribution_credit(
+    goal: Goal,
+    credit: Decimal,
+    *,
+    item_id: str | None = None,
+) -> Goal:
+    """Undo goal (and optional item) progress when a contribution is removed."""
+    credit = quantize_money(credit)
+    if goal.items:
+        if not item_id:
+            raise ValueError("Goal item is required")
+        updated_items: list[GoalItem] = []
+        for item in goal.items:
+            if item.id == item_id:
+                updated_items.append(
+                    item.model_copy(
+                        update={
+                            "current_amount": quantize_money(
+                                max(Decimal("0"), item.current_amount - credit)
+                            )
+                        }
+                    )
+                )
+            else:
+                updated_items.append(item)
+        payload = goal.model_copy(update={"items": updated_items})
+        return Goal.model_validate(payload.model_dump())
+    payload = goal.model_copy(
+        update={
+            "current_amount": quantize_money(
+                max(Decimal("0"), goal.current_amount - credit)
+            )
+        }
+    )
+    return Goal.model_validate(payload.model_dump())
+
+
+def _normalize_goal_items(items: list[GoalItem]) -> list[GoalItem]:
+    normalized: list[GoalItem] = []
+    for idx, item in enumerate(items):
+        name = (item.name or "").strip()
+        if not name:
+            continue
+        normalized.append(
+            item.model_copy(
+                update={
+                    "name": name,
+                    "target_amount": quantize_money(item.target_amount),
+                    "current_amount": quantize_money(item.current_amount),
+                    "sort_order": idx,
+                }
+            )
+        )
+    return normalized
+
+
 class GoalProjection(BaseModel):
     """Projection / on-track metrics for a savings goal."""
 
@@ -92,18 +225,29 @@ class CreateGoalUseCase:
         self._goals = goals
 
     async def execute(self, goal: Goal) -> Goal:
-        """Persist a new goal; ``current_amount`` always starts at 0."""
+        """Persist a new goal; ``current_amount`` always starts at zero."""
+        items = _normalize_goal_items(list(goal.items or []))
+        target = (
+            quantize_money(sum(i.target_amount for i in items))
+            if items
+            else quantize_money(goal.target_amount)
+        )
         created = goal.model_copy(
             update={
-                "target_amount": quantize_money(goal.target_amount),
+                "target_amount": target,
                 "current_amount": Decimal("0.00"),
+                "items": [
+                    i.model_copy(update={"current_amount": Decimal("0.00")})
+                    for i in items
+                ],
                 "created_at": goal.created_at or _utc_now(),
                 "status": GoalStatus.ACTIVE,
                 "is_completed": False,
+                "closed_early": False,
                 "cached_projection": None,
             }
         )
-        return await self._goals.create(created)
+        return await self._goals.create(Goal.model_validate(created.model_dump()))
 
 
 class UpdateGoalUseCase:
@@ -127,8 +271,39 @@ class UpdateGoalUseCase:
         if existing is None:
             raise ValueError(f"Goal not found: {goal.id}")
 
-        target = quantize_money(goal.target_amount)
-        current = quantize_money(existing.current_amount)
+        status = goal.status if isinstance(goal.status, GoalStatus) else GoalStatus(goal.status)
+        incoming_items = _normalize_goal_items(list(goal.items or []))
+        if incoming_items:
+            by_id = {i.id: i for i in existing.items}
+            merged: list[GoalItem] = []
+            for idx, item in enumerate(incoming_items):
+                prev = by_id.get(item.id)
+                merged.append(
+                    item.model_copy(
+                        update={
+                            "current_amount": (
+                                prev.current_amount if prev is not None else Decimal("0.00")
+                            ),
+                            "status": (
+                                prev.status if prev is not None else GoalItemStatus.OPEN
+                            ),
+                            "closed_at": prev.closed_at if prev is not None else None,
+                            "sort_order": idx,
+                        }
+                    )
+                )
+            target = quantize_money(sum(i.target_amount for i in merged))
+            current = quantize_money(sum(i.current_amount for i in merged))
+            if not existing.items and existing.current_amount > 0 and merged:
+                merged[0] = merged[0].model_copy(
+                    update={"current_amount": quantize_money(existing.current_amount)}
+                )
+                current = quantize_money(sum(i.current_amount for i in merged))
+        else:
+            merged = []
+            target = quantize_money(goal.target_amount)
+            current = quantize_money(existing.current_amount)
+
         new_ccy = (goal.currency or existing.currency or "RUB").upper()
         old_ccy = (existing.currency or "RUB").upper()
         if new_ccy != old_ccy and current != 0:
@@ -139,10 +314,29 @@ class UpdateGoalUseCase:
             if converted is None:
                 raise ValueError(f"No exchange rate for {old_ccy}/{new_ccy}")
             current = quantize_money(converted)
+            if merged:
+                ratio = (
+                    converted / existing.current_amount
+                    if existing.current_amount > 0
+                    else Decimal("1")
+                )
+                merged = [
+                    item.model_copy(
+                        update={
+                            "current_amount": quantize_money(item.current_amount * ratio)
+                        }
+                    )
+                    for item in merged
+                ]
+                current = quantize_money(sum(i.current_amount for i in merged))
 
-        status = goal.status if isinstance(goal.status, GoalStatus) else GoalStatus(goal.status)
         if status == GoalStatus.ARCHIVED:
             pass
+        elif merged:
+            if all(i.is_closed for i in merged):
+                status = GoalStatus.COMPLETED
+            elif status == GoalStatus.COMPLETED:
+                status = GoalStatus.ACTIVE
         elif current >= target:
             status = GoalStatus.COMPLETED
         elif status == GoalStatus.COMPLETED and current < target:
@@ -153,13 +347,15 @@ class UpdateGoalUseCase:
                 "currency": new_ccy,
                 "current_amount": current,
                 "target_amount": target,
+                "items": merged,
                 "status": status,
                 "is_completed": status == GoalStatus.COMPLETED
                 or (status == GoalStatus.ARCHIVED and current >= target),
                 "cached_projection": existing.cached_projection,
+                "closed_early": existing.closed_early,
             }
         )
-        return await self._goals.update(updated)
+        return await self._goals.update(Goal.model_validate(updated.model_dump()))
 
 
 class DeleteGoalUseCase:
@@ -235,18 +431,32 @@ class DuplicateGoalUseCase:
         source = await self._goals.get_by_id(goal_id)
         if source is None:
             raise ValueError(f"Goal not found: {goal_id}")
+        new_name = f"{source.name}{name_suffix}"
         copy = source.model_copy(
             update={
                 "id": str(uuid4()),
-                "name": f"{source.name}{name_suffix}",
+                "name": new_name,
+                "category_link": new_name,
                 "current_amount": Decimal("0.00"),
                 "status": GoalStatus.ACTIVE,
                 "is_completed": False,
+                "closed_early": False,
                 "cached_projection": None,
                 "created_at": _utc_now(),
+                "items": [
+                    item.model_copy(
+                        update={
+                            "id": str(uuid4()),
+                            "current_amount": Decimal("0.00"),
+                            "status": GoalItemStatus.OPEN,
+                            "closed_at": None,
+                        }
+                    )
+                    for item in source.items
+                ],
             }
         )
-        return await self._goals.create(copy)
+        return await self._goals.create(Goal.model_validate(copy.model_dump()))
 
 
 class ContributeToGoalUseCase:
@@ -272,6 +482,7 @@ class ContributeToGoalUseCase:
         amount: Decimal,
         *,
         account_id: str,
+        item_id: str | None = None,
     ) -> Goal:
         """Debit ``account_id`` and increase the goal's ``current_amount``.
 
@@ -291,6 +502,8 @@ class ContributeToGoalUseCase:
             raise ValueError("Goal is archived")
         if goal.status != GoalStatus.ACTIVE:
             raise ValueError("Goal is already completed")
+        if goal.items and not item_id:
+            raise ValueError("Goal item is required")
 
         account = await self._accounts.get_by_id(account_id)
         if account is None:
@@ -317,6 +530,7 @@ class ContributeToGoalUseCase:
                 type=TransactionType.EXPENSE,
                 currency=account.currency,
                 goal_id=goal.id,
+                goal_item_id=item_id,
                 goal_credit_amount=credit,
             )
         )
@@ -372,24 +586,23 @@ class GetGoalProjectionUseCase:
             return projection
 
         if goal.deadline is not None:
-            months_left = _months_between(now, goal.deadline)
-            if months_left <= 0:
-                projection.required_monthly_contribution = remaining
-            else:
-                projection.required_monthly_contribution = quantize_money(
-                    remaining / Decimal(str(months_left))
-                )
+            from lib.domain.use_cases.goal_insights import required_monthly_for_goal
+
+            projection.required_monthly_contribution = required_monthly_for_goal(
+                remaining,
+                goal.deadline,
+                now=now,
+            )
 
         lookback_start = now - timedelta(days=self._lookback_months * 30.4375)
         txs = await self._transactions.list(goal_id=goal.id, date_from=lookback_start)
-        total_credited = sum(
-            (goal_credit_amount(tx) for tx in txs if tx.type == TransactionType.EXPENSE),
-            Decimal("0"),
-        )
+        from lib.domain.use_cases.goal_insights import net_goal_credit_flow
+
+        net_flow = net_goal_credit_flow(txs)
         divisor = _pace_divisor_months(
             now, self._lookback_months, goal.created_at
         )
-        avg = quantize_money(total_credited / divisor)
+        avg = quantize_money(net_flow / divisor) if net_flow > 0 else Decimal("0.00")
         projection.average_monthly_contribution = avg
 
         if avg > 0:
@@ -458,3 +671,167 @@ class DeleteGoalContributionUseCase:
         if tx.goal_id != goal_id:
             raise ValueError("Transaction is not linked to this goal")
         return await self._delete_transaction.execute(transaction_id)
+
+
+class CloseGoalItemUseCase:
+    """Mark one open sub-position as closed (with or without full funding)."""
+
+    def __init__(self, goals: GoalRepository) -> None:
+        self._goals = goals
+
+    async def execute(self, goal_id: str, item_id: str) -> Goal:
+        goal = await self._goals.get_by_id(goal_id)
+        if goal is None:
+            raise ValueError(f"Goal not found: {goal_id}")
+        if goal.status != GoalStatus.ACTIVE:
+            raise ValueError("Goal is not active")
+        if not goal.items:
+            raise ValueError("Goal has no items")
+        now = _utc_now()
+        updated_items: list[GoalItem] = []
+        found = False
+        for item in goal.items:
+            if item.id != item_id:
+                updated_items.append(item)
+                continue
+            found = True
+            if item.is_closed:
+                return goal
+            updated_items.append(
+                item.model_copy(
+                    update={"status": GoalItemStatus.CLOSED, "closed_at": now}
+                )
+            )
+        if not found:
+            raise ValueError("Goal item not found")
+        payload = goal.model_copy(update={"items": updated_items})
+        saved = Goal.model_validate(payload.model_dump())
+        return await self._goals.update(saved)
+
+
+class CloseGoalEarlyUseCase:
+    """Archive an active goal before the target is fully reached."""
+
+    def __init__(self, goals: GoalRepository) -> None:
+        self._goals = goals
+
+    async def execute(self, goal_id: str) -> Goal:
+        goal = await self._goals.get_by_id(goal_id)
+        if goal is None:
+            raise ValueError(f"Goal not found: {goal_id}")
+        if goal.status == GoalStatus.ARCHIVED:
+            return goal
+        if goal.status != GoalStatus.ACTIVE:
+            raise ValueError("Goal is already completed")
+        updated = goal.model_copy(
+            update={"status": GoalStatus.ARCHIVED, "closed_early": True}
+        )
+        return await self._goals.update(Goal.model_validate(updated.model_dump()))
+
+
+class WithdrawFromGoalUseCase:
+    """Return savings from a goal back to an account (partial withdrawal)."""
+
+    def __init__(
+        self,
+        goals: GoalRepository,
+        accounts: AccountRepository,
+        add_transaction: "AddTransactionUseCase",
+        currencies: CurrencyRepository,
+    ) -> None:
+        self._goals = goals
+        self._accounts = accounts
+        self._add_transaction = add_transaction
+        self._currencies = currencies
+
+    async def execute(
+        self,
+        goal_id: str,
+        amount: Decimal,
+        *,
+        account_id: str,
+        item_id: str | None = None,
+    ) -> Goal:
+        from lib.domain.entities.transaction import Transaction, TransactionType
+
+        amount = quantize_money(amount)
+        if amount <= 0:
+            raise ValueError("Withdrawal amount must be positive")
+        goal = await self._goals.get_by_id(goal_id)
+        if goal is None:
+            raise ValueError(f"Goal not found: {goal_id}")
+        if goal.status != GoalStatus.ACTIVE:
+            raise ValueError("Goal is not active")
+        if goal.items:
+            if not item_id:
+                raise ValueError("Goal item is required")
+            item = next((i for i in goal.items if i.id == item_id), None)
+            if item is None:
+                raise ValueError("Goal item not found")
+            if item.is_closed:
+                raise ValueError("Goal item is already closed")
+            if amount > item.current_amount:
+                raise ValueError("Withdrawal exceeds item balance")
+        elif amount > goal.current_amount:
+            raise ValueError("Withdrawal exceeds goal balance")
+        account = await self._accounts.get_by_id(account_id)
+        if account is None:
+            raise ValueError(f"Account not found: {account_id}")
+
+        rates = await self._currencies.list_rates()
+        book = RateBook(rates)
+        credit = book.convert(amount, goal.currency, account.currency)
+        if credit is None:
+            raise ValueError(
+                f"No exchange rate for {goal.currency}/{account.currency}"
+            )
+        credit = quantize_money(credit)
+
+        await self._add_transaction.execute(
+            Transaction(
+                account_id=account.id,
+                amount=credit,
+                category=_savings_category(goal),
+                date=_utc_now(),
+                comment=goal.name,
+                type=TransactionType.INCOME,
+                currency=account.currency,
+                goal_id=goal.id,
+                goal_item_id=item_id,
+                goal_credit_amount=amount,
+            )
+        )
+        updated = await self._goals.get_by_id(goal_id)
+        if updated is None:
+            raise ValueError(f"Goal not found after withdrawal: {goal_id}")
+        return updated
+
+
+class AppendGoalAuditUseCase:
+    """Record a goal audit log entry."""
+
+    def __init__(self, audit_repository) -> None:
+        self._audit = audit_repository
+
+    async def execute(
+        self,
+        goal_id: str,
+        action: str,
+        *,
+        details: dict | None = None,
+    ) -> None:
+        from lib.domain.entities.goal_audit import GoalAuditEntry
+
+        await self._audit.append(
+            GoalAuditEntry(goal_id=goal_id, action=action, details=details)
+        )
+
+
+class ListGoalAuditUseCase:
+    """List audit entries for one goal."""
+
+    def __init__(self, audit_repository) -> None:
+        self._audit = audit_repository
+
+    async def execute(self, goal_id: str, *, limit: int = 30) -> list:
+        return await self._audit.list_for_goal(goal_id, limit=limit)

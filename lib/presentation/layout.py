@@ -61,17 +61,23 @@ def h_scroll(
     padding: int | ft.Padding | None = None,
 ) -> ft.Container:
     """Horizontal scroll strip — use when items don't fit the viewport width."""
+    row = ft.ListView(
+        horizontal=True,
+        spacing=spacing,
+        padding=ft.Padding.only(right=12),
+        auto_scroll=False,
+        height=height,
+        adaptive=False,
+        build_controls_on_demand=False,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        scroll=_hidden_scrollbar(),
+        controls=list(controls),
+    )
+    _prevent_h_scroll_reset(row)
     return ft.Container(
         height=height,
         padding=padding,
-        content=ft.Row(
-            controls=list(controls),
-            spacing=spacing,
-            scroll=_hidden_scrollbar(),
-            auto_scroll=False,
-            wrap=False,
-            vertical_alignment=ft.CrossAxisAlignment.START,
-        ),
+        content=row,
     )
 
 

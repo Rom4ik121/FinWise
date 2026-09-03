@@ -1,36 +1,52 @@
-"""Subscriptions page with upcoming charges, detail history, and CRUD."""
+"""Subscriptions page with search, filters, templates, and catch-up."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Optional
 
 import flet as ft
 
+from lib.core.config import ACCOUNT_COLORS, CATEGORY_ICON_GROUPS
 from lib.domain.entities.subscription import (
     Periodicity,
     Subscription,
     SubscriptionStatus,
 )
-from lib.domain.use_cases.subscriptions import monthly_equivalent
+from lib.domain.use_cases.subscription_insights import bucket_charges_by_month
+from lib.domain.use_cases.subscriptions import (
+    count_missed_periods,
+    monthly_equivalent,
+)
+from lib.presentation.account_icons import account_icon_control, account_icon_groups
+from lib.presentation.dropdown_options import (
+    account_dropdown_options,
+    icon_dropdown_option,
+)
+from lib.presentation.form_keyboard import configure_field, wire_field_chain
+from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.notification_badges import (
     SUBSCRIPTION_ALERT_KINDS,
     mark_related_read,
     pending_related_ids,
 )
-from lib.presentation.dropdown_options import (
-    account_dropdown_options,
-    icon_dropdown_option,
-)
-from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.styles import (
+    ICON_CATALOG_GLYPH,
     card_surface,
+    choice_chips,
     form_hint,
     form_section,
+    labeled_switch,
     muted_text,
     page_header,
-    summary_strip,
+)
+from lib.presentation.subscriptions_templates import (
+    SUBSCRIPTION_TEMPLATES,
+    SubscriptionTemplate,
+    subscription_template_chip,
 )
 from lib.presentation.utils import (
     bind_dropdown_select,
@@ -43,22 +59,28 @@ from lib.presentation.utils import (
     snack_exception,
     tr,
 )
+from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
+from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
-from lib.presentation.layout import make_v_scroll
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.subscription_card import (
     SubscriptionCard,
     periodicity_label,
 )
+from lib.presentation.widgets.subscription_sparkline import subscription_charge_sparkline
+from lib.presentation.widgets.subscription_summary_ring import subscriptions_summary_ring
+from lib.presentation.widgets.subscription_swipe_card import swipe_subscription_card
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 _CHARGE_PAGE = 20
-
+_STATUS_FILTERS = ("active", "paused", "expired", "cancelled", "all")
+_SORT_KEYS = ("next_billing", "amount", "name", "monthly")
+_PERIOD_FILTERS = ("all",) + tuple(p.value for p in Periodicity)
 _PERIOD_OPTIONS = (
     Periodicity.DAILY,
     Periodicity.WEEKLY,
@@ -81,6 +103,21 @@ class SubscriptionsPage(ft.Column):
         self._list = make_v_scroll(spacing=12)
         self._alert_ids: set[str] = set()
         self._token = -1
+        self._status_filter = "active"
+        self._period_filter = "all"
+        self._sort_by = "next_billing"
+        self._auto_only = False
+        self._due_soon = False
+        self._search_query = ""
+        self._search_tf = ft.TextField(
+            hint_text=tr("subscription.search_hint", state.language),
+            prefix_icon=ft.Icons.SEARCH,
+            dense=True,
+            border_radius=12,
+            filled=True,
+            expand=True,
+            on_change=self._on_search_change,
+        )
         super().__init__(
             expand=True,
             spacing=0,
@@ -93,14 +130,24 @@ class SubscriptionsPage(ft.Column):
                     ),
                     actions=[
                         ft.IconButton(
+                            icon=ft.Icons.TUNE,
+                            tooltip=tr("action.filters", state.language),
+                            on_click=lambda _e: self._open_filters(),
+                        ),
+                        ft.IconButton(
                             icon=ft.Icons.ADD,
+                            tooltip=tr("action.add", state.language),
                             on_click=lambda _e: self._open_editor(),
                         ),
                     ],
                 ),
                 ft.Container(
+                    padding=ft.Padding.only(left=12, right=12, top=8, bottom=4),
+                    content=self._search_tf,
+                ),
+                ft.Container(
                     expand=True,
-                    padding=ft.Padding.symmetric(horizontal=16),
+                    padding=ft.Padding.symmetric(horizontal=12),
                     content=self._list,
                 ),
             ],
@@ -111,6 +158,153 @@ class SubscriptionsPage(ft.Column):
     def _on_state(self, state: "AppState") -> None:
         if state.subscriptions_token != self._token:
             run_async(self._page, self.reload)
+
+    def _on_search_change(self, e: ft.ControlEvent) -> None:
+        self._search_query = str(getattr(e.control, "value", "") or "")
+        run_async(self._page, self.reload)
+
+    def _open_filters(self) -> None:
+        lang = self._state.language
+        holder = {
+            "status": self._status_filter,
+            "period": self._period_filter,
+            "sort": self._sort_by,
+            "auto_only": self._auto_only,
+            "due_soon": self._due_soon,
+        }
+        status_chips = choice_chips(
+            [(key, tr(f"subscription.filter.{key}", lang)) for key in _STATUS_FILTERS],
+            value=holder["status"],
+            on_changed=lambda value: holder.__setitem__("status", value),
+        )
+        period_chips = choice_chips(
+            [
+                (
+                    key,
+                    tr("subscription.filter.all_periods", lang)
+                    if key == "all"
+                    else periodicity_label(Periodicity(key), lang),
+                )
+                for key in _PERIOD_FILTERS
+                if key != Periodicity.CUSTOM.value
+            ]
+            + [
+                (
+                    Periodicity.CUSTOM.value,
+                    periodicity_label(Periodicity.CUSTOM, lang),
+                )
+            ],
+            value=holder["period"],
+            on_changed=lambda value: holder.__setitem__("period", value),
+        )
+        sort_chips = choice_chips(
+            [(key, tr(f"subscription.sort.{key}", lang)) for key in _SORT_KEYS],
+            value=holder["sort"],
+            on_changed=lambda value: holder.__setitem__("sort", value),
+        )
+        auto_sw = ft.Switch(value=bool(holder["auto_only"]))
+        due_sw = ft.Switch(value=bool(holder["due_soon"]))
+        auto_sw.on_change = lambda e: holder.__setitem__(
+            "auto_only", bool(getattr(e.control, "value", False))
+        )
+        due_sw.on_change = lambda e: holder.__setitem__(
+            "due_soon", bool(getattr(e.control, "value", False))
+        )
+
+        async def _apply() -> None:
+            self._status_filter = str(holder["status"] or "active")
+            self._period_filter = str(holder["period"] or "all")
+            self._sort_by = str(holder["sort"] or "next_billing")
+            self._auto_only = bool(holder["auto_only"])
+            self._due_soon = bool(holder["due_soon"])
+            close()
+            await self.reload()
+
+        close = open_fullscreen_form(
+            self._page,
+            title=tr("action.filters", lang),
+            lang=lang,
+            overlay_key="subscription_filters",
+            body=[
+                form_section(
+                    tr("subscription.filter_status", lang),
+                    [status_chips],
+                    hint=tr("subscription.filter_status_hint", lang),
+                    icon=ft.Icons.FILTER_LIST,
+                ),
+                form_section(
+                    tr("subscription.filter_period", lang),
+                    [period_chips],
+                    icon=ft.Icons.EVENT,
+                ),
+                form_section(
+                    None,
+                    [labeled_switch(tr("subscription.filter_auto_only", lang), auto_sw)],
+                    hint=tr("subscription.filter_auto_only_hint", lang),
+                    icon=ft.Icons.AUTORENEW,
+                ),
+                form_section(
+                    None,
+                    [labeled_switch(tr("subscription.filter_due_soon", lang), due_sw)],
+                    hint=tr("subscription.filter_due_soon_hint", lang),
+                    icon=ft.Icons.UPCOMING,
+                ),
+                form_section(
+                    tr("subscription.filter_sort", lang),
+                    [sort_chips],
+                    icon=ft.Icons.SORT,
+                ),
+            ],
+            on_save=_apply,
+            save_label=tr("action.apply", lang, default=tr("action.save", lang)),
+            save_icon=ft.Icons.CHECK,
+        )
+
+    def _apply_list_filters(self, items: list[Subscription]) -> list[Subscription]:
+        now = datetime.now(timezone.utc)
+        soon = now + timedelta(days=7)
+        q = self._search_query.strip().lower()
+        out: list[Subscription] = []
+        for sub in items:
+            status = (
+                sub.status.value
+                if isinstance(sub.status, SubscriptionStatus)
+                else str(sub.status)
+            )
+            if self._status_filter not in ("", "all") and status != self._status_filter:
+                continue
+            period = (
+                sub.periodicity.value
+                if isinstance(sub.periodicity, Periodicity)
+                else str(sub.periodicity)
+            )
+            if self._period_filter not in ("", "all") and period != self._period_filter:
+                continue
+            if self._auto_only and not sub.auto_charge:
+                continue
+            if self._due_soon:
+                billed = sub.next_billing_date
+                if billed.tzinfo is None:
+                    billed = billed.replace(tzinfo=timezone.utc)
+                if billed > soon:
+                    continue
+            if q and q not in (sub.name or "").lower() and q not in (sub.category or "").lower():
+                continue
+            out.append(sub)
+        if self._sort_by == "amount":
+            out.sort(key=lambda s: s.amount, reverse=True)
+        elif self._sort_by == "name":
+            out.sort(key=lambda s: (s.name or "").casefold())
+        elif self._sort_by == "monthly":
+            out.sort(
+                key=lambda s: monthly_equivalent(
+                    s.amount, s.periodicity, custom_interval_days=s.custom_interval_days
+                ),
+                reverse=True,
+            )
+        else:
+            out.sort(key=lambda s: s.next_billing_date)
+        return out
 
     async def reload(self) -> None:
         """Reload subscriptions list."""
@@ -133,7 +327,8 @@ class SubscriptionsPage(ft.Column):
             self._accounts = await self._state.container.list_accounts.execute(
                 active_only=True
             )
-            items = await self._state.container.list_subscriptions.execute()
+            items_all = await self._state.container.list_subscriptions.execute()
+            items = self._apply_list_filters(items_all)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             self._list.controls = [EmptyState(tr("error.generic", lang))]
@@ -141,9 +336,15 @@ class SubscriptionsPage(ft.Column):
             return
 
         if not items:
+            if self._search_query.strip():
+                empty_key = "empty.subscriptions_search"
+            elif items_all:
+                empty_key = "empty.subscriptions_filtered"
+            else:
+                empty_key = "empty.subscriptions"
             self._list.controls = [
                 EmptyState(
-                    tr("empty.subscriptions", lang),
+                    tr(empty_key, lang),
                     action_label=tr("action.add", lang),
                     on_action=lambda _e: self._open_editor(),
                 )
@@ -155,10 +356,16 @@ class SubscriptionsPage(ft.Column):
         book = await load_rate_book(self._state.container)
         monthly = Decimal("0")
         yearly = Decimal("0")
+        due_week_amount = Decimal("0")
+        due_week_count = 0
+        active_count = 0
         fx_ok = True
+        now = datetime.now(timezone.utc)
+        soon = now + timedelta(days=7)
         for sub in items:
             if sub.status != SubscriptionStatus.ACTIVE:
                 continue
+            active_count += 1
             monthly_amt = monthly_equivalent(
                 sub.amount,
                 sub.periodicity,
@@ -173,54 +380,273 @@ class SubscriptionsPage(ft.Column):
                     continue
             monthly += converted
             yearly += converted * Decimal("12")
+            billed = sub.next_billing_date
+            if billed.tzinfo is None:
+                billed = billed.replace(tzinfo=timezone.utc)
+            if billed <= soon:
+                due_converted = book.convert(sub.amount, sub.currency, base)
+                if due_converted is None and sub.currency.upper() == base.upper():
+                    due_converted = sub.amount
+                if due_converted is not None:
+                    due_week_amount += due_converted
+                    due_week_count += 1
         if not fx_ok:
             snack(self._page, tr("fx.missing_rates", lang), error=True)
 
-        self._list.controls = [
-            summary_strip(
-                [
-                    (
-                        tr("subscriptions.monthly_total", lang),
-                        format_money(monthly, base),
-                        ft.Colors.PRIMARY,
-                    ),
-                    (
-                        tr("subscriptions.yearly_total", lang),
-                        format_money(yearly, base),
-                        ft.Colors.SECONDARY,
-                    ),
-                ]
-            ),
-            *[
-                SubscriptionCard(
-                    s,
-                    language=lang,
-                    alert=s.id in self._alert_ids,
-                    on_open=self._open_detail,
-                    on_edit=self._open_editor,
-                    on_delete=self._confirm_delete,
-                )
-                for s in items
-            ],
+        lookback = now - timedelta(days=6 * 31)
+        try:
+            recent_txs = await self._state.container.list_transactions.execute(
+                has_subscription=True,
+                date_from=lookback,
+            )
+        except Exception:  # noqa: BLE001
+            recent_txs = []
+        txs_by_sub: dict[str, list] = defaultdict(list)
+        for tx in recent_txs:
+            if tx.subscription_id:
+                txs_by_sub[tx.subscription_id].append(tx)
+
+        cards: list[ft.Control] = [
+            subscriptions_summary_ring(
+                monthly=monthly,
+                yearly=yearly,
+                currency=base,
+                language=lang,
+                due_week_count=due_week_count,
+                due_week_amount=due_week_amount,
+                active_count=active_count,
+            )
         ]
+        due_soon_items = []
+        rest_items = []
+        for sub in items:
+            billed = sub.next_billing_date
+            if billed.tzinfo is None:
+                billed = billed.replace(tzinfo=timezone.utc)
+            if (
+                sub.status == SubscriptionStatus.ACTIVE
+                and billed <= soon
+            ):
+                due_soon_items.append(sub)
+            else:
+                rest_items.append(sub)
+
+        def _card(sub: Subscription) -> ft.Control:
+            buckets = bucket_charges_by_month(
+                txs_by_sub.get(sub.id, []),
+                months=6,
+                now=now,
+                rate_book=book,
+                to_currency=sub.currency or base,
+            )
+            sparkline = None
+            if any(v > 0 for _, v in buckets):
+                sparkline = subscription_charge_sparkline(
+                    buckets, color=getattr(sub, "color", None)
+                )
+            can_charge = sub.status in (
+                SubscriptionStatus.ACTIVE,
+                SubscriptionStatus.PAUSED,
+            )
+            pause_cb = None
+            pause_label = None
+            if sub.status == SubscriptionStatus.ACTIVE:
+                pause_cb = lambda s=sub: run_async(self._page, self._pause, s)
+                pause_label = tr("subscription.pause", lang)
+            elif sub.status == SubscriptionStatus.PAUSED:
+                pause_cb = lambda s=sub: run_async(self._page, self._resume, s)
+                pause_label = tr("subscription.resume", lang)
+            card = SubscriptionCard(
+                sub,
+                language=lang,
+                alert=sub.id in self._alert_ids,
+                sparkline=sparkline,
+                on_open=self._open_detail,
+                on_edit=self._open_editor,
+                on_delete=self._confirm_delete,
+            )
+            return swipe_subscription_card(
+                card,
+                language=lang,
+                on_charge=(lambda s=sub: self._charge_or_catchup(s))
+                if can_charge
+                else None,
+                on_pause=pause_cb,
+                on_edit=lambda s=sub: self._open_editor(s),
+                pause_label=pause_label,
+            )
+
+        if due_soon_items:
+            cards.append(
+                ft.Text(
+                    tr("subscription.section_due_soon", lang),
+                    size=13,
+                    weight=ft.FontWeight.W_700,
+                )
+            )
+            cards.extend(_card(s) for s in due_soon_items)
+            if rest_items:
+                cards.append(
+                    ft.Text(
+                        tr("subscription.section_other", lang),
+                        size=13,
+                        weight=ft.FontWeight.W_700,
+                    )
+                )
+        cards.extend(_card(s) for s in rest_items)
+        self._list.controls = cards
         safe_update(self._list)
+
+    async def _pause(self, sub: Subscription) -> None:
+        try:
+            await self._state.container.pause_subscription.execute(sub.id)
+            audit = getattr(self._state.container, "append_subscription_audit", None)
+            if audit is not None:
+                await audit.execute(sub.id, "pause")
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=self._state.language)
+            return
+        self._state.bump_refresh("subscriptions")
+        await self.reload()
+
+    async def _resume(self, sub: Subscription) -> None:
+        try:
+            await self._state.container.resume_subscription.execute(sub.id)
+            audit = getattr(self._state.container, "append_subscription_audit", None)
+            if audit is not None:
+                await audit.execute(sub.id, "resume")
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=self._state.language)
+            return
+        self._state.bump_refresh("subscriptions")
+        await self.reload()
 
     def _confirm_delete(self, sub: Subscription) -> None:
         lang = self._state.language
 
         async def _do() -> None:
             await self._state.container.delete_subscription.execute(sub.id)
-            self._state.bump_refresh("dashboard", "subscriptions")
+            self._state.bump_refresh(
+                "dashboard", "accounts", "transactions", "subscriptions"
+            )
             await self.reload()
 
         confirm_dialog(
             self._page,
             title=tr("action.confirm_delete", lang),
-            message=sub.name,
+            message=tr("subscription.delete_hint", lang, name=sub.name),
             confirm_text=tr("action.delete", lang),
             cancel_text=tr("action.cancel", lang),
             on_confirm=_do,
         )
+
+    def _charge_or_catchup(self, sub: Subscription) -> None:
+        missed = count_missed_periods(sub)
+        if missed > 1:
+            self._open_catchup(sub, missed)
+            return
+        run_async(self._page, self._charge_now, sub)
+
+    async def _charge_now(self, sub: Subscription) -> None:
+        lang = self._state.language
+        try:
+            await self._state.container.charge_subscription_now.execute(sub.id)
+            audit = getattr(self._state.container, "append_subscription_audit", None)
+            if audit is not None:
+                await audit.execute(sub.id, "charge")
+        except ValueError as exc:
+            if str(exc) == "insufficient_funds":
+                snack(self._page, tr("subscription.insufficient_funds", lang), error=True)
+                return
+            snack_exception(self._page, exc, lang=lang)
+            return
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=lang)
+            return
+        self._state.bump_refresh(
+            "dashboard", "accounts", "transactions", "subscriptions"
+        )
+        snack(self._page, tr("action.saved", lang))
+        await self.reload()
+
+    def _open_catchup(self, sub: Subscription, missed: int) -> None:
+        lang = self._state.language
+
+        async def _one() -> None:
+            close()
+            await self._catchup(sub, max_charges=1)
+
+        async def _all() -> None:
+            close()
+            await self._catchup(sub, max_charges=0)
+
+        async def _skip() -> None:
+            close()
+            try:
+                await self._state.container.skip_subscription_period.execute(
+                    sub.id, skip_all_missed=True
+                )
+                audit = getattr(self._state.container, "append_subscription_audit", None)
+                if audit is not None:
+                    await audit.execute(sub.id, "skip", details={"missed": missed})
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
+            self._state.bump_refresh("subscriptions")
+            snack(self._page, tr("action.saved", lang))
+            await self.reload()
+
+        close = open_fullscreen_form(
+            self._page,
+            title=tr("subscription.catchup_title", lang),
+            lang=lang,
+            overlay_key="subscription_catchup",
+            body=[
+                muted_text(tr("subscription.catchup_body", lang, count=str(missed))),
+                ft.FilledButton(
+                    tr("subscription.catchup_one", lang),
+                    icon=ft.Icons.PAYMENTS_OUTLINED,
+                    on_click=lambda e: run_async(self._page, _one, e),
+                ),
+                ft.FilledTonalButton(
+                    tr("subscription.catchup_all", lang),
+                    icon=ft.Icons.LIBRARY_ADD_CHECK,
+                    on_click=lambda e: run_async(self._page, _all, e),
+                ),
+                ft.OutlinedButton(
+                    tr("subscription.catchup_skip", lang),
+                    icon=ft.Icons.SKIP_NEXT,
+                    on_click=lambda e: run_async(self._page, _skip, e),
+                ),
+            ],
+            on_save=None,
+            show_save=False,
+        )
+
+    async def _catchup(self, sub: Subscription, *, max_charges: int | None) -> None:
+        lang = self._state.language
+        try:
+            txs = await self._state.container.process_due_subscriptions.execute(
+                subscription_id=sub.id,
+                max_charges=max_charges,
+                ignore_auto_charge=True,
+            )
+            audit = getattr(self._state.container, "append_subscription_audit", None)
+            if audit is not None:
+                await audit.execute(
+                    sub.id, "catchup", details={"count": len(txs)}
+                )
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=lang)
+            return
+        if not txs:
+            snack(self._page, tr("subscription.catchup_none", lang), error=True)
+            return
+        self._state.bump_refresh(
+            "dashboard", "accounts", "transactions", "subscriptions"
+        )
+        snack(self._page, tr("action.saved", lang))
+        await self.reload()
 
     def _open_detail(self, sub: Subscription) -> None:
         lang = self._state.language
@@ -239,9 +665,11 @@ class SubscriptionsPage(ft.Column):
             except Exception:  # noqa: BLE001
                 pass
             try:
-                fresh = await self._state.container.subscription_repository.get_by_id(
-                    sub.id
-                )
+                get_sub = getattr(self._state.container, "get_subscription", None)
+                if get_sub is not None:
+                    fresh = await get_sub.execute(sub.id)
+                else:
+                    fresh = sub
                 sub_obj = fresh or sub
                 accounts = {
                     a.id: a
@@ -254,6 +682,7 @@ class SubscriptionsPage(ft.Column):
                     limit=_CHARGE_PAGE + 1,
                     offset=0,
                 )
+                book = await load_rate_book(self._state.container)
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=self._state.language)
                 return
@@ -261,6 +690,18 @@ class SubscriptionsPage(ft.Column):
             has_more = len(txs) > _CHARGE_PAGE
             shown = txs[:_CHARGE_PAGE]
             offset = {"n": len(shown)}
+
+            sparkline_ctrl: ft.Control = ft.Container(height=0)
+            buckets = bucket_charges_by_month(
+                txs,
+                months=6,
+                rate_book=book,
+                to_currency=sub_obj.currency or self._state.base_currency,
+            )
+            if any(v > 0 for _, v in buckets):
+                sparkline_ctrl = subscription_charge_sparkline(
+                    buckets, color=getattr(sub_obj, "color", None)
+                )
 
             charges_col = ft.Column(spacing=8, tight=True)
             charges_col.controls = [
@@ -309,37 +750,77 @@ class SubscriptionsPage(ft.Column):
             )
 
             async def _pause(_e: ft.ControlEvent | None = None) -> None:
-                await self._state.container.pause_subscription.execute(sub_obj.id)
-                self._state.bump_refresh("subscriptions")
+                await self._pause(sub_obj)
                 await _load()
-                await self.reload()
 
             async def _resume(_e: ft.ControlEvent | None = None) -> None:
-                await self._state.container.resume_subscription.execute(sub_obj.id)
-                self._state.bump_refresh("subscriptions")
+                await self._resume(sub_obj)
                 await _load()
-                await self.reload()
 
             async def _charge(_e: ft.ControlEvent | None = None) -> None:
+                _close_detail()
+                self._charge_or_catchup(sub_obj)
+
+            async def _skip(_e: ft.ControlEvent | None = None) -> None:
                 try:
-                    await self._state.container.charge_subscription_now.execute(
-                        sub_obj.id,
-                        check_balance=False,
+                    await self._state.container.skip_subscription_period.execute(
+                        sub_obj.id
                     )
-                except ValueError as exc:
-                    if str(exc) == "insufficient_funds":
-                        snack(
-                            self._page,
-                            tr("subscription.insufficient_funds", lang),
-                            error=True,
-                        )
-                        return
-                    snack_exception(self._page, exc, lang=self._state.language)
+                    audit = getattr(
+                        self._state.container, "append_subscription_audit", None
+                    )
+                    if audit is not None:
+                        await audit.execute(sub_obj.id, "skip")
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
                     return
-                self._state.bump_refresh("dashboard", "subscriptions")
+                self._state.bump_refresh("subscriptions")
                 snack(self._page, tr("action.saved", lang))
                 await _load()
                 await self.reload()
+
+            async def _duplicate(_e: ft.ControlEvent | None = None) -> None:
+                dup = getattr(self._state.container, "duplicate_subscription", None)
+                if dup is None:
+                    return
+                try:
+                    copy = await dup.execute(
+                        sub_obj.id,
+                        name_suffix=tr("subscription.copy_suffix", lang),
+                    )
+                    audit = getattr(
+                        self._state.container, "append_subscription_audit", None
+                    )
+                    if audit is not None:
+                        await audit.execute(
+                            sub_obj.id, "duplicate", details={"copy_id": copy.id}
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
+                    return
+                self._state.bump_refresh("subscriptions")
+                _close_detail()
+                await self.reload()
+                snack(self._page, tr("action.saved", lang))
+
+            async def _cancel(_e: ft.ControlEvent | None = None) -> None:
+                cancel = getattr(self._state.container, "cancel_subscription", None)
+                if cancel is None:
+                    return
+                try:
+                    await cancel.execute(sub_obj.id)
+                    audit = getattr(
+                        self._state.container, "append_subscription_audit", None
+                    )
+                    if audit is not None:
+                        await audit.execute(sub_obj.id, "cancel")
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
+                    return
+                self._state.bump_refresh("dashboard", "subscriptions")
+                _close_detail()
+                await self.reload()
+                snack(self._page, tr("action.saved", lang))
 
             def _edit(_e: ft.ControlEvent | None = None) -> None:
                 _close_detail()
@@ -350,6 +831,11 @@ class SubscriptionsPage(ft.Column):
                     tr("subscription.charge_now", lang),
                     icon=ft.Icons.PAYMENTS_OUTLINED,
                     on_click=lambda e: run_async(self._page, _charge, e),
+                ),
+                ft.OutlinedButton(
+                    tr("subscription.skip_period", lang),
+                    icon=ft.Icons.SKIP_NEXT,
+                    on_click=lambda e: run_async(self._page, _skip, e),
                 ),
                 ft.FilledTonalButton(
                     tr("action.edit", lang),
@@ -381,6 +867,13 @@ class SubscriptionsPage(ft.Column):
                         on_click=lambda e: run_async(self._page, _pause, e),
                     )
                 )
+                actions.append(
+                    ft.TextButton(
+                        tr("subscription.cancel", lang),
+                        icon=ft.Icons.CANCEL_OUTLINED,
+                        on_click=lambda e: run_async(self._page, _cancel, e),
+                    )
+                )
             elif sub_obj.status == SubscriptionStatus.PAUSED:
                 actions.append(
                     ft.OutlinedButton(
@@ -389,6 +882,36 @@ class SubscriptionsPage(ft.Column):
                         on_click=lambda e: run_async(self._page, _resume, e),
                     )
                 )
+            actions.append(
+                ft.TextButton(
+                    tr("subscription.duplicate", lang),
+                    icon=ft.Icons.CONTENT_COPY,
+                    on_click=lambda e: run_async(self._page, _duplicate, e),
+                )
+            )
+
+            audit_rows: list[ft.Control] = []
+            list_audit = getattr(self._state.container, "list_subscription_audit", None)
+            if list_audit is not None:
+                try:
+                    entries = await list_audit.execute(sub_obj.id, limit=8)
+                    if entries:
+                        audit_rows.append(
+                            ft.Text(
+                                tr("subscription.audit", lang),
+                                weight=ft.FontWeight.W_700,
+                            )
+                        )
+                        for entry in entries:
+                            action_key = f"subscription.audit.{entry.action}"
+                            label = tr(action_key, lang)
+                            if label == action_key:
+                                label = entry.action
+                            audit_rows.append(
+                                muted_text(f"{format_date(entry.created_at)} · {label}")
+                            )
+                except Exception:  # noqa: BLE001
+                    pass
 
             meta = ft.Column(
                 spacing=4,
@@ -427,10 +950,12 @@ class SubscriptionsPage(ft.Column):
 
             body.controls = [
                 SubscriptionCard(sub_obj, language=lang),
+                sparkline_ctrl,
                 card_surface(meta),
                 ft.Row(wrap=True, spacing=8, controls=actions),
                 charges_col,
                 load_more_btn,
+                *audit_rows,
             ]
             safe_update(body)
 
@@ -476,7 +1001,9 @@ class SubscriptionsPage(ft.Column):
             await self._state.container.delete_subscription_charge.execute(
                 tx.id, subscription_id=sub.id
             )
-            self._state.bump_refresh("subscriptions")
+            self._state.bump_refresh(
+                "dashboard", "accounts", "transactions", "subscriptions"
+            )
             closer = close_holder.get("close")
             if callable(closer):
                 closer()
@@ -532,8 +1059,6 @@ class SubscriptionsPage(ft.Column):
         name_tf = ft.TextField(
             label=tr("field.name", lang), value=sub.name if sub else ""
         )
-        from lib.presentation.form_keyboard import configure_field, wire_field_chain
-
         configure_field(name_tf, "name")
         amount_tf = make_amount_field(
             lang,
@@ -545,6 +1070,26 @@ class SubscriptionsPage(ft.Column):
             value=sub.account_id if sub else self._accounts[0].id,
             options=account_dropdown_options(self._accounts),
         )
+        default_ccy = (
+            sub.currency
+            if sub
+            else next(
+                (a.currency for a in self._accounts if a.id == account_dd.value),
+                self._accounts[0].currency,
+            )
+        )
+        currency_picker = CurrencyTickerPicker(
+            self._page,
+            lang=lang,
+            label=tr("field.currency", lang),
+            value=default_ccy,
+            include_crypto=True,
+        )
+        comment_tf = ft.TextField(
+            label=tr("field.comment", lang),
+            value=sub.comment if sub else "",
+        )
+        configure_field(comment_tf, "text")
         _period_icons = {
             Periodicity.DAILY: ft.Icons.TODAY,
             Periodicity.WEEKLY: ft.Icons.DATE_RANGE,
@@ -611,7 +1156,7 @@ class SubscriptionsPage(ft.Column):
         )
         configure_field(max_payments_tf, "number")
         wire_field_chain(
-            self._page, [name_tf, amount_tf, custom_tf, max_payments_tf]
+            self._page, [name_tf, amount_tf, custom_tf, max_payments_tf, comment_tf]
         )
         next_field = DateTimeField(
             self._page,
@@ -619,30 +1164,152 @@ class SubscriptionsPage(ft.Column):
             label=tr("field.date", lang),
             value=(sub.next_billing_date if sub else datetime.now(timezone.utc)),
         )
+        locked_status = sub is not None and sub.status in (
+            SubscriptionStatus.EXPIRED,
+            SubscriptionStatus.CANCELLED,
+        )
         _status_icons = {
             SubscriptionStatus.ACTIVE: ft.Icons.CHECK_CIRCLE_OUTLINE,
             SubscriptionStatus.PAUSED: ft.Icons.PAUSE_CIRCLE_OUTLINE,
-            SubscriptionStatus.CANCELLED: ft.Icons.CANCEL_OUTLINED,
         }
-        status_dd = ft.Dropdown(
-            label=tr("field.active", lang),
-            value=(sub.status.value if sub else SubscriptionStatus.ACTIVE.value),
-            options=[
-                icon_dropdown_option(
-                    s.value,
-                    tr(f"subscription.status.{s.value}", lang),
-                    _status_icons.get(s, ft.Icons.CIRCLE_OUTLINED),
-                )
-                for s in (
-                    SubscriptionStatus.ACTIVE,
-                    SubscriptionStatus.PAUSED,
-                    SubscriptionStatus.CANCELLED,
-                )
+        status_dd: ft.Dropdown | None = None
+        if locked_status:
+            status_controls: list[ft.Control] = [
+                muted_text(
+                    tr(f"subscription.status.{sub.status.value}", lang),
+                    size=14,
+                ),
+                form_hint(tr("subscription.status_locked_hint", lang), size=11),
+            ]
+        else:
+            status_dd = ft.Dropdown(
+                label=tr("field.active", lang),
+                value=(sub.status.value if sub else SubscriptionStatus.ACTIVE.value),
+                options=[
+                    icon_dropdown_option(
+                        s.value,
+                        tr(f"subscription.status.{s.value}", lang),
+                        _status_icons.get(s, ft.Icons.CIRCLE_OUTLINED),
+                    )
+                    for s in (
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.PAUSED,
+                    )
+                ],
+            )
+            status_controls = [status_dd]
+        auto_sw = ft.Switch(
+            value=bool(sub.auto_charge) if sub else True,
+        )
+
+        initial_icon = getattr(sub, "icon", None) or "autorenew"
+        initial_color = getattr(sub, "color", None) or "#A78BFA"
+        selected_icon = {"value": initial_icon}
+        selected_color = {"value": initial_color}
+        icon_preview = ft.Container(
+            width=48,
+            height=48,
+            border_radius=24,
+            alignment=ft.Alignment.CENTER,
+            bgcolor=initial_color,
+            content=account_icon_control(
+                initial_icon, size=24, color=ICON_CATALOG_GLYPH
+            ),
+        )
+        color_preview = ft.Container(
+            width=48,
+            height=48,
+            border_radius=24,
+            bgcolor=initial_color,
+            border=ft.Border.all(2, ft.Colors.OUTLINE_VARIANT),
+        )
+
+        def _refresh_previews() -> None:
+            icon_preview.content = account_icon_control(
+                selected_icon["value"], size=24, color=ICON_CATALOG_GLYPH
+            )
+            icon_preview.bgcolor = selected_color["value"]
+            color_preview.bgcolor = selected_color["value"]
+            try:
+                safe_update(icon_preview)
+                safe_update(color_preview)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _select_icon(key: str) -> None:
+            selected_icon["value"] = key
+            _refresh_previews()
+
+        def _select_color(color: str) -> None:
+            selected_color["value"] = color
+            _refresh_previews()
+
+        appearance_row = ft.Row(
+            spacing=12,
+            controls=[
+                ft.GestureDetector(
+                    content=icon_preview,
+                    on_tap=lambda _e: open_icon_picker(
+                        self._page,
+                        lang=lang,
+                        groups=CATEGORY_ICON_GROUPS or account_icon_groups(include_exchanges=False),
+                        selected=selected_icon["value"],
+                        on_select=_select_icon,
+                        render_icon=lambda key: account_icon_control(
+                            key, size=22, color=ICON_CATALOG_GLYPH
+                        ),
+                        overlay_key="subscription_icon_picker",
+                    ),
+                ),
+                ft.GestureDetector(
+                    content=color_preview,
+                    on_tap=lambda _e: open_color_picker(
+                        self._page,
+                        lang=lang,
+                        colors=ACCOUNT_COLORS,
+                        selected=selected_color["value"],
+                        on_select=_select_color,
+                        overlay_key="subscription_color_picker",
+                    ),
+                ),
+                ft.Column(
+                    spacing=2,
+                    tight=True,
+                    expand=True,
+                    controls=[
+                        ft.Text(tr("picker.choose_icon", lang), size=13),
+                        ft.Text(
+                            tr("picker.choose_color", lang),
+                            size=12,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                ),
             ],
         )
-        auto_sw = ft.Switch(
-            label=tr("subscription.auto_charge", lang),
-            value=bool(sub.auto_charge) if sub else True,
+
+        def _apply_template(template: SubscriptionTemplate) -> None:
+            name_tf.value = tr(template.name_key, lang)
+            amount_tf.value = template.default_amount
+            period_dd.value = template.periodicity.value
+            custom_tf.visible = template.periodicity == Periodicity.CUSTOM
+            selected_icon["value"] = template.icon
+            selected_color["value"] = template.color
+            _refresh_previews()
+            for ctrl in (name_tf, amount_tf, period_dd, custom_tf):
+                try:
+                    safe_update(ctrl)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        template_strip = h_scroll(
+            [
+                subscription_template_chip(t, language=lang, on_click=_apply_template)
+                for t in SUBSCRIPTION_TEMPLATES
+            ],
+            spacing=10,
+            height=52,
+            padding=ft.Padding.only(bottom=4),
         )
 
         def _on_period(_e: ft.ControlEvent) -> None:
@@ -653,7 +1320,6 @@ class SubscriptionsPage(ft.Column):
                 pass
 
         bind_dropdown_select(period_dd, _on_period)
-
         close_holder: dict[str, object] = {}
 
         async def _save(_e: ft.ControlEvent | None = None) -> None:
@@ -698,9 +1364,13 @@ class SubscriptionsPage(ft.Column):
                 (a for a in self._accounts if a.id == account_dd.value),
                 self._accounts[0],
             )
-            status = SubscriptionStatus(
-                status_dd.value or SubscriptionStatus.ACTIVE.value
-            )
+            if locked_status:
+                status = sub.status
+            else:
+                status = SubscriptionStatus(
+                    (status_dd.value if status_dd is not None else None)
+                    or SubscriptionStatus.ACTIVE.value
+                )
             entity = Subscription(
                 id=(
                     sub.id
@@ -714,9 +1384,9 @@ class SubscriptionsPage(ft.Column):
                 ),
                 name=(name_tf.value or "").strip() or "Subscription",
                 amount=amount,
-                currency=account.currency,
+                currency=(currency_picker.value or account.currency).upper(),
                 account_id=account.id,
-                category=sub.category if sub else "Прочее",
+                category=(name_tf.value or "").strip() or "Subscription",
                 periodicity=periodicity,
                 custom_interval_days=custom_days,
                 start_date=start,
@@ -728,24 +1398,50 @@ class SubscriptionsPage(ft.Column):
                 auto_charge=bool(auto_sw.value),
                 last_charged_at=sub.last_charged_at if sub else None,
                 last_skip_date=sub.last_skip_date if sub else None,
-                comment=sub.comment if sub else "",
+                comment=comment_tf.value or "",
+                icon=selected_icon["value"],
+                color=selected_color["value"],
                 created_at=sub.created_at if sub else datetime.now(timezone.utc),
             )
-            if sub:
-                await self._state.container.update_subscription.execute(entity)
-            else:
-                await self._state.container.create_subscription.execute(entity)
+            try:
+                if sub:
+                    await self._state.container.update_subscription.execute(entity)
+                    audit = getattr(
+                        self._state.container, "append_subscription_audit", None
+                    )
+                    if audit is not None:
+                        await audit.execute(sub.id, "update")
+                else:
+                    created = await self._state.container.create_subscription.execute(
+                        entity
+                    )
+                    audit = getattr(
+                        self._state.container, "append_subscription_audit", None
+                    )
+                    if audit is not None:
+                        await audit.execute(created.id, "create")
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
             closer = close_holder.get("close")
             if callable(closer):
                 closer()
-            self._state.bump_refresh("dashboard", "subscriptions")
+            self._state.bump_refresh("dashboard", "subscriptions", "analytics")
             await self.reload()
             snack(self._page, tr("action.saved", lang))
 
         body = [
+            template_strip,
             form_section(
                 tr("form.section.main", lang),
-                [name_tf, amount_tf, account_dd],
+                [
+                    appearance_row,
+                    name_tf,
+                    amount_tf,
+                    currency_picker,
+                    account_dd,
+                    comment_tf,
+                ],
                 icon=ft.Icons.AUTORENEW,
             ),
             form_section(
@@ -763,7 +1459,10 @@ class SubscriptionsPage(ft.Column):
             ),
             form_section(
                 tr("form.section.options", lang),
-                [status_dd, auto_sw],
+                [
+                    *status_controls,
+                    labeled_switch(tr("subscription.auto_charge", lang), auto_sw),
+                ],
                 icon=ft.Icons.TUNE,
             ),
         ]

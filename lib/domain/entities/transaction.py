@@ -74,6 +74,7 @@ class Transaction(BaseModel):
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
     goal_id: Optional[str] = None
+    goal_item_id: Optional[str] = None
     debt_id: Optional[str] = None
     subscription_id: Optional[str] = None
     # Amount credited to the linked goal in the goal's currency (FX-aware).

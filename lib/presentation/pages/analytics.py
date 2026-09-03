@@ -14,7 +14,7 @@ from lib.domain.entities.debt import DebtDirection, DebtStatus
 from lib.domain.entities.goal import GoalStatus
 from lib.domain.entities.transaction import TransactionType
 from lib.domain.services.rate_book import RateBook
-from lib.domain.use_cases.transactions import GetTransactionStatsUseCase
+from lib.domain.use_cases.transactions import GetTransactionStatsUseCase, StatsPeriod
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.analytics_period import (
     ANALYTICS_PERIOD_KEYS,
@@ -52,7 +52,23 @@ from lib.presentation.widgets.charts import (
 )
 from lib.presentation.layout import h_chip_row
 from lib.presentation.widgets.empty_state import EmptyState
-from lib.presentation.widgets.loading import fill_loading, loading_indicator
+from lib.presentation.widgets.debt_summary_ring import (
+    analytics_debt_tile,
+    analytics_debts_summary,
+)
+from lib.presentation.widgets.goal_summary_ring import (
+    analytics_goal_tile,
+    analytics_goals_summary,
+)
+from lib.presentation.widgets.budget_summary_ring import (
+    analytics_budget_tile,
+    budgets_summary_ring,
+)
+from lib.presentation.widgets.subscription_summary_ring import (
+    analytics_subscription_tile,
+    analytics_subscriptions_summary,
+)
+from lib.presentation.widgets.loading import fill_loading
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -776,11 +792,29 @@ class AnalyticsPage(ft.Column):
             except Exception:  # noqa: BLE001
                 debts = []
         budgets: list = []
-        if getattr(c, "get_budgets_for_month", None) is not None:
+        budget_analytics = None
+        budget_cats: dict[str, object] = {}
+        if getattr(c, "get_budget_analytics", None) is not None:
+            try:
+                budget_analytics = await c.get_budget_analytics.execute(
+                    now.month, now.year, base_currency=base
+                )
+                budgets = list(budget_analytics.items)
+            except Exception:  # noqa: BLE001
+                budget_analytics = None
+        if not budgets and getattr(c, "get_budgets_for_month", None) is not None:
             try:
                 budgets = await c.get_budgets_for_month.execute(now.month, now.year)
             except Exception:  # noqa: BLE001
                 budgets = []
+        if getattr(c, "list_categories", None) is not None:
+            try:
+                budget_cats = {
+                    cat.name: cat
+                    for cat in await c.list_categories.execute(active_only=False)
+                }
+            except Exception:  # noqa: BLE001
+                budget_cats = {}
 
         net = period_income - period_expense
         net_color = amount_color(net >= 0, dark=dark)
@@ -946,10 +980,28 @@ class AnalyticsPage(ft.Column):
             self._scroll_page(self._goals_controls(goals, book, base, lang)),
             self._scroll_page(self._debts_controls(debts, book, base, lang)),
             self._scroll_page(
-                self._subscription_analytics_controls(sub_analytics, lang, base)
+                self._subscription_analytics_controls(
+                    sub_analytics,
+                    lang,
+                    base,
+                    dark=dark,
+                    chart_w=chart_w,
+                    chart_h=chart_h,
+                )
             ),
             self._scroll_page(
-                self._budget_controls(budgets, lang, base, now.month, now.year)
+                self._budget_controls(
+                    budgets,
+                    lang,
+                    base,
+                    now.month,
+                    now.year,
+                    analytics=budget_analytics,
+                    categories=budget_cats,
+                    dark=dark,
+                    chart_w=chart_w,
+                    chart_h=chart_h,
+                )
             ),
         ]
         if self._section not in _SECTIONS:
@@ -1004,67 +1056,33 @@ class AnalyticsPage(ft.Column):
                 remaining += r
         rows: list[ft.Control] = []
         if not fx_ok:
+            rows.append(muted_text(tr("fx.missing_rates", lang)))
+        if fx_ok and target > 0:
             rows.append(
-                muted_text(tr("fx.missing_rates", lang))
+                analytics_goals_summary(
+                    saved=saved,
+                    target=target,
+                    remaining=remaining,
+                    currency=base,
+                    language=lang,
+                    goal_count=len(visible),
+                )
             )
-        rows.append(
-            card_surface(
-                ft.Column(
-                    spacing=8,
-                    tight=True,
-                    controls=[
-                        self._kv_row(
-                            tr("goals.total_target", lang), target, base
-                        ),
-                        self._kv_row(
-                            tr("goals.total_saved", lang),
-                            saved,
-                            base,
-                            color=amount_color(True),
-                        ),
-                        self._kv_row(
-                            tr("goals.total_remaining", lang), remaining, base
-                        ),
-                    ],
-                ),
-                padding=12,
+            rows.append(section_title(tr("analytics.goals_breakdown", lang)))
+        visible.sort(
+            key=lambda g: (
+                0 if _status_value(g.status) == GoalStatus.ACTIVE.value else 1,
+                -int(g.priority or 3),
+                -float(g.progress_ratio),
+                g.name.lower(),
             )
         )
         for goal in visible:
-            ratio = float(goal.progress_ratio)
-            ratio = max(0.0, min(ratio, 1.0))
-            currency = goal.currency or base
             rows.append(
-                card_surface(
-                    ft.Column(
-                        spacing=6,
-                        tight=True,
-                        controls=[
-                            ft.Text(
-                                goal.name,
-                                size=13,
-                                weight=ft.FontWeight.W_700,
-                                max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                            self._kv_row(
-                                tr("goals.total_saved", lang),
-                                goal.current_amount,
-                                currency,
-                            ),
-                            self._kv_row(
-                                tr("goals.total_target", lang),
-                                goal.target_amount,
-                                currency,
-                            ),
-                            ft.ProgressBar(
-                                value=ratio,
-                                color=ft.Colors.PRIMARY,
-                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                            ),
-                        ],
-                    ),
-                    padding=12,
+                analytics_goal_tile(
+                    goal,
+                    language=lang,
+                    base_currency=base,
                 )
             )
         return rows
@@ -1093,12 +1111,15 @@ class AnalyticsPage(ft.Column):
             ]
         i_owe = Decimal("0")
         owed = Decimal("0")
+        overdue_count = 0
         fx_ok = True
         for debt in live:
             remaining = _to_base(book, debt.remaining_amount, debt.currency, base)
             if remaining is None:
                 fx_ok = False
                 continue
+            if _status_value(debt.status) == DebtStatus.OVERDUE.value:
+                overdue_count += 1
             direction = _status_value(debt.direction)
             if direction == DebtDirection.I_OWE.value:
                 i_owe += remaining
@@ -1107,61 +1128,36 @@ class AnalyticsPage(ft.Column):
         rows: list[ft.Control] = []
         if not fx_ok:
             rows.append(muted_text(tr("fx.missing_rates", lang)))
-        rows.append(
-            card_surface(
-                ft.Column(
-                    spacing=8,
-                    tight=True,
-                    controls=[
-                        self._kv_row(
-                            tr("analytics.i_owe", lang),
-                            i_owe,
-                            base,
-                            color=amount_color(False, dark=self._dark()),
-                        ),
-                        self._kv_row(
-                            tr("analytics.owed_to_me", lang),
-                            owed,
-                            base,
-                            color=amount_color(True, dark=self._dark()),
-                        ),
-                    ],
-                ),
-                padding=12,
+        if fx_ok:
+            rows.append(
+                analytics_debts_summary(
+                    i_owe=i_owe,
+                    owed_to_me=owed,
+                    currency=base,
+                    language=lang,
+                    debt_count=len(live),
+                    overdue_count=overdue_count,
+                )
+            )
+            rows.append(section_title(tr("analytics.debts_breakdown", lang)))
+        live.sort(
+            key=lambda d: (
+                0 if _status_value(d.status) == DebtStatus.OVERDUE.value else 1,
+                d.due_date is None,
+                d.due_date or datetime.max.replace(tzinfo=timezone.utc),
+                d.counterparty.lower(),
             )
         )
         for debt in live:
-            direction = _status_value(debt.direction)
-            label = (
-                tr("analytics.i_owe", lang)
-                if direction == DebtDirection.I_OWE.value
-                else tr("analytics.owed_to_me", lang)
-            )
             rows.append(
-                card_surface(
-                    ft.Column(
-                        spacing=6,
-                        tight=True,
-                        controls=[
-                            ft.Text(
-                                debt.counterparty,
-                                size=13,
-                                weight=ft.FontWeight.W_700,
-                                max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                            muted_text(label),
-                            self._kv_row(
-                                tr("analytics.full_amount", lang),
-                                debt.remaining_amount,
-                                debt.currency or base,
-                            ),
-                        ],
-                    ),
-                    padding=12,
+                analytics_debt_tile(
+                    debt,
+                    language=lang,
+                    base_currency=base,
                 )
             )
         return rows
+
 
     def _budget_controls(
         self,
@@ -1170,8 +1166,15 @@ class AnalyticsPage(ft.Column):
         base: str,
         month: int,
         year: int,
+        *,
+        analytics=None,
+        categories: dict | None = None,
+        dark: bool = True,
+        chart_w: int = 360,
+        chart_h: int = 200,
     ) -> list[ft.Control]:
         period = f"{tr(f'budgets.month.{month}', lang)} {year}"
+        cat_map = categories or {}
         if not budgets:
             return [
                 muted_text(tr("analytics.budget_month_hint", lang)),
@@ -1182,82 +1185,93 @@ class AnalyticsPage(ft.Column):
                     on_action=lambda _e: self._state.open_secondary("budgets"),
                 ),
             ]
-        total_limit = sum((item.limit for item in budgets), Decimal("0"))
-        total_spent = sum((item.spent for item in budgets), Decimal("0"))
-        remaining = total_limit - total_spent
-        if remaining < 0:
-            remaining = Decimal("0")
+        total_limit = (
+            analytics.total_limit
+            if analytics is not None
+            else sum((item.limit for item in budgets), Decimal("0"))
+        )
+        total_spent = (
+            analytics.total_spent
+            if analytics is not None
+            else sum((item.spent for item in budgets), Decimal("0"))
+        )
+        remaining = (
+            analytics.remaining
+            if analytics is not None
+            else total_limit - total_spent
+        )
+        over_count = (
+            analytics.over_count
+            if analytics is not None
+            else sum(1 for item in budgets if item.is_over_budget)
+        )
+        warning_count = (
+            analytics.warning_count
+            if analytics is not None
+            else sum(
+                1
+                for item in budgets
+                if (not item.is_over_budget) and item.percent >= 80
+            )
+        )
         rows: list[ft.Control] = [
             muted_text(f"{tr('analytics.budget_month_hint', lang)} · {period}"),
-            card_surface(
-                ft.Column(
-                    spacing=8,
-                    tight=True,
-                    controls=[
-                        self._kv_row(
-                            tr("budgets.total_limit", lang), total_limit, base
-                        ),
-                        self._kv_row(
-                            tr("budgets.total_spent", lang),
-                            total_spent,
-                            base,
-                            color=amount_color(
-                                total_spent <= total_limit, dark=self._dark()
-                            ),
-                        ),
-                        self._kv_row(
-                            tr("budgets.remaining", lang), remaining, base
-                        ),
-                    ],
-                ),
-                padding=12,
+            budgets_summary_ring(
+                spent=total_spent,
+                limit=total_limit,
+                remaining=remaining,
+                currency=base,
+                language=lang,
+                over_count=over_count,
+                warning_count=warning_count,
+                count=len(budgets),
             ),
         ]
-        for progress in budgets:
-            percent = float(progress.percent)
-            color = (
-                ft.Colors.ERROR
-                if percent > 100
-                else (ft.Colors.AMBER if percent >= 80 else ft.Colors.GREEN)
-            )
-            status = (
-                tr("budgets.over_budget", lang)
-                if percent > 100
-                else tr("budgets.percent", lang)
-            )
-            name = localize_category_name(progress.category_id, lang)
+        trend = list(getattr(analytics, "monthly_trend", None) or [])
+        if any((item.get("spent") or 0) > 0 or (item.get("limit") or 0) > 0 for item in trend):
+            labels = [
+                format_chart_period_label(str(item.get("month") or ""), StatsPeriod.MONTH)
+                for item in trend
+            ]
+            spend = [item.get("spent") or Decimal("0") for item in trend]
+            limits = [item.get("limit") or Decimal("0") for item in trend]
             rows.append(
                 card_surface(
                     ft.Column(
-                        spacing=6,
+                        spacing=8,
                         tight=True,
                         controls=[
-                            ft.Text(
-                                name,
-                                size=13,
-                                weight=ft.FontWeight.W_700,
-                                max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS,
+                            section_title(tr("analytics.budgets_trend", lang)),
+                            build_line_chart_image(
+                                labels,
+                                limits,
+                                spend,
+                                title="",
+                                width=chart_w,
+                                height=max(chart_h, 180),
+                                dark=dark,
+                                language=lang,
+                                show_income=True,
+                                show_expense=True,
+                                page=self._page,
+                                animate=False,
                             ),
-                            self._kv_row(
-                                tr("budgets.total_spent", lang),
-                                progress.spent,
-                                base,
-                            ),
-                            self._kv_row(
-                                tr("budgets.total_limit", lang),
-                                progress.limit,
-                                base,
-                            ),
-                            ft.ProgressBar(
-                                value=min(percent / 100.0, 1.0),
-                                color=color,
-                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                            ),
-                            muted_text(f"{percent:.0f}% · {status}"),
                         ],
                     ),
-                    padding=12,
+                    padding=10,
+                )
+            )
+        rows.append(section_title(tr("analytics.budgets_breakdown", lang)))
+        for progress in budgets:
+            cat = cat_map.get(progress.category_id)
+            rows.append(
+                analytics_budget_tile(
+                    progress,
+                    language=lang,
+                    currency=base,
+                    category_icon=getattr(cat, "icon", None) or "category",
+                    category_color=getattr(cat, "color", None) or "#546E7A",
+                    category_name=localize_category_name(progress.category_id, lang),
                 )
             )
         return rows
@@ -1267,8 +1281,17 @@ class AnalyticsPage(ft.Column):
         analytics,
         lang: str,
         base: str,
+        *,
+        dark: bool,
+        chart_w: int,
+        chart_h: int,
     ) -> list[ft.Control]:
-        if analytics is None:
+        empty = analytics is None or (
+            getattr(analytics, "total_active", 0) == 0
+            and getattr(analytics, "total_spent", Decimal("0")) == 0
+            and not getattr(analytics, "top_subscriptions", None)
+        )
+        if empty:
             return [
                 EmptyState(
                     tr("analytics.no_subs", lang),
@@ -1277,61 +1300,72 @@ class AnalyticsPage(ft.Column):
                     on_action=lambda _e: self._state.open_secondary("subscriptions"),
                 )
             ]
-        top_rows: list[ft.Control] = []
-        for item in analytics.top_subscriptions[:5]:
-            name = str(item.get("name") or "—")
-            amount = item.get("amount") or 0
-            top_rows.append(self._kv_row(name, amount, base))
-        if not top_rows:
-            top_rows = [muted_text("—")]
-        return [
-            card_surface(
-                ft.Column(
-                    spacing=8,
-                    tight=True,
-                    controls=[
-                        self._kv_row(
-                            tr("analytics.subscriptions_spent", lang),
-                            analytics.total_spent,
-                            base,
-                        ),
-                        self._kv_row(
-                            tr("analytics.subscriptions_monthly_cost", lang),
-                            analytics.total_monthly_cost,
-                            base,
-                        ),
-                        ft.Row(
-                            spacing=8,
-                            controls=[
-                                ft.Text(
-                                    tr("analytics.subscriptions_active", lang),
-                                    size=12,
-                                    expand=True,
-                                ),
-                                ft.Text(
-                                    str(analytics.total_active),
-                                    size=12,
-                                    weight=ft.FontWeight.W_700,
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-                padding=12,
-            ),
-            card_surface(
-                ft.Column(
-                    spacing=6,
-                    tight=True,
-                    controls=[
-                        ft.Text(
-                            tr("analytics.subscriptions_top", lang),
-                            size=13,
-                            weight=ft.FontWeight.W_700,
-                        ),
-                        *top_rows,
-                    ],
-                ),
-                padding=12,
-            ),
+        yearly = getattr(analytics, "total_yearly_cost", None)
+        if yearly is None:
+            yearly = analytics.total_monthly_cost * Decimal("12")
+        rows: list[ft.Control] = [
+            analytics_subscriptions_summary(
+                spent=analytics.total_spent,
+                monthly=analytics.total_monthly_cost,
+                yearly=yearly,
+                currency=base,
+                language=lang,
+                active_count=analytics.total_active,
+            )
         ]
+        trend = list(getattr(analytics, "monthly_trend", None) or [])
+        trend_vals = [item.get("sum") or Decimal("0") for item in trend]
+        if any(v > 0 for v in trend_vals):
+            shown = trend[-6:]
+            labels = [
+                format_chart_period_label(str(item.get("month") or ""), StatsPeriod.MONTH)
+                for item in shown
+            ]
+            spend = [item.get("sum") or Decimal("0") for item in shown]
+            zeros = [Decimal("0")] * len(shown)
+            rows.append(
+                card_surface(
+                    ft.Column(
+                        spacing=8,
+                        tight=True,
+                        controls=[
+                            section_title(tr("analytics.subscriptions_trend", lang)),
+                            build_line_chart_image(
+                                labels,
+                                zeros,
+                                spend,
+                                title="",
+                                width=chart_w,
+                                height=max(chart_h, 180),
+                                dark=dark,
+                                language=lang,
+                                show_income=False,
+                                show_expense=True,
+                                page=self._page,
+                                animate=False,
+                            ),
+                        ],
+                    ),
+                    padding=10,
+                )
+            )
+        items = list(getattr(analytics, "top_subscriptions", None) or [])
+        if items:
+            rows.append(section_title(tr("analytics.subscriptions_breakdown", lang)))
+            for item in items:
+                spent = item.get("amount") or Decimal("0")
+                monthly = item.get("monthly") or Decimal("0")
+                share = float(item.get("share") or 0)
+                rows.append(
+                    analytics_subscription_tile(
+                        name=str(item.get("name") or "—"),
+                        icon=str(item.get("icon") or "autorenew"),
+                        color=str(item.get("color") or "#A78BFA"),
+                        spent=spent,
+                        monthly=monthly,
+                        currency=base,
+                        language=lang,
+                        share=share,
+                    )
+                )
+        return rows

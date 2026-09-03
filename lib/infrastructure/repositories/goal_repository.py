@@ -8,14 +8,43 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
-from lib.domain.entities.goal import Goal, GoalStatus
+from lib.domain.entities.goal import Goal, GoalItem, GoalStatus
 from lib.domain.repositories.goal_repository import GoalRepository
 from lib.infrastructure.db_models import GoalModel
 from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
 
 logger = logging.getLogger("finanse.infrastructure.repositories.goal")
+
+
+def _normalize_status_filter(status: Optional[GoalStatus | str]) -> Optional[str]:
+    if status is None:
+        return None
+    if isinstance(status, GoalStatus):
+        return status.value
+    return str(status).strip().lower()
+
+
+def _status_filter_clause(status: Optional[GoalStatus | str]):
+    """Map UI/repo status filter to SQLAlchemy criteria."""
+    value = _normalize_status_filter(status)
+    if value is None:
+        return None
+    if value == GoalStatus.COMPLETED.value:
+        return or_(
+            GoalModel.status == GoalStatus.COMPLETED.value,
+            and_(
+                GoalModel.is_completed.is_(True),
+                GoalModel.status != GoalStatus.ARCHIVED.value,
+            ),
+        )
+    if value == GoalStatus.ACTIVE.value:
+        return and_(
+            GoalModel.status == GoalStatus.ACTIVE.value,
+            GoalModel.is_completed.is_(False),
+        )
+    return GoalModel.status == value
 
 
 def _to_entity(model: GoalModel) -> Goal:
@@ -27,6 +56,19 @@ def _to_entity(model: GoalModel) -> Goal:
             else GoalStatus.ACTIVE.value
         )
     cached = getattr(model, "cached_projection", None)
+    items_raw = getattr(model, "items", None) or []
+    items: list[GoalItem] = []
+    if isinstance(items_raw, list):
+        for raw in items_raw:
+            try:
+                items.append(GoalItem.model_validate(raw))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Skipping invalid goal item JSON for goal %s: %s",
+                    getattr(model, "id", "?"),
+                    exc,
+                )
+                continue
     return Goal(
         id=model.id,
         name=model.name,
@@ -39,6 +81,15 @@ def _to_entity(model: GoalModel) -> Goal:
         status=status_raw,
         is_completed=model.is_completed,
         cached_projection=dict(cached) if isinstance(cached, dict) else cached,
+        items=items,
+        closed_early=bool(getattr(model, "closed_early", False)),
+        icon=getattr(model, "icon", None) or "flag",
+        color=getattr(model, "color", None) or "#2DD4BF",
+        planned_monthly_contribution=(
+            Decimal(str(model.planned_monthly_contribution))
+            if getattr(model, "planned_monthly_contribution", None) is not None
+            else None
+        ),
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
     )
 
@@ -59,6 +110,11 @@ def _apply_entity(model: GoalModel, entity: Goal) -> None:
         model.status = str(status)
     model.is_completed = bool(entity.is_completed)
     model.cached_projection = entity.cached_projection
+    model.items = [item.model_dump(mode="json") for item in entity.items]
+    model.closed_early = bool(entity.closed_early)
+    model.icon = entity.icon or "flag"
+    model.color = entity.color or "#2DD4BF"
+    model.planned_monthly_contribution = entity.planned_monthly_contribution
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
 
 
@@ -142,9 +198,9 @@ class SqlAlchemyGoalRepository(GoalRepository):
     ) -> list[Goal]:
         with session_scope(self._session_factory) as session:
             stmt = select(GoalModel)
-            if status is not None:
-                value = status.value if isinstance(status, GoalStatus) else str(status)
-                stmt = stmt.where(GoalModel.status == value)
+            status_clause = _status_filter_clause(status)
+            if status_clause is not None:
+                stmt = stmt.where(status_clause)
             elif not include_completed:
                 stmt = stmt.where(GoalModel.status == GoalStatus.ACTIVE.value)
             if currency is not None:

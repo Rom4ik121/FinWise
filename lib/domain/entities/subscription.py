@@ -67,6 +67,8 @@ class Subscription(BaseModel):
     last_charged_at: Optional[datetime] = None
     last_skip_date: Optional[date] = None
     comment: str = ""
+    icon: str = "autorenew"
+    color: str = "#A78BFA"
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 

@@ -37,6 +37,7 @@ from lib.presentation.utils import (
     tr,
 )
 from lib.infrastructure.services.localization import localize_category_name
+from lib.presentation.account_icons import account_icon_badge
 from lib.presentation.widgets.charts import build_line_chart_image
 from lib.presentation.widgets.dual_add_button import dual_add_button
 from lib.presentation.widgets.empty_state import EmptyState
@@ -790,6 +791,15 @@ class DashboardPage(ft.Column):
         except Exception:  # noqa: BLE001
             items = []
         shown = sorted(items, key=lambda p: p.percent, reverse=True)
+        cat_map: dict[str, object] = {}
+        list_cats = getattr(self._state.container, "list_categories", None)
+        if list_cats is not None:
+            try:
+                cat_map = {
+                    c.name: c for c in await list_cats.execute(active_only=False)
+                }
+            except Exception:  # noqa: BLE001
+                cat_map = {}
         if not shown:
             body: ft.Control = ft.Text(
                 tr("dashboard.budgets_empty", lang),
@@ -803,13 +813,22 @@ class DashboardPage(ft.Column):
                 color = ft.Colors.ERROR if percent > 100 else (
                     ft.Colors.AMBER if percent >= 80 else ft.Colors.GREEN
                 )
+                cat = cat_map.get(progress.category_id)
                 rows.append(
                     ft.Column(
                         spacing=4,
                         tight=True,
                         controls=[
                             ft.Row(
+                                spacing=8,
                                 controls=[
+                                    account_icon_badge(
+                                        getattr(cat, "icon", None) or "category",
+                                        color=getattr(cat, "color", None) or "#546E7A",
+                                        size=28,
+                                        glyph_size=14,
+                                        glyph_color="#FFFFFF",
+                                    ),
                                     ft.Text(
                                         localize_category_name(
                                             progress.category_id, lang
@@ -825,6 +844,10 @@ class DashboardPage(ft.Column):
                                 value=min(float(percent) / 100.0, 1.0),
                                 color=color,
                                 bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                            ),
+                            muted_text(
+                                f"{tr('budgets.overspend', lang) if progress.is_over_budget else tr('budgets.remaining', lang)}: "
+                                f"{format_money_compact(progress.remaining, currency, signed=progress.is_over_budget)}"
                             ),
                         ],
                     )

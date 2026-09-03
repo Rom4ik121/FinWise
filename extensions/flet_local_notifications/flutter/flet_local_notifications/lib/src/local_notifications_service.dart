@@ -153,6 +153,16 @@ class FinanseLocalNotificationsService extends FletService {
     if (android != null) {
       return await android.areNotificationsEnabled() ?? true;
     }
+    final ios = _plugin.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
+    if (ios != null) {
+      final ok = await ios.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return ok ?? false;
+    }
     return true;
   }
 

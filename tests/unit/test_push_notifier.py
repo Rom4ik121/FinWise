@@ -38,10 +38,11 @@ def test_reminder_fire_at_still_fires_if_lead_window_passed() -> None:
     assert when == now + timedelta(seconds=20)
 
 
-def test_reminder_fire_at_skips_already_past_due() -> None:
+def test_reminder_fire_at_still_arms_overdue() -> None:
     now = datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
     due = now - timedelta(days=1)
-    assert reminder_fire_at(due, reminder_time="09:00", lead_days=3, now=now) is None
+    when = reminder_fire_at(due, reminder_time="09:00", lead_days=3, now=now)
+    assert when == now + timedelta(seconds=20)
 
 
 def test_reminder_fire_at_schedules_before_due() -> None:

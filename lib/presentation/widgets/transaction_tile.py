@@ -1,7 +1,8 @@
-"""List tile for a single transaction."""
+"""List tile for a single transaction with swipe-to-reveal actions."""
 
 from __future__ import annotations
 
+from math import pi
 from typing import Callable, Optional
 
 import flet as ft
@@ -13,13 +14,18 @@ from lib.domain.use_cases.transactions import TRANSFER_FEE_TAG_PREFIX
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
-from lib.presentation.styles import amount_color, style_popup_menu
+from lib.presentation.styles import amount_color
 from lib.presentation.utils import category_icon, format_date, format_money_compact
 
 # Uniform card size across phones / tablets / desktop list widths.
 _TILE_HEIGHT = 56
 _AMOUNT_WIDTH = 96
 _ICON = 36
+_ACTION_STRIP_WIDTH = 140  # width revealed when swiped
+_SLIDE_DURATION = 200
+
+# Module-level ref to the currently open tile so we can auto-close it.
+_currently_open: Optional["TransactionTile"] = None
 
 
 def _is_internal_tag(tag: str) -> bool:
@@ -33,7 +39,6 @@ def _is_internal_tag(tag: str) -> bool:
         return True
     if value.startswith(DEBT_INTEREST_TAG_PREFIX):
         return True
-    # Exchange sync / external id tags: ``binance:fee:…``, ``ext:…``
     if ":" in value and not value.startswith("#"):
         return True
     return False
@@ -51,7 +56,6 @@ def _subtitle_line(transaction: Transaction, *, language: str) -> str:
     else:
         comment = (transaction.comment or "").strip()
         category = (transaction.category or "").strip()
-        # Avoid repeating the category already shown as the title.
         if comment and comment.casefold() != category.casefold():
             if comment.casefold().startswith(f"{category.casefold()} · "):
                 comment = comment[len(category) + 3 :].strip()
@@ -64,7 +68,7 @@ def _subtitle_line(transaction: Transaction, *, language: str) -> str:
 
 
 class TransactionTile(ft.Container):
-    """Fixed-height row: category, truncated meta, signed amount."""
+    """Fixed-height row with swipe-to-reveal Edit / Delete actions."""
 
     def __init__(
         self,
@@ -78,6 +82,8 @@ class TransactionTile(ft.Container):
         dark: bool = True,
     ) -> None:
         from lib.presentation.utils import tr
+
+        self._revealed = False
 
         is_transfer = transaction.is_transfer
         is_income = transaction.type == TransactionType.INCOME
@@ -93,25 +99,6 @@ class TransactionTile(ft.Container):
         )
         if not is_income and not signed.startswith("−"):
             signed = f"−{format_money_compact(transaction.amount, transaction.currency)}"
-
-        trailing_menu = style_popup_menu(
-            ft.PopupMenuButton(
-                icon=ft.Icons.MORE_VERT,
-                icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                items=[
-                    ft.PopupMenuItem(
-                        content=ft.Text(tr("action.edit", language)),
-                        icon=ft.Icons.EDIT_OUTLINED,
-                        on_click=lambda _e: on_edit(transaction) if on_edit else None,
-                    ),
-                    ft.PopupMenuItem(
-                        content=ft.Text(tr("action.delete", language)),
-                        icon=ft.Icons.DELETE_OUTLINE,
-                        on_click=lambda _e: on_delete(transaction) if on_delete else None,
-                    ),
-                ],
-            )
-        )
 
         icon_bg = (
             ft.Colors.SECONDARY_CONTAINER
@@ -152,7 +139,25 @@ class TransactionTile(ft.Container):
         title = localize_category_name(transaction.category, language)
         subtitle = _subtitle_line(transaction, language=language)
 
-        body = ft.Row(
+        # --- Arrow toggle button (rotates 180° when open) ---
+        self._arrow_container = ft.Container(
+            width=28,
+            height=_TILE_HEIGHT,
+            alignment=ft.Alignment.CENTER,
+            ink=True,
+            border_radius=8,
+            on_click=lambda _e: self._toggle(),
+            rotate=ft.Rotate(0),
+            animate_rotation=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
+            content=ft.Icon(
+                ft.Icons.CHEVRON_LEFT_ROUNDED,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                size=20,
+            ),
+        )
+
+        # --- Front layer (main content) ---
+        front_row = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
@@ -209,23 +214,133 @@ class TransactionTile(ft.Container):
                         signed=True,
                     ),
                 ),
-                trailing_menu,
+                self._arrow_container,
             ],
         )
-        super().__init__(
-            height=_TILE_HEIGHT,
+
+        self._front = ft.Container(
+            bgcolor=ft.Colors.SURFACE_CONTAINER,
             padding=ft.Padding.symmetric(horizontal=10, vertical=0),
             border_radius=12,
-            bgcolor=ft.Colors.SURFACE_CONTAINER,
-            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-            ink=True,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            on_click=lambda _e: (
-                on_open(transaction)
-                if on_open
-                else (on_edit(transaction) if on_edit else None)
+            height=_TILE_HEIGHT,
+            alignment=ft.Alignment.CENTER_LEFT,
+            offset=ft.Offset(0, 0),
+            animate_offset=ft.Animation(
+                _SLIDE_DURATION, ft.AnimationCurve.EASE_OUT,
             ),
+            ink=True,
+            on_click=lambda _e: self._on_front_click(transaction, on_open, on_edit),
+            content=front_row,
+        )
+
+        # --- Back layer (action buttons) ---
+        _btn_style = ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=8),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        )
+
+        def _edit_click(_e: ft.ControlEvent) -> None:
+            self._close()
+            if on_edit:
+                on_edit(transaction)
+
+        def _delete_click(_e: ft.ControlEvent) -> None:
+            self._close()
+            if on_delete:
+                on_delete(transaction)
+
+        back = ft.Container(
+            height=_TILE_HEIGHT,
+            border_radius=12,
+            padding=ft.Padding.only(right=8),
+            alignment=ft.Alignment.CENTER_RIGHT,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.END,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=4,
+                tight=True,
+                controls=[
+                    ft.TextButton(
+                        content=ft.Row(
+                            spacing=4,
+                            tight=True,
+                            controls=[
+                                ft.Icon(ft.Icons.EDIT_OUTLINED, size=16),
+                                ft.Text(tr("action.edit", language), size=12),
+                            ],
+                        ),
+                        style=_btn_style,
+                        on_click=_edit_click,
+                    ),
+                    ft.TextButton(
+                        content=ft.Row(
+                            spacing=4,
+                            tight=True,
+                            controls=[
+                                ft.Icon(ft.Icons.DELETE_OUTLINE, size=16, color=ft.Colors.ERROR),
+                                ft.Text(tr("action.delete", language), size=12, color=ft.Colors.ERROR),
+                            ],
+                        ),
+                        style=_btn_style,
+                        on_click=_delete_click,
+                    ),
+                ],
+            ),
+        )
+
+        super().__init__(
+            height=_TILE_HEIGHT,
+            border_radius=12,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             margin=ft.Margin.only(bottom=6),
             alignment=ft.Alignment.CENTER_LEFT,
-            content=body,
+            content=ft.Stack(
+                controls=[back, self._front],
+            ),
         )
+
+    # --- slide logic ---
+
+    def _on_front_click(
+        self,
+        tx: Transaction,
+        on_open: Optional[Callable[[Transaction], None]],
+        on_edit: Optional[Callable[[Transaction], None]],
+    ) -> None:
+        if self._revealed:
+            self._close()
+            return
+        if on_open:
+            on_open(tx)
+        elif on_edit:
+            on_edit(tx)
+
+    def _toggle(self) -> None:
+        if self._revealed:
+            self._close()
+        else:
+            self._open()
+
+    def _open(self) -> None:
+        global _currently_open
+        # Auto-close the previously open tile.
+        if _currently_open is not None and _currently_open is not self:
+            _currently_open._close()
+        _currently_open = self
+        self._revealed = True
+        self._front.offset = ft.Offset(-0.65, 0)
+        self._arrow_container.rotate = ft.Rotate(pi)
+        self._front.update()
+        self._arrow_container.update()
+
+    def _close(self) -> None:
+        global _currently_open
+        if _currently_open is self:
+            _currently_open = None
+        self._revealed = False
+        self._front.offset = ft.Offset(0, 0)
+        self._arrow_container.rotate = ft.Rotate(0)
+        self._front.update()
+        self._arrow_container.update()

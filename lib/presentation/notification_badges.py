@@ -24,6 +24,7 @@ SUBSCRIPTION_ALERT_KINDS = (
     NotificationKind.SUBSCRIPTION_EXPIRED,
 )
 BUDGET_ALERT_KINDS = (
+    NotificationKind.BUDGET_HALF,
     NotificationKind.BUDGET_WARNING,
     NotificationKind.BUDGET_OVER,
 )
@@ -55,6 +56,7 @@ def _kinds_enabled(settings: Any, kinds: Sequence[NotificationKind]) -> list[Not
             if getattr(settings, "subscription_reminders", True):
                 enabled.append(kind)
         elif kind in (
+            NotificationKind.BUDGET_HALF,
             NotificationKind.BUDGET_WARNING,
             NotificationKind.BUDGET_OVER,
         ):

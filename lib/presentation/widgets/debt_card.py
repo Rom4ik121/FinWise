@@ -8,6 +8,7 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.domain.entities.debt import Debt, DebtDirection, DebtStatus
+from lib.presentation.account_icons import account_icon_badge
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import amount_color, card_surface, muted_text, style_popup_menu
 from lib.presentation.utils import format_date, format_money, format_money_compact
@@ -23,6 +24,7 @@ class DebtCard(ft.Container):
         language: str = "ru",
         interest_amount: Optional[Decimal] = None,
         projected_payoff_date=None,
+        sparkline: Optional[ft.Control] = None,
         alert: bool = False,
         on_click: Optional[Callable[[Debt], None]] = None,
         on_edit: Optional[Callable[[Debt], None]] = None,
@@ -33,6 +35,8 @@ class DebtCard(ft.Container):
 
         i_owe = debt.direction == DebtDirection.I_OWE
         accent = amount_color(not i_owe)
+        icon_key = getattr(debt, "icon", None) or "credit_card"
+        icon_color = getattr(debt, "color", None) or accent
         status_value = (
             debt.status.value
             if isinstance(debt.status, DebtStatus)
@@ -173,6 +177,12 @@ class DebtCard(ft.Container):
                     vertical_alignment=ft.CrossAxisAlignment.START,
                     spacing=4,
                     controls=[
+                        account_icon_badge(
+                            icon_key,
+                            color=icon_color,
+                            size=36,
+                            glyph_size=18,
+                        ),
                         ft.Text(
                             debt.counterparty,
                             weight=ft.FontWeight.W_700,
@@ -227,6 +237,7 @@ class DebtCard(ft.Container):
                 *schedule_line,
                 *eta_line,
                 *interest_line,
+                sparkline if sparkline is not None else ft.Container(height=0),
             ],
         )
         card = card_surface(

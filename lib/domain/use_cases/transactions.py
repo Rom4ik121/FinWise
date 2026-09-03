@@ -10,8 +10,6 @@ from typing import Optional, Sequence
 
 from pydantic import BaseModel, Field
 
-from lib.domain.entities.debt import DebtStatus, resolve_debt_status
-from lib.domain.entities.goal import GoalStatus
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.repositories.account_repository import AccountRepository
@@ -21,8 +19,19 @@ from lib.domain.repositories.debt_repository import DebtRepository
 from lib.domain.repositories.goal_repository import GoalRepository
 from lib.domain.repositories.settings_repository import SettingsRepository
 from lib.domain.repositories.transaction_repository import TransactionRepository
-from lib.domain.use_cases.debts import debt_credit_amount
-from lib.domain.use_cases.goals import goal_credit_amount
+from lib.domain.use_cases.debts import (
+    apply_debt_payment_credit,
+    assert_debt_accepts_ledger,
+    debt_credit_amount,
+    is_debt_principal_tx,
+    reverse_debt_payment_credit,
+)
+from lib.domain.use_cases.goals import (
+    apply_goal_contribution_credit,
+    assert_goal_accepts_ledger,
+    goal_credit_amount,
+    reverse_goal_contribution_credit,
+)
 
 
 def _utc_now() -> datetime:
@@ -41,6 +50,10 @@ def _is_goal_contribution(transaction: Transaction) -> bool:
     return transaction.type == TransactionType.EXPENSE and bool(transaction.goal_id)
 
 
+def _is_goal_withdrawal(transaction: Transaction) -> bool:
+    return transaction.type == TransactionType.INCOME and bool(transaction.goal_id)
+
+
 async def _with_goal_credit(
     transaction: Transaction,
     *,
@@ -49,7 +62,7 @@ async def _with_goal_credit(
     accounts: AccountRepository,
 ) -> Transaction:
     """Ensure ``goal_credit_amount`` is set in the goal's currency when linked."""
-    if not _is_goal_contribution(transaction):
+    if not (_is_goal_contribution(transaction) or _is_goal_withdrawal(transaction)):
         return transaction.model_copy(
             update={"goal_id": None, "goal_credit_amount": None}
         )
@@ -78,41 +91,94 @@ async def _with_goal_credit(
     )
 
 
-def _mark_goal_progress(goal: object, current: Decimal) -> None:
-    """Sync ``current_amount`` / status / completed flag on a goal entity."""
-    from lib.domain.entities.goal import Goal
-
-    if not isinstance(goal, Goal):
-        return
-    goal.current_amount = quantize_money(current)
-    if goal.status == GoalStatus.ARCHIVED:
-        goal.is_completed = goal.current_amount >= goal.target_amount
-        return
-    if goal.current_amount >= goal.target_amount:
-        goal.status = GoalStatus.COMPLETED
-        goal.is_completed = True
-    else:
-        goal.status = GoalStatus.ACTIVE
-        goal.is_completed = False
-
-
-def _mark_debt_remaining(debt: object, remaining: Decimal) -> None:
-    """Sync remaining amount and status on a debt entity."""
-    from lib.domain.entities.debt import Debt
-
-    if not isinstance(debt, Debt):
-        return
-    remaining = quantize_money(max(Decimal("0"), remaining))
-    # Accrued interest may push remaining above original principal — do not clamp.
-    debt.remaining_amount = remaining
-    if debt.status != DebtStatus.ARCHIVED:
-        debt.status = resolve_debt_status(
-            remaining_amount=remaining,
-            due_date=debt.due_date,
-            next_payment_date=getattr(debt, "next_payment_date", None),
-            current=debt.status,
+async def _with_debt_credit(
+    transaction: Transaction,
+    *,
+    debts: DebtRepository,
+    currencies: Optional[CurrencyRepository],
+    accounts: AccountRepository,
+) -> Transaction:
+    """Ensure ``debt_credit_amount`` is set in the debt's currency when linked."""
+    if is_debt_principal_tx(transaction):
+        return transaction
+    if not _is_debt_payment(transaction):
+        return transaction.model_copy(
+            update={"debt_id": None, "debt_credit_amount": None}
         )
-    debt.updated_at = _utc_now()
+    if transaction.debt_credit_amount is not None:
+        return transaction
+    debt = await debts.get_by_id(transaction.debt_id or "")
+    if debt is None:
+        raise ValueError(f"Debt not found: {transaction.debt_id}")
+    account = await accounts.get_by_id(transaction.account_id)
+    src = (transaction.currency or (account.currency if account else "") or "RUB")
+    dst = debt.currency or "RUB"
+    if src.upper() == dst.upper():
+        return transaction.model_copy(
+            update={"debt_credit_amount": quantize_money(transaction.amount)}
+        )
+    if currencies is None:
+        raise ValueError(f"No exchange rate for {src}/{dst}")
+    from lib.domain.services.rate_cache import get_cached_rate_book
+
+    book = await get_cached_rate_book(currencies)
+    credit = book.convert(transaction.amount, src, dst)
+    if credit is None:
+        raise ValueError(f"No exchange rate for {src}/{dst}")
+    return transaction.model_copy(
+        update={"debt_credit_amount": quantize_money(credit)}
+    )
+
+
+async def _validate_goal_link(
+    transaction: Transaction,
+    *,
+    goals: GoalRepository,
+    existing: Transaction | None = None,
+) -> None:
+    if not transaction.goal_id:
+        return
+    if not (
+        _is_goal_contribution(transaction) or _is_goal_withdrawal(transaction)
+    ):
+        return
+    if existing is not None and existing.goal_id == transaction.goal_id:
+        return
+    goal = await goals.get_by_id(transaction.goal_id)
+    if goal is None:
+        raise ValueError(f"Goal not found: {transaction.goal_id}")
+    assert_goal_accepts_ledger(goal)
+
+
+def _debt_payment_unchanged(
+    existing: Transaction,
+    transaction: Transaction,
+) -> bool:
+    return (
+        existing.debt_id == transaction.debt_id
+        and existing.amount == transaction.amount
+        and existing.debt_credit_amount == transaction.debt_credit_amount
+        and existing.type == transaction.type
+        and (existing.tags or []) == (transaction.tags or [])
+    )
+
+
+async def _validate_debt_link(
+    transaction: Transaction,
+    *,
+    debts: DebtRepository,
+    existing: Transaction | None = None,
+) -> None:
+    if not transaction.debt_id:
+        return
+    if not _is_debt_payment(transaction):
+        return
+    if existing is not None and _debt_payment_unchanged(existing, transaction):
+        return
+    debt = await debts.get_by_id(transaction.debt_id)
+    if debt is None:
+        raise ValueError(f"Debt not found: {transaction.debt_id}")
+    assert_debt_accepts_ledger(debt)
 
 
 def _is_debt_payment(transaction: Transaction) -> bool:
@@ -239,6 +305,16 @@ class AddTransactionUseCase:
             currencies=self._currencies,
             accounts=self._accounts,
         )
+        if self._debts is not None:
+            transaction = await _with_debt_credit(
+                transaction,
+                debts=self._debts,
+                currencies=self._currencies,
+                accounts=self._accounts,
+            )
+        await _validate_goal_link(transaction, goals=self._goals)
+        if self._debts is not None:
+            await _validate_debt_link(transaction, debts=self._debts)
 
         created = await self._transactions.create(transaction)
 
@@ -248,6 +324,7 @@ class AddTransactionUseCase:
         await self._accounts.update(account)
 
         await self._apply_goal_contribution(created)
+        await self._apply_goal_withdrawal(created)
         await self._apply_debt_payment(created)
         await _sync_budget_expense(
             self._budgets,
@@ -266,8 +343,26 @@ class AddTransactionUseCase:
         if goal is None:
             return
         credit = goal_credit_amount(transaction)
-        _mark_goal_progress(goal, goal.current_amount + credit)
-        await self._goals.update(goal)
+        updated = apply_goal_contribution_credit(
+            goal,
+            credit,
+            item_id=transaction.goal_item_id,
+        )
+        await self._goals.update(updated)
+
+    async def _apply_goal_withdrawal(self, transaction: Transaction) -> None:
+        if not _is_goal_withdrawal(transaction):
+            return
+        goal = await self._goals.get_by_id(transaction.goal_id or "")
+        if goal is None:
+            return
+        credit = goal_credit_amount(transaction)
+        updated = reverse_goal_contribution_credit(
+            goal,
+            credit,
+            item_id=transaction.goal_item_id,
+        )
+        await self._goals.update(updated)
 
     async def _apply_debt_payment(self, transaction: Transaction) -> None:
         if self._debts is None or not _is_debt_payment(transaction):
@@ -276,8 +371,10 @@ class AddTransactionUseCase:
         if debt is None:
             return
         credit = debt_credit_amount(transaction)
-        _mark_debt_remaining(debt, debt.remaining_amount - credit)
-        await self._debts.update(debt)
+        updated = apply_debt_payment_credit(
+            debt, credit, transaction=transaction, roll_schedule=True
+        )
+        await self._debts.update(updated)
 
 
 class UpdateTransactionUseCase:
@@ -331,7 +428,7 @@ class UpdateTransactionUseCase:
             existing.account_id,
             -_balance_delta(existing.type, existing.amount),
         )
-        await self._reverse_goal_contribution(existing)
+        await self._reverse_goal_ledger(existing)
         await self._reverse_debt_payment(existing)
 
         updated = transaction.model_copy(
@@ -347,13 +444,23 @@ class UpdateTransactionUseCase:
             currencies=self._currencies,
             accounts=self._accounts,
         )
+        if self._debts is not None:
+            updated = await _with_debt_credit(
+                updated,
+                debts=self._debts,
+                currencies=self._currencies,
+                accounts=self._accounts,
+            )
         saved = await self._transactions.update(updated)
 
         await self._apply_account_delta(
             saved.account_id,
             _balance_delta(saved.type, saved.amount),
         )
-        await self._apply_goal_contribution(saved)
+        await _validate_goal_link(saved, goals=self._goals, existing=existing)
+        if self._debts is not None:
+            await _validate_debt_link(saved, debts=self._debts, existing=existing)
+        await self._apply_goal_ledger(saved)
         await self._apply_debt_payment(saved)
         await _sync_budget_expense(
             self._budgets,
@@ -380,6 +487,54 @@ class UpdateTransactionUseCase:
         account.balance = quantize_money(account.balance + delta)
         await self._accounts.update(account)
 
+    async def _apply_goal_ledger(self, transaction: Transaction) -> None:
+        if _is_goal_contribution(transaction):
+            goal = await self._goals.get_by_id(transaction.goal_id or "")
+            if goal is None:
+                return
+            credit = goal_credit_amount(transaction)
+            updated = apply_goal_contribution_credit(
+                goal,
+                credit,
+                item_id=transaction.goal_item_id,
+            )
+            await self._goals.update(updated)
+        elif _is_goal_withdrawal(transaction):
+            goal = await self._goals.get_by_id(transaction.goal_id or "")
+            if goal is None:
+                return
+            credit = goal_credit_amount(transaction)
+            updated = reverse_goal_contribution_credit(
+                goal,
+                credit,
+                item_id=transaction.goal_item_id,
+            )
+            await self._goals.update(updated)
+
+    async def _reverse_goal_ledger(self, transaction: Transaction) -> None:
+        if _is_goal_contribution(transaction):
+            goal = await self._goals.get_by_id(transaction.goal_id or "")
+            if goal is None:
+                return
+            credit = goal_credit_amount(transaction)
+            updated = reverse_goal_contribution_credit(
+                goal,
+                credit,
+                item_id=transaction.goal_item_id,
+            )
+            await self._goals.update(updated)
+        elif _is_goal_withdrawal(transaction):
+            goal = await self._goals.get_by_id(transaction.goal_id or "")
+            if goal is None:
+                return
+            credit = goal_credit_amount(transaction)
+            updated = apply_goal_contribution_credit(
+                goal,
+                credit,
+                item_id=transaction.goal_item_id,
+            )
+            await self._goals.update(updated)
+
     async def _apply_goal_contribution(self, transaction: Transaction) -> None:
         if not _is_goal_contribution(transaction):
             return
@@ -387,8 +542,12 @@ class UpdateTransactionUseCase:
         if goal is None:
             return
         credit = goal_credit_amount(transaction)
-        _mark_goal_progress(goal, goal.current_amount + credit)
-        await self._goals.update(goal)
+        updated = apply_goal_contribution_credit(
+            goal,
+            credit,
+            item_id=transaction.goal_item_id,
+        )
+        await self._goals.update(updated)
 
     async def _reverse_goal_contribution(self, transaction: Transaction) -> None:
         if not _is_goal_contribution(transaction):
@@ -397,11 +556,12 @@ class UpdateTransactionUseCase:
         if goal is None:
             return
         credit = goal_credit_amount(transaction)
-        _mark_goal_progress(
+        updated = reverse_goal_contribution_credit(
             goal,
-            max(Decimal("0"), goal.current_amount - credit),
+            credit,
+            item_id=transaction.goal_item_id,
         )
-        await self._goals.update(goal)
+        await self._goals.update(updated)
 
     async def _apply_debt_payment(self, transaction: Transaction) -> None:
         if self._debts is None or not _is_debt_payment(transaction):
@@ -410,8 +570,10 @@ class UpdateTransactionUseCase:
         if debt is None:
             return
         credit = debt_credit_amount(transaction)
-        _mark_debt_remaining(debt, debt.remaining_amount - credit)
-        await self._debts.update(debt)
+        updated = apply_debt_payment_credit(
+            debt, credit, transaction=transaction, roll_schedule=True
+        )
+        await self._debts.update(updated)
 
     async def _reverse_debt_payment(self, transaction: Transaction) -> None:
         if self._debts is None or not _is_debt_payment(transaction):
@@ -420,8 +582,10 @@ class UpdateTransactionUseCase:
         if debt is None:
             return
         credit = debt_credit_amount(transaction)
-        _mark_debt_remaining(debt, debt.remaining_amount + credit)
-        await self._debts.update(debt)
+        updated = reverse_debt_payment_credit(
+            debt, credit, transaction=transaction, roll_schedule=True
+        )
+        await self._debts.update(updated)
 
 
 class DeleteTransactionUseCase:
@@ -498,18 +662,31 @@ class DeleteTransactionUseCase:
             goal = await self._goals.get_by_id(existing.goal_id or "")
             if goal is not None:
                 credit = goal_credit_amount(existing)
-                _mark_goal_progress(
+                updated = reverse_goal_contribution_credit(
                     goal,
-                    max(Decimal("0"), goal.current_amount - credit),
+                    credit,
+                    item_id=existing.goal_item_id,
                 )
-                await self._goals.update(goal)
+                await self._goals.update(updated)
+        elif _is_goal_withdrawal(existing):
+            goal = await self._goals.get_by_id(existing.goal_id or "")
+            if goal is not None:
+                credit = goal_credit_amount(existing)
+                updated = apply_goal_contribution_credit(
+                    goal,
+                    credit,
+                    item_id=existing.goal_item_id,
+                )
+                await self._goals.update(updated)
 
         if self._debts is not None and _is_debt_payment(existing):
             debt = await self._debts.get_by_id(existing.debt_id or "")
             if debt is not None:
                 credit = debt_credit_amount(existing)
-                _mark_debt_remaining(debt, debt.remaining_amount + credit)
-                await self._debts.update(debt)
+                updated = reverse_debt_payment_credit(
+                    debt, credit, transaction=existing, roll_schedule=True
+                )
+                await self._debts.update(updated)
 
         await _sync_budget_expense(
             self._budgets,

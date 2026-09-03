@@ -90,6 +90,7 @@ class TransactionModel(Base):
     goal_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("goals.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    goal_item_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     debt_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("debts.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -145,11 +146,32 @@ class GoalModel(Base):
     )
     is_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cached_projection: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    closed_early: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    icon: Mapped[str] = mapped_column(String(64), nullable=False, default="flag")
+    color: Mapped[str] = mapped_column(String(16), nullable=False, default="#2DD4BF")
+    planned_monthly_contribution: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
 
     transactions: Mapped[list["TransactionModel"]] = relationship(back_populates="goal")
+
+
+class GoalAuditLogModel(Base):
+    """Append-only audit trail for goal changes."""
+
+    __tablename__ = "goal_audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    goal_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
 
 
 class DebtModel(Base):
@@ -186,6 +208,13 @@ class DebtModel(Base):
     last_interest_accrued_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    icon: Mapped[str] = mapped_column(String(64), nullable=False, default="credit_card")
+    color: Mapped[str] = mapped_column(String(16), nullable=False, default="#F87171")
+    cached_projection: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    forgiven_early: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    payment_interval_months: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -197,6 +226,20 @@ class DebtModel(Base):
     )
 
     transactions: Mapped[list["TransactionModel"]] = relationship(back_populates="debt")
+
+
+class DebtAuditLogModel(Base):
+    """Append-only audit trail for debt changes."""
+
+    __tablename__ = "debt_audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    debt_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
 
 
 class SubscriptionModel(Base):
@@ -233,6 +276,8 @@ class SubscriptionModel(Base):
     )
     last_skip_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    icon: Mapped[str] = mapped_column(String(64), nullable=False, default="autorenew")
+    color: Mapped[str] = mapped_column(String(16), nullable=False, default="#A78BFA")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -244,6 +289,20 @@ class SubscriptionModel(Base):
     )
 
     account: Mapped["AccountModel"] = relationship(back_populates="subscriptions")
+
+
+class SubscriptionAuditLogModel(Base):
+    """Append-only audit trail for subscription changes."""
+
+    __tablename__ = "subscription_audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    subscription_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
 
 
 class CurrencyModel(Base):

@@ -214,3 +214,134 @@ def test_budget_spent_converts_to_base_currency(container) -> None:
         assert progress[0].spent == Decimal("500.00")
 
     run_async(_run())
+
+
+def test_copy_budgets_from_previous_month(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        await container.set_budget.execute("Food", 7, 2026, Decimal("300"))
+        created = await container.copy_budgets_from_previous.execute(8, 2026)
+        assert created == 1
+        listed = await container.get_budgets_for_month.execute(8, 2026)
+        assert len(listed) == 1
+        assert listed[0].limit == Decimal("300.00")
+        assert listed[0].category_id == "Food"
+        again = await container.copy_budgets_from_previous.execute(8, 2026)
+        assert again == 0
+        with pytest.raises(ValueError, match="previous month"):
+            await container.copy_budgets_from_previous.execute(1, 2026)
+
+    run_async(_run())
+
+
+def test_budget_half_alert(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Food", now.month, now.year, Decimal("100"))
+        await container.add_transaction.execute(
+            make_transaction(acc.id, amount="50", category="Food")
+        )
+        progress = await container.get_budget_progress.execute(
+            category_id="Food", month=now.month, year=now.year
+        )
+        assert progress.percent == Decimal("50.00")
+        assert progress.budget.last_alert_level == 50
+        pending = container.notification_service.list_pending()
+        assert any(m.kind is NotificationKind.BUDGET_HALF for m in pending)
+
+    run_async(_run())
+
+
+def test_suggest_budget_limit_averages_previous_months(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        amounts = {
+            5: Decimal("30"),
+            6: Decimal("60"),
+            7: Decimal("90"),
+        }
+        for month, amount in amounts.items():
+            tx = make_transaction(acc.id, amount=str(amount), category="Food")
+            tx = tx.model_copy(
+                update={"date": datetime(2026, month, 10, tzinfo=timezone.utc)}
+            )
+            await container.add_transaction.execute(tx)
+        avg = await container.suggest_budget_limit.execute("Food", 8, 2026)
+        assert avg == Decimal("60.00")
+
+    run_async(_run())
+
+
+def test_get_budget_analytics(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        await container.create_category.execute(
+            make_category(name="Transport", kind=CategoryKind.EXPENSE)
+        )
+        await container.set_budget.execute("Food", 8, 2026, Decimal("100"))
+        await container.set_budget.execute("Transport", 8, 2026, Decimal("50"))
+        snapshot = await container.get_budget_analytics.execute(
+            8, 2026, now=datetime(2026, 8, 15, tzinfo=timezone.utc)
+        )
+        assert snapshot.count == 2
+        assert snapshot.total_limit == Decimal("150.00")
+        assert snapshot.total_spent == Decimal("0.00")
+        assert snapshot.remaining == Decimal("150.00")
+        assert any(row["month"] == "2026-08" for row in snapshot.monthly_trend)
+
+    run_async(_run())
+
+
+def test_suggest_subscription_budgets(container) -> None:
+    async def _run() -> None:
+        from tests.factories import make_subscription
+
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        await container.create_subscription.execute(
+            make_subscription(acc.id, name="Netflix", amount="15")
+        )
+        hints = await container.suggest_subscription_budgets.execute(8, 2026)
+        names = {h.name for h in hints}
+        assert "Netflix" in names
+        netflix = next(h for h in hints if h.name == "Netflix")
+        assert netflix.monthly == Decimal("15.00")
+        assert netflix.has_budget is False
+
+    run_async(_run())
+
+
+def test_recalculate_missing_fx_raises(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Travel", kind=CategoryKind.EXPENSE)
+        )
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute(
+            "Travel", now.month, now.year, Decimal("1000")
+        )
+        usd = await container.create_account.execute(
+            make_account(name="USD", currency="USD", balance="50")
+        )
+        with pytest.raises(ValueError, match="No exchange rate"):
+            await container.add_transaction.execute(
+                make_transaction(
+                    usd.id,
+                    amount="5",
+                    category="Travel",
+                    currency="USD",
+                    tx_type=TransactionType.EXPENSE,
+                )
+            )
+
+    run_async(_run())

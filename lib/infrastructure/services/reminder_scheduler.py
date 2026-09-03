@@ -94,6 +94,11 @@ async def schedule_reminders(
             created.extend(
                 await _schedule_goal_off_track(container, notifier, language=language)
             )
+            created.extend(
+                await _schedule_goal_contribute_reminder(
+                    container, notifier, language=language
+                )
+            )
     except Exception:  # noqa: BLE001
         logger.exception("Failed to schedule reminders")
 
@@ -116,6 +121,7 @@ async def _schedule_os_upcoming(
     from lib.infrastructure.services.push_notifier import (
         get_android_notifications,
         reminder_fire_at,
+        request_push_permissions,
         schedule_os_notification,
     )
 
@@ -124,6 +130,13 @@ async def _schedule_os_upcoming(
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=30)
     svc = get_android_notifications()
+    if svc is None:
+        logger.warning("OS notifications not registered — cannot arm device reminders")
+        return
+    try:
+        await request_push_permissions()
+    except Exception:  # noqa: BLE001
+        logger.debug("request_push_permissions before OS schedule failed", exc_info=True)
     cancel_all = getattr(svc, "cancel_all", None) if svc is not None else None
     if callable(cancel_all):
         try:
@@ -347,6 +360,77 @@ async def _schedule_goal_off_track(
                     "notify.goal_off_track_body",
                     language,
                 ).format(name=goal.name, amount=amount_txt),
+                kind=NotificationKind.GOAL_OFF_TRACK,
+                related_id=goal.id,
+            )
+        )
+    return created
+
+
+def _recent_goal_notification(
+    notifier: Any,
+    goal_id: str,
+    kind: NotificationKind,
+    *,
+    within_days: int = 7,
+    now: datetime | None = None,
+) -> bool:
+    """True if a notification of ``kind`` for ``goal_id`` was sent recently."""
+    moment = now or datetime.now(timezone.utc)
+    cutoff = moment - timedelta(days=within_days)
+    for message in notifier.list_all():
+        if message.related_id != goal_id or message.kind != kind:
+            continue
+        created = message.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created >= cutoff:
+            return True
+    return False
+
+
+async def _schedule_goal_contribute_reminder(
+    container: Any,
+    notifier: Any,
+    *,
+    language: str,
+) -> list[NotificationMessage]:
+    """Weekly nudge for active goals with a deadline that are off track."""
+    list_goals = getattr(container, "list_goals", None)
+    get_projection = getattr(container, "get_goal_projection", None)
+    if list_goals is None or get_projection is None:
+        return []
+
+    goals = await list_goals.execute(status=GoalStatus.ACTIVE)
+    created: list[NotificationMessage] = []
+    now = datetime.now(timezone.utc)
+    for goal in goals:
+        if goal.deadline is None or goal.remaining_amount <= 0:
+            continue
+        try:
+            projection = await get_projection.execute(goal.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Goal projection failed for %s", goal.id)
+            continue
+        if projection.is_on_track is not False:
+            continue
+        if _recent_goal_notification(
+            notifier,
+            goal.id,
+            NotificationKind.GOAL_OFF_TRACK,
+            within_days=7,
+            now=now,
+        ):
+            continue
+        required = projection.required_monthly_contribution or Decimal("0")
+        amount_txt = f"{required} {goal.currency}"
+        created.append(
+            notifier.push(
+                title=t("notify.goal_contribute_title", language),
+                body=t("notify.goal_contribute_body", language).format(
+                    name=goal.name,
+                    amount=amount_txt,
+                ),
                 kind=NotificationKind.GOAL_OFF_TRACK,
                 related_id=goal.id,
             )

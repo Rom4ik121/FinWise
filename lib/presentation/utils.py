@@ -41,6 +41,24 @@ _DOMAIN_ERROR_KEYS: dict[str, str] = {
     "error.insufficient_funds": "error.insufficient_funds",
     "error.network": "error.network",
     "error.no_accounts": "error.no_accounts",
+    "Withdrawal exceeds item balance": "goal.withdraw_exceeds_item",
+    "Goal item is already closed": "goal.item_closed",
+    "Goal item not found": "error.generic",
+    "Goal has no items": "error.generic",
+    "Goal is not active": "goal.completed_block",
+    "Goal is archived": "goal.archived_block",
+    "Goal is already completed": "goal.completed_block",
+    "Debt is archived": "debt.archived_block",
+    "Debt is already paid": "debt.paid_block",
+    "Debt has repayments; delete payments first or forgive the debt": "debt.delete_has_payments",
+    "Debt must be fully paid before archiving": "debt.archive_unpaid",
+    "Subscription has ended": "subscription.ended_block",
+    "Subscription is cancelled": "subscription.cancelled_block",
+    "Subscription cannot be charged": "subscription.cannot_charge",
+    "Subscription payment limit reached": "subscription.limit_reached",
+    "Cancelled subscription cannot be resumed": "subscription.resume_cancelled",
+    "Cancel a subscription from the detail screen": "subscription.cancel_via_action",
+    "No budgets in the previous month": "budgets.no_previous",
 }
 
 _DOMAIN_ERROR_PREFIXES: tuple[tuple[str, str], ...] = (
@@ -340,7 +358,12 @@ def snack_exception(
 ) -> None:
     """Log the real exception and show a safe user-facing SnackBar."""
     if log and isinstance(exc, BaseException):
-        logger.warning("UI error suppressed for user: %s", exc, exc_info=True)
+        # Domain ValueError is expected (user-facing); skip noisy traceback.
+        logger.warning(
+            "UI error suppressed for user: %s",
+            exc,
+            exc_info=not isinstance(exc, ValueError),
+        )
     elif log and exc is not None:
         logger.warning("UI error suppressed for user: %s", exc)
     snack(page, user_facing_error(exc, lang), error=True)

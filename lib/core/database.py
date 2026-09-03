@@ -165,6 +165,11 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("accrue_interest", "BOOLEAN NOT NULL DEFAULT 0"),
             ("accrued_interest", "NUMERIC(18, 2) NOT NULL DEFAULT 0"),
             ("last_interest_accrued_at", "DATETIME"),
+            ("icon", "VARCHAR(64) NOT NULL DEFAULT 'credit_card'"),
+            ("color", "VARCHAR(16) NOT NULL DEFAULT '#F87171'"),
+            ("cached_projection", "JSON"),
+            ("forgiven_early", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("payment_interval_months", "INTEGER NOT NULL DEFAULT 1"),
         ],
         "accounts": [
             ("include_in_total", "BOOLEAN NOT NULL DEFAULT 1"),
@@ -185,6 +190,7 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
         "transactions": [
             ("debt_id", "VARCHAR(36)"),
             ("goal_credit_amount", "NUMERIC(18, 2)"),
+            ("goal_item_id", "VARCHAR(36)"),
             ("debt_credit_amount", "NUMERIC(18, 2)"),
             ("subscription_id", "VARCHAR(36)"),
             ("transfer_id", "VARCHAR(36)"),
@@ -195,6 +201,11 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("currency", "VARCHAR(16) NOT NULL DEFAULT 'RUB'"),
             ("status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
             ("cached_projection", "JSON"),
+            ("items", "JSON NOT NULL DEFAULT '[]'"),
+            ("closed_early", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("icon", "VARCHAR(64) NOT NULL DEFAULT 'flag'"),
+            ("color", "VARCHAR(16) NOT NULL DEFAULT '#2DD4BF'"),
+            ("planned_monthly_contribution", "NUMERIC(18, 2)"),
         ],
         "subscriptions": [
             ("custom_interval_days", "INTEGER"),
@@ -205,6 +216,8 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
             ("last_skip_date", "DATE"),
             ("auto_charge", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("icon", "VARCHAR(64) NOT NULL DEFAULT 'autorenew'"),
+            ("color", "VARCHAR(16) NOT NULL DEFAULT '#A78BFA'"),
         ],
     }
     with engine.begin() as conn:
