@@ -60,7 +60,7 @@ class GoalItem(BaseModel):
     @classmethod
     def _positive_target(cls, value: Decimal) -> Decimal:
         if value <= 0:
-            raise ValueError("Goal item target_amount must be positive")
+            raise ValueError("Goal item amount must be positive")
         return value
 
     @field_validator("status", mode="before")
@@ -173,7 +173,7 @@ class Goal(BaseModel):
     @classmethod
     def _positive_target(cls, value: Decimal) -> Decimal:
         if value <= 0:
-            raise ValueError("Goal target_amount must be positive")
+            raise ValueError("Goal amount must be positive")
         return value
 
     @model_validator(mode="after")

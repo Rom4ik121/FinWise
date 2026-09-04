@@ -167,11 +167,7 @@ async def _show_form(
         if source.currency.upper() != dest.currency.upper():
             converted = book.convert(amount, source.currency, dest.currency)
             if converted is None:
-                convert_hint.value = tr(
-                    "transfer.no_rate",
-                    lang,
-                    default="Нет курса для этой пары валют",
-                )
+                convert_hint.value = tr("transfer.no_rate", lang)
                 convert_hint.color = ft.Colors.ERROR
                 safe_update(convert_hint)
                 return

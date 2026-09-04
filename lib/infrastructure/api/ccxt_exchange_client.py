@@ -60,6 +60,48 @@ class ExchangeClientError(RuntimeError):
     """Raised when the venue cannot be queried."""
 
 
+# Stable domain message — UI maps via i18n; never dump raw CCXT JSON.
+INVALID_CREDENTIALS = "Invalid exchange API credentials"
+
+_AUTH_MARKERS = (
+    "incorrect apikey",
+    "incorrect api key",
+    "invalid apikey",
+    "invalid api key",
+    "invalid key",
+    "api-key format invalid",
+    "authentication",
+    "unauthorized",
+    "permission denied",
+    "signature",
+    "100413",
+    "api key",
+    "apikey",
+)
+
+
+def is_auth_failure(exc: BaseException) -> bool:
+    """True for bad/expired API keys (expected user fix, not an app crash)."""
+    name = type(exc).__name__.lower()
+    if "auth" in name:
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _AUTH_MARKERS)
+
+
+def _raise_client_error(exc: BaseException, *, provider: str) -> None:
+    """Normalize venue failures; quiet-log credential problems."""
+    if is_auth_failure(exc):
+        logger.warning(
+            "Exchange auth failed for %s: %s",
+            provider,
+            str(exc)[:200],
+        )
+        raise ExchangeClientError(INVALID_CREDENTIALS) from exc
+    logger.exception("Exchange API failed for %s", provider)
+    raise ExchangeClientError(str(exc) or provider) from exc
+
+
 def _as_decimal(value: object) -> Decimal:
     try:
         return Decimal(str(value or "0"))
@@ -194,8 +236,7 @@ def fetch_snapshot(
     try:
         raw_balance = exchange.fetch_balance()
     except Exception as exc:  # noqa: BLE001
-        logger.exception("fetch_balance failed for %s", provider)
-        raise ExchangeClientError(str(exc) or spec.title) from exc
+        _raise_client_error(exc, provider=provider)
 
     totals = raw_balance.get("total") or {}
     quote = _pick_quote(totals, quote)
@@ -362,4 +403,4 @@ def test_credentials(
     try:
         exchange.fetch_balance()
     except Exception as exc:  # noqa: BLE001
-        raise ExchangeClientError(str(exc) or spec.title) from exc
+        _raise_client_error(exc, provider=provider)

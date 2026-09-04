@@ -24,6 +24,8 @@ from lib.presentation.account_icons import (
     resolve_account_icon_key,
 )
 from lib.presentation.count_up import play_count_ups
+from lib.presentation.reload_gate import ReloadGate
+from lib.presentation.ui_motion import replace_controls
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.styles import (
     ICON_CATALOG_GLYPH,
@@ -47,7 +49,11 @@ from lib.presentation.widgets.appearance_picker import open_color_picker, open_i
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.empty_state import EmptyState
-from lib.presentation.widgets.fullscreen_form import build_form_shell, dismiss_fullscreen
+from lib.presentation.widgets.fullscreen_form import (
+    build_form_shell,
+    dismiss_fullscreen,
+    open_fullscreen_form,
+)
 from lib.presentation.layout import make_v_scroll
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.transfer_sheet import open_transfer
@@ -55,23 +61,17 @@ if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 
-def _exchange_dropdown_option(spec) -> ft.DropdownOption:
-    """Dropdown row with exchange logo + title (single icon, not doubled)."""
+def _exchange_leading(spec) -> ft.Control:
+    """Logo or fallback icon for an exchange row."""
     src = exchange_icon_src(spec.id)
     if src:
-        leading: ft.Control = ft.Image(
+        return ft.Image(
             src=src,
-            width=22,
-            height=22,
+            width=28,
+            height=28,
             fit=ft.BoxFit.CONTAIN,
         )
-    else:
-        leading = ft.Icon(ft.Icons.TOKEN, size=20)
-    return ft.DropdownOption(
-        key=spec.id,
-        text=spec.title,
-        leading_icon=leading,
-    )
+    return ft.Icon(ft.Icons.TOKEN, size=24)
 
 class AccountsPage(ft.Column):
     """List and manage accounts."""
@@ -92,7 +92,7 @@ class AccountsPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload, True),
+                            on_click=lambda _e: self._reload_gate.request(True),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.SWAP_HORIZ_ROUNDED,
@@ -116,11 +116,16 @@ class AccountsPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request()
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         if state.accounts_token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     async def reload(self, animate: bool = False) -> None:
         """Reload accounts and convert balances to base currency."""
@@ -184,8 +189,7 @@ class AccountsPage(ft.Column):
                     on_include_in_total=self._set_include_in_total,
                 )
             )
-        self._list.controls = cards
-        safe_update(self._list)
+        replace_controls(self._list, cards, self._page)
         if animate:
             await play_count_ups(self._list, self._page)
         if not fx_ok:
@@ -221,12 +225,7 @@ class AccountsPage(ft.Column):
             try:
                 result = await sync.execute(account.id)
             except Exception as exc:  # noqa: BLE001
-                import logging
-
-                logging.getLogger("finanse.presentation.pages.accounts").warning(
-                    "Account sync failed: %s", exc, exc_info=True
-                )
-                snack(self._page, tr("error.sync_failed", lang), error=True)
+                snack_exception(self._page, exc, lang=lang)
                 return
             self._state.bump_refresh("dashboard", "accounts", "transactions", "budgets")
             snack(
@@ -240,7 +239,11 @@ class AccountsPage(ft.Column):
         lang = self._state.language
 
         async def _do() -> None:
-            await self._state.container.delete_account.execute(account.id)
+            try:
+                await self._state.container.delete_account.execute(account.id)
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
             self._state.bump_refresh("dashboard", "accounts", "transactions", "budgets")
             snack(self._page, tr("action.saved", lang))
 
@@ -299,7 +302,7 @@ class AccountsPage(ft.Column):
             label=tr("field.api_key", lang),
             value="",
             password=True,
-            can_reveal_password=True,
+            can_reveal_password=False,
             border_radius=14,
             filled=True,
         )
@@ -307,7 +310,7 @@ class AccountsPage(ft.Column):
             label=tr("field.api_secret", lang),
             value="",
             password=True,
-            can_reveal_password=True,
+            can_reveal_password=False,
             border_radius=14,
             filled=True,
         )
@@ -315,7 +318,7 @@ class AccountsPage(ft.Column):
             label=tr("field.api_passphrase", lang),
             value="",
             password=True,
-            can_reveal_password=True,
+            can_reveal_password=False,
             visible=False,
             border_radius=14,
             filled=True,
@@ -337,14 +340,54 @@ class AccountsPage(ft.Column):
             size=11,
             color=ft.Colors.ON_SURFACE_VARIANT,
         )
-        provider_dd = ft.Dropdown(
-            label=tr("field.exchange", lang),
-            value=provider_id["value"],
-            disabled=linked,
-            options=[_exchange_dropdown_option(spec) for spec in EXCHANGES],
+        provider_title = ft.Text(
+            (get_exchange(provider_id["value"]) or EXCHANGES[0]).title,
+            size=14,
+            weight=ft.FontWeight.W_600,
+            expand=True,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        provider_leading = ft.Container(
+            width=32,
+            height=32,
+            alignment=ft.Alignment.CENTER,
+            content=_exchange_leading(
+                get_exchange(provider_id["value"]) or EXCHANGES[0]
+            ),
+        )
+        provider_pick = ft.Container(
             expand=True,
             border_radius=14,
-            filled=True,
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            ink=not linked,
+            content=ft.Row(
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    provider_leading,
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
+                        expand=True,
+                        controls=[
+                            ft.Text(
+                                tr("field.exchange", lang),
+                                size=11,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
+                            provider_title,
+                        ],
+                    ),
+                    ft.Icon(
+                        ft.Icons.CHEVRON_RIGHT,
+                        size=22,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                ],
+            ),
         )
 
         include_sw = ft.Switch(
@@ -469,7 +512,96 @@ class AccountsPage(ft.Column):
         _refresh_previews()
 
         def _current_spec():
-            return get_exchange(str(provider_dd.value or provider_id["value"]))
+            return get_exchange(str(provider_id["value"]))
+
+        def _apply_provider(spec_id: str) -> None:
+            spec = get_exchange(spec_id)
+            if spec is None:
+                return
+            provider_id["value"] = spec.id
+            provider_title.value = spec.title
+            provider_leading.content = _exchange_leading(spec)
+            if not linked:
+                current_name = (name_tf.value or "").strip()
+                known_titles = {item.title for item in EXCHANGES}
+                if not current_name or current_name in known_titles:
+                    name_tf.value = spec.title
+                    try:
+                        safe_update(name_tf)
+                    except Exception:  # noqa: BLE001
+                        pass
+                selected_color["value"] = spec.color
+                selected_icon["value"] = exchange_icon_key(spec.id)
+                _refresh_previews()
+            _refresh_credential_fields()
+            try:
+                safe_update(provider_title)
+                safe_update(provider_leading)
+                safe_update(provider_pick)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _open_exchange_picker(_e: ft.ControlEvent | None = None) -> None:
+            if linked or busy["value"]:
+                return
+            rows: list[ft.Control] = []
+            for spec in EXCHANGES:
+                selected = spec.id == provider_id["value"]
+                rows.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=12),
+                        border_radius=14,
+                        bgcolor=(
+                            ft.Colors.PRIMARY_CONTAINER
+                            if selected
+                            else ft.Colors.SURFACE_CONTAINER
+                        ),
+                        border=ft.Border.all(
+                            1,
+                            ft.Colors.PRIMARY
+                            if selected
+                            else ft.Colors.OUTLINE_VARIANT,
+                        ),
+                        ink=True,
+                        on_click=lambda _ev, sid=spec.id: (
+                            _apply_provider(sid),
+                            dismiss_fullscreen(
+                                self._page, key="exchange_picker"
+                            ),
+                        ),
+                        content=ft.Row(
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                _exchange_leading(spec),
+                                ft.Text(
+                                    spec.title,
+                                    expand=True,
+                                    size=15,
+                                    weight=ft.FontWeight.W_600,
+                                ),
+                                ft.Icon(
+                                    ft.Icons.CHECK_CIRCLE,
+                                    size=20,
+                                    color=ft.Colors.PRIMARY,
+                                    visible=selected,
+                                ),
+                            ],
+                        ),
+                    )
+                )
+            open_fullscreen_form(
+                self._page,
+                title=tr("field.exchange.pick", lang),
+                lang=lang,
+                overlay_key="exchange_picker",
+                wrap_body=False,
+                body=[
+                    ft.Column(spacing=8, tight=True, controls=rows),
+                ],
+            )
+
+        provider_pick.on_click = None if linked else _open_exchange_picker
 
         def _refresh_credential_fields() -> None:
             spec = _current_spec()
@@ -567,25 +699,6 @@ class AccountsPage(ft.Column):
             _refresh_credential_fields()
             _apply_type_ui()
 
-        def _on_provider(_e: ft.ControlEvent | None = None) -> None:
-            spec = _current_spec()
-            provider_id["value"] = spec.id if spec else "binance"
-            if spec is not None and not linked:
-                current_name = (name_tf.value or "").strip()
-                known_titles = {item.title for item in EXCHANGES}
-                if not current_name or current_name in known_titles:
-                    name_tf.value = spec.title
-                    try:
-                        safe_update(name_tf)
-                    except Exception:  # noqa: BLE001
-                        pass
-                selected_color["value"] = spec.color
-                # Exchange accounts always use the venue logo — no manual pick.
-                selected_icon["value"] = exchange_icon_key(spec.id)
-                _refresh_previews()
-            _refresh_credential_fields()
-
-        bind_dropdown_select(provider_dd, _on_provider)
         type_row = ft.Row(spacing=8, controls=[])
         _rebuild_type_row()
         exchange_block = ft.Column(
@@ -594,7 +707,7 @@ class AccountsPage(ft.Column):
             visible=is_exchange["value"],
             controls=[
                 exchange_hint,
-                provider_dd,
+                provider_pick,
                 api_key_tf,
                 secret_tf,
                 passphrase_tf,
@@ -687,7 +800,10 @@ class AccountsPage(ft.Column):
             busy["value"] = active
             save_btn.disabled = active
             close_btn.disabled = active
-            provider_dd.disabled = active or linked
+            provider_pick.ink = not (active or linked)
+            provider_pick.on_click = (
+                None if (active or linked) else _open_exchange_picker
+            )
             api_key_tf.disabled = active
             secret_tf.disabled = active
             passphrase_tf.disabled = active
@@ -696,7 +812,7 @@ class AccountsPage(ft.Column):
                 safe_update(save_label)
                 safe_update(save_btn)
                 safe_update(close_btn)
-                safe_update(provider_dd)
+                safe_update(provider_pick)
                 safe_update(api_key_tf)
                 safe_update(secret_tf)
                 safe_update(passphrase_tf)
@@ -719,7 +835,7 @@ class AccountsPage(ft.Column):
             except (InvalidOperation, ValueError):
                 _fail(tr("invalid_amount", lang))
                 return
-            provider = str(provider_dd.value or provider_id["value"])
+            provider = str(provider_id["value"])
             if is_exchange["value"]:
                 spec = get_exchange(provider)
                 name = spec.title if spec else (name_tf.value or "").strip()

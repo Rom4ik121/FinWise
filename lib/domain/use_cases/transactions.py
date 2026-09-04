@@ -36,6 +36,15 @@ from lib.domain.use_cases.goals import (
     reverse_goal_contribution_credit,
     strip_goal_allocation_tags,
 )
+from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+FEE_CATEGORY = "Комиссия"
+TRANSFER_FEE_TAG_PREFIX = "xfer_fee:"
+
+
+def transfer_fee_tag(transfer_id: str) -> str:
+    """Stable tag linking a fee expense to its transfer."""
+    return f"{TRANSFER_FEE_TAG_PREFIX}{transfer_id}"
 
 
 def _utc_now() -> datetime:
@@ -63,13 +72,13 @@ async def _credit_goal_from_transaction(
     goals: GoalRepository,
     transactions: TransactionRepository,
     transaction: Transaction,
-) -> None:
-    """Apply contribution and persist exact per-item allocation tags."""
+) -> Transaction:
+    """Apply contribution, persist allocation tags, return the tagged row."""
     if not _is_goal_contribution(transaction):
-        return
+        return transaction
     goal = await goals.get_by_id(transaction.goal_id or "")
     if goal is None:
-        return
+        return transaction
     credit = goal_credit_amount(transaction)
     updated, allocations = allocate_goal_contribution_credit(
         goal,
@@ -78,12 +87,17 @@ async def _credit_goal_from_transaction(
     )
     await goals.update(updated)
     if not allocations:
-        return
+        # Flat goals need no alloc tags; strip any stale ones.
+        clean = strip_goal_allocation_tags(transaction.tags)
+        if clean != list(transaction.tags or []):
+            tagged = transaction.model_copy(update={"tags": clean})
+            return await transactions.update(tagged)
+        return transaction
     clean = strip_goal_allocation_tags(transaction.tags)
     tagged = transaction.model_copy(
         update={"tags": clean + encode_goal_allocation_tags(allocations)}
     )
-    await transactions.update(tagged)
+    return await transactions.update(tagged)
 
 
 async def _debit_goal_from_transaction(
@@ -263,6 +277,13 @@ async def _sync_budget_expense(
         return
     if transaction.transfer_id:
         return
+    # Transfer bank/exchange fees are tagged xfer_fee:{id} and must not hit
+    # category budgets (same rule as transfer legs).
+    if any(
+        str(tag).startswith(TRANSFER_FEE_TAG_PREFIX)
+        for tag in (transaction.tags or [])
+    ):
+        return
     # Savings into a goal should not consume category budgets.
     if transaction.goal_id or transaction.goal_credit_amount is not None:
         return
@@ -327,6 +348,7 @@ class AddTransactionUseCase:
         settings: Optional[SettingsRepository] = None,
         notifications: object = None,
         currencies: Optional[CurrencyRepository] = None,
+        session_factory: object = None,
     ) -> None:
         self._transactions = transactions
         self._accounts = accounts
@@ -336,6 +358,7 @@ class AddTransactionUseCase:
         self._settings = settings
         self._notifications = notifications
         self._currencies = currencies
+        self._session_factory = session_factory
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Persist ``transaction``, update account balance, sync goal/debt if linked."""
@@ -369,28 +392,37 @@ class AddTransactionUseCase:
         if self._debts is not None:
             await _validate_debt_link(transaction, debts=self._debts)
 
-        created = await self._transactions.create(transaction)
+        async def _persist() -> Transaction:
+            created = await self._transactions.create(transaction)
 
-        account.balance = quantize_money(
-            account.balance + _balance_delta(created.type, created.amount)
-        )
-        await self._accounts.update(account)
+            account.balance = quantize_money(
+                account.balance + _balance_delta(created.type, created.amount)
+            )
+            await self._accounts.update(account)
 
-        await self._apply_goal_contribution(created)
-        await self._apply_goal_withdrawal(created)
-        await self._apply_debt_payment(created)
-        await _sync_budget_expense(
-            self._budgets,
-            created,
-            sign=1,
-            settings_repo=self._settings,
-            notifications=self._notifications,
-            currencies=self._currencies,
-        )
-        return created
+            created = await self._apply_goal_contribution(created)
+            await self._apply_goal_withdrawal(created)
+            await self._apply_debt_payment(created)
+            await _sync_budget_expense(
+                self._budgets,
+                created,
+                sign=1,
+                settings_repo=self._settings,
+                notifications=self._notifications,
+                currencies=self._currencies,
+            )
+            return created
 
-    async def _apply_goal_contribution(self, transaction: Transaction) -> None:
-        await _credit_goal_from_transaction(
+        if self._session_factory is not None:
+            # TransferAccountsUseCase already owns an outer UoW — reuse it.
+            if in_unit_of_work():
+                return await _persist()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _persist()
+        return await _persist()
+
+    async def _apply_goal_contribution(self, transaction: Transaction) -> Transaction:
+        return await _credit_goal_from_transaction(
             goals=self._goals,
             transactions=self._transactions,
             transaction=transaction,
@@ -506,13 +538,17 @@ class UpdateTransactionUseCase:
             await self._reverse_goal_ledger(existing)
             await self._reverse_debt_payment(existing)
 
-            saved = await self._transactions.update(updated)
+            # Drop stale alloc markers from the editor payload; apply rewrites them.
+            cleaned = updated.model_copy(
+                update={"tags": strip_goal_allocation_tags(updated.tags)}
+            )
+            saved = await self._transactions.update(cleaned)
 
             await self._apply_account_delta(
                 saved.account_id,
                 _balance_delta(saved.type, saved.amount),
             )
-            await self._apply_goal_ledger(saved)
+            saved = await self._apply_goal_ledger(saved)
             await self._apply_debt_payment(saved)
             await _sync_budget_expense(
                 self._budgets,
@@ -533,8 +569,8 @@ class UpdateTransactionUseCase:
             return saved
 
         if self._session_factory is not None:
-            from lib.infrastructure.repositories._base import unit_of_work
-
+            if in_unit_of_work():
+                return await _persist()
             with unit_of_work(self._session_factory):  # type: ignore[arg-type]
                 return await _persist()
         return await _persist()
@@ -546,17 +582,17 @@ class UpdateTransactionUseCase:
         account.balance = quantize_money(account.balance + delta)
         await self._accounts.update(account)
 
-    async def _apply_goal_ledger(self, transaction: Transaction) -> None:
+    async def _apply_goal_ledger(self, transaction: Transaction) -> Transaction:
         if _is_goal_contribution(transaction):
-            await _credit_goal_from_transaction(
+            return await _credit_goal_from_transaction(
                 goals=self._goals,
                 transactions=self._transactions,
                 transaction=transaction,
             )
-        elif _is_goal_withdrawal(transaction):
+        if _is_goal_withdrawal(transaction):
             goal = await self._goals.get_by_id(transaction.goal_id or "")
             if goal is None:
-                return
+                return transaction
             credit = goal_credit_amount(transaction)
             updated = reverse_goal_contribution_credit(
                 goal,
@@ -564,6 +600,7 @@ class UpdateTransactionUseCase:
                 item_id=transaction.goal_item_id,
             )
             await self._goals.update(updated)
+        return transaction
 
     async def _reverse_goal_ledger(self, transaction: Transaction) -> None:
         if _is_goal_contribution(transaction):
@@ -621,6 +658,7 @@ class DeleteTransactionUseCase:
         settings: Optional[SettingsRepository] = None,
         notifications: object = None,
         currencies: Optional[CurrencyRepository] = None,
+        session_factory: object = None,
     ) -> None:
         self._transactions = transactions
         self._accounts = accounts
@@ -630,44 +668,53 @@ class DeleteTransactionUseCase:
         self._settings = settings
         self._notifications = notifications
         self._currencies = currencies
+        self._session_factory = session_factory
 
     async def execute(self, transaction_id: str) -> bool:
         """Remove a transaction and undo account / goal / debt side effects."""
-        existing = await self._transactions.get_by_id(transaction_id)
-        if existing is None:
-            return False
-        peer_ids: list[str] = []
-        fee_ids: list[str] = []
-        if existing.transfer_id:
-            peers = await self._transactions.list(transfer_id=existing.transfer_id)
-            peer_ids = [p.id for p in peers if p.id != existing.id]
-            fee_tag = transfer_fee_tag(existing.transfer_id)
-            source = next(
-                (p for p in peers if p.type == TransactionType.EXPENSE),
-                existing if existing.type == TransactionType.EXPENSE else None,
-            )
-            if source is not None:
-                fees = await self._transactions.list(
-                    account_id=source.account_id,
-                    category=FEE_CATEGORY,
+
+        async def _run() -> bool:
+            existing = await self._transactions.get_by_id(transaction_id)
+            if existing is None:
+                return False
+            peer_ids: list[str] = []
+            fee_ids: list[str] = []
+            if existing.transfer_id:
+                peers = await self._transactions.list(transfer_id=existing.transfer_id)
+                peer_ids = [p.id for p in peers if p.id != existing.id]
+                fee_tag = transfer_fee_tag(existing.transfer_id)
+                source = next(
+                    (p for p in peers if p.type == TransactionType.EXPENSE),
+                    existing if existing.type == TransactionType.EXPENSE else None,
                 )
-                fee_ids = [
-                    f.id
-                    for f in fees
-                    if fee_tag in f.tags
-                    and f.id != existing.id
-                    and f.id not in peer_ids
-                ]
-        ok = await self._delete_one(existing)
-        for peer_id in peer_ids:
-            peer = await self._transactions.get_by_id(peer_id)
-            if peer is not None:
-                await self._delete_one(peer)
-        for fee_id in fee_ids:
-            fee = await self._transactions.get_by_id(fee_id)
-            if fee is not None:
-                await self._delete_one(fee)
-        return ok
+                if source is not None:
+                    fees = await self._transactions.list(
+                        account_id=source.account_id,
+                        category=FEE_CATEGORY,
+                        tags=[fee_tag],
+                    )
+                    fee_ids = [
+                        f.id
+                        for f in fees
+                        if f.id != existing.id and f.id not in peer_ids
+                    ]
+            ok = await self._delete_one(existing)
+            for peer_id in peer_ids:
+                peer = await self._transactions.get_by_id(peer_id)
+                if peer is not None:
+                    await self._delete_one(peer)
+            for fee_id in fee_ids:
+                fee = await self._transactions.get_by_id(fee_id)
+                if fee is not None:
+                    await self._delete_one(fee)
+            return ok
+
+        if self._session_factory is not None:
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
 
     async def _delete_one(self, existing: Transaction) -> bool:
         """Reverse one row without looking up its transfer peer."""
@@ -733,6 +780,7 @@ class ListTransactionsUseCase:
         debt_id: Optional[str] = None,
         subscription_id: Optional[str] = None,
         has_subscription: Optional[bool] = None,
+        has_debt: Optional[bool] = None,
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         limit: Optional[int] = None,
@@ -750,6 +798,7 @@ class ListTransactionsUseCase:
             debt_id=debt_id,
             subscription_id=subscription_id,
             has_subscription=has_subscription,
+            has_debt=has_debt,
             transfer_id=transfer_id,
             has_transfer=has_transfer,
             limit=limit,
@@ -816,8 +865,10 @@ class GetTransactionStatsUseCase:
     ) -> TransactionStats:
         """Aggregate transactions into period and category summaries."""
         from lib.domain.entities.currency_codes import normalize_currency_code
+        from lib.domain.transaction_paging import list_transactions_paged
 
-        items = await self._transactions.list(
+        items = await list_transactions_paged(
+            self._transactions.list,
             account_id=account_id,
             date_from=date_from,
             date_to=date_to,
@@ -930,13 +981,6 @@ class GetTransactionStatsUseCase:
 
 
 TRANSFER_CATEGORY = "Перевод"
-FEE_CATEGORY = "Комиссия"
-TRANSFER_FEE_TAG_PREFIX = "xfer_fee:"
-
-
-def transfer_fee_tag(transfer_id: str) -> str:
-    """Tag linking a fee expense to a transfer pair."""
-    return f"{TRANSFER_FEE_TAG_PREFIX}{transfer_id}"
 
 
 def make_fee_expense(
@@ -1127,8 +1171,6 @@ class TransferAccountsUseCase:
             return created_out, created_in
 
         if self._session_factory is not None:
-            from lib.infrastructure.repositories._base import unit_of_work
-
             with unit_of_work(self._session_factory):  # type: ignore[arg-type]
                 return await _persist()
 

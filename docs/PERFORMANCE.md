@@ -106,9 +106,9 @@
 
 ## 10. Известные улучшения (не блокер релиза)
 
-См. `.cursor/agent/AUDIT.md` (локальные заметки агента): lazy pager аналитики, in-place mutate на dashboard, off-screen reload, ListView storms, batch ConvertCurrency, дефолтное окно списка операций, SQL search.
+Закрыто (2026-09-04): full budget recalc только на explicit refresh; paged `list_transactions` (`tx_query.py`, page=500, cap=25k); `has_debt` filter для sparkline debts.
 
-Эти пункты не отменяют уже внедрённые индексы и батчи.
+Остаётся backlog: dashboard in-place mutate, off-screen reload fine-tuning, ListView storms, SQL full-text search.
 
 ---
 

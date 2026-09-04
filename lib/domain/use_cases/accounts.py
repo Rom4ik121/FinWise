@@ -61,7 +61,9 @@ class UpdateAccountUseCase:
 
         Changing ``currency`` converts ``initial_balance`` and every transaction
         amount (including line items) via :class:`RateBook`, then recalculates
-        balance. Raises ``ValueError`` when any rate is missing.
+        balance. ``goal_credit_amount`` / ``debt_credit_amount`` stay untouched —
+        they are denominated in the goal/debt currency, not the account's.
+        Raises ``ValueError`` when any rate is missing.
         """
         existing = await self._accounts.get_by_id(account.id)
         if existing is None:
@@ -108,16 +110,8 @@ class UpdateAccountUseCase:
                         item_amt = quantize_money(item_conv, currency=new_ccy)
                     new_items.append(item.model_copy(update={"amount": item_amt}))
                 patch["items"] = new_items
-            if tx.goal_credit_amount is not None and src != new_ccy:
-                gconv = book.convert(tx.goal_credit_amount, src, new_ccy)
-                if gconv is None:
-                    raise ValueError(f"No exchange rate for {src}/{new_ccy}")
-                patch["goal_credit_amount"] = quantize_money(gconv, currency=new_ccy)
-            if tx.debt_credit_amount is not None and src != new_ccy:
-                dconv = book.convert(tx.debt_credit_amount, src, new_ccy)
-                if dconv is None:
-                    raise ValueError(f"No exchange rate for {src}/{new_ccy}")
-                patch["debt_credit_amount"] = quantize_money(dconv, currency=new_ccy)
+            # Do NOT convert goal_credit_amount / debt_credit_amount: those
+            # amounts are already in goal/debt currency for apply/reverse.
             await self._transactions.update(tx.model_copy(update=patch))
 
         patched = account.model_copy(

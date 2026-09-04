@@ -259,9 +259,11 @@ class CreateSubscriptionUseCase:
         self,
         subscriptions: SubscriptionRepository,
         categories: Optional[CategoryRepository] = None,
+        audit_repository: Any = None,
     ) -> None:
         self._subscriptions = subscriptions
         self._categories = categories
+        self._audit = audit_repository
 
     async def execute(self, subscription: Subscription) -> Subscription:
         """Persist a new subscription."""
@@ -281,6 +283,25 @@ class CreateSubscriptionUseCase:
         )
         saved = await self._subscriptions.create(created)
         await sync_subscription_category(self._categories, saved)
+        if self._audit is not None:
+            from lib.domain.entities.subscription_audit import SubscriptionAuditEntry
+
+            try:
+                await self._audit.append(
+                    SubscriptionAuditEntry(
+                        subscription_id=saved.id,
+                        action="create",
+                        details={
+                            "status": (
+                                saved.status.value
+                                if isinstance(saved.status, SubscriptionStatus)
+                                else str(saved.status)
+                            ),
+                        },
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                pass
         return saved
 
 
@@ -489,6 +510,7 @@ class ChargeSubscriptionNowUseCase:
         currencies: CurrencyRepository,
         settings: Optional["SettingsRepository"] = None,
         categories: Optional[CategoryRepository] = None,
+        session_factory: object = None,
     ) -> None:
         self._subscriptions = subscriptions
         self._accounts = accounts
@@ -496,6 +518,7 @@ class ChargeSubscriptionNowUseCase:
         self._currencies = currencies
         self._settings = settings
         self._categories = categories
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -505,80 +528,91 @@ class ChargeSubscriptionNowUseCase:
         language: str = "ru",
         notifier: Any = None,
     ) -> Transaction:
-        sub = await self._subscriptions.get_by_id(subscription_id)
-        if sub is None:
-            raise ValueError(f"Subscription not found: {subscription_id}")
-        assert_subscription_chargeable(sub)
-        if sub.end_date is not None and _utc_now().date() > sub.end_date:
-            raise ValueError("Subscription has ended")
+        async def _run() -> Transaction:
+            sub = await self._subscriptions.get_by_id(subscription_id)
+            if sub is None:
+                raise ValueError(f"Subscription not found: {subscription_id}")
+            assert_subscription_chargeable(sub)
+            if sub.end_date is not None and _utc_now().date() > sub.end_date:
+                raise ValueError("Subscription has ended")
 
-        account = await self._accounts.get_by_id(sub.account_id)
-        if account is None:
-            raise ValueError(f"Account not found: {sub.account_id}")
+            account = await self._accounts.get_by_id(sub.account_id)
+            if account is None:
+                raise ValueError(f"Account not found: {sub.account_id}")
 
-        if check_balance is None and self._settings is not None:
-            settings = await self._settings.get()
-            check_balance = bool(
-                getattr(settings, "check_balance_before_subscription", True)
+            check = check_balance
+            if check is None and self._settings is not None:
+                settings = await self._settings.get()
+                check = bool(
+                    getattr(settings, "check_balance_before_subscription", True)
+                )
+            if check is None:
+                check = True
+
+            amount = quantize_money(sub.amount)
+            sub_currency = sub.currency or account.currency
+            cash_amount = await _subscription_cash_amount(
+                self._currencies,
+                amount=amount,
+                from_currency=sub_currency,
+                to_currency=account.currency,
             )
-        if check_balance is None:
-            check_balance = True
+            if check and account.balance < cash_amount:
+                raise ValueError("insufficient_funds")
 
-        amount = quantize_money(sub.amount)
-        sub_currency = sub.currency or account.currency
-        cash_amount = await _subscription_cash_amount(
-            self._currencies,
-            amount=amount,
-            from_currency=sub_currency,
-            to_currency=account.currency,
-        )
-        if check_balance and account.balance < cash_amount:
-            raise ValueError("insufficient_funds")
-
-        now = _utc_now()
-        category = await sync_subscription_category(self._categories, sub)
-        saved = await self._add.execute(
-            Transaction(
-                account_id=sub.account_id,
-                amount=cash_amount,
-                category=category,
-                tags=["subscription"],
-                date=now,
-                comment=sub.comment or f"Subscription: {sub.name}",
-                type=TransactionType.EXPENSE,
-                currency=account.currency,
-                subscription_id=sub.id,
-                created_at=now,
-                updated_at=now,
+            now = _utc_now()
+            category = await sync_subscription_category(self._categories, sub)
+            saved = await self._add.execute(
+                Transaction(
+                    account_id=sub.account_id,
+                    amount=cash_amount,
+                    category=category,
+                    tags=["subscription"],
+                    date=now,
+                    comment=sub.comment or f"Subscription: {sub.name}",
+                    type=TransactionType.EXPENSE,
+                    currency=account.currency,
+                    subscription_id=sub.id,
+                    created_at=now,
+                    updated_at=now,
+                )
             )
-        )
 
-        next_date = advance_billing_date(
-            _as_utc(sub.next_billing_date),
-            sub.periodicity,
-            custom_interval_days=sub.custom_interval_days,
-        )
-        payments_made = int(sub.payments_made or 0) + 1
-        status = sub.status
-        expired = False
-        if sub.end_date is not None and next_date.date() > sub.end_date:
-            expired = True
-        if sub.max_payments is not None and payments_made >= sub.max_payments:
-            expired = True
-        if expired:
-            status = SubscriptionStatus.EXPIRED
-        updated = sub.model_copy(
-            update={
-                "last_charged_at": now,
-                "next_billing_date": next_date,
-                "payments_made": payments_made,
-                "status": status,
-                "is_active": _sync_active(status),
-                "updated_at": now,
-            }
-        )
-        await self._subscriptions.update(updated)
-        return saved
+            next_date = advance_billing_date(
+                _as_utc(sub.next_billing_date),
+                sub.periodicity,
+                custom_interval_days=sub.custom_interval_days,
+            )
+            payments_made = int(sub.payments_made or 0) + 1
+            status = sub.status
+            expired = False
+            if sub.end_date is not None and next_date.date() > sub.end_date:
+                expired = True
+            if sub.max_payments is not None and payments_made >= sub.max_payments:
+                expired = True
+            if expired:
+                status = SubscriptionStatus.EXPIRED
+            updated = sub.model_copy(
+                update={
+                    "last_charged_at": now,
+                    "next_billing_date": next_date,
+                    "payments_made": payments_made,
+                    "status": status,
+                    "is_active": _sync_active(status),
+                    "updated_at": now,
+                }
+            )
+            await self._subscriptions.update(updated)
+            return saved
+
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
 
 
 async def _subscription_cash_amount(
@@ -607,25 +641,27 @@ class DeleteSubscriptionChargeUseCase:
         subscriptions: SubscriptionRepository,
         delete_transaction: "DeleteTransactionUseCase",
         audit_repository: Any = None,
+        session_factory: object = None,
     ) -> None:
         self._transactions = transactions
         self._subscriptions = subscriptions
         self._delete_transaction = delete_transaction
         self._audit = audit_repository
+        self._session_factory = session_factory
 
     async def _status_before_expiry(self, subscription_id: str) -> SubscriptionStatus:
         """Infer pre-expiry status so un-expire does not silently resume billing.
 
-        Fail closed to PAUSED when audit is missing or ambiguous — safer than
-        re-enabling auto-charge after an expired pause that was recorded as a
-        generic editor ``update``.
+        Prefer the newest explicit pause/resume/create (or update with status
+        details). Default to ACTIVE when there is no pause evidence — otherwise
+        never-paused ACTIVE subs would stuck as PAUSED after deleting a charge.
         """
         if self._audit is None:
-            return SubscriptionStatus.PAUSED
+            return SubscriptionStatus.ACTIVE
         try:
             entries = await self._audit.list_for_subscription(subscription_id, limit=30)
         except Exception:  # noqa: BLE001
-            return SubscriptionStatus.PAUSED
+            return SubscriptionStatus.ACTIVE
         for entry in entries:
             action = str(getattr(entry, "action", "") or "").strip().lower()
             if action == "pause":
@@ -643,59 +679,69 @@ class DeleteSubscriptionChargeUseCase:
                     return SubscriptionStatus.PAUSED
                 if to_status == SubscriptionStatus.ACTIVE.value:
                     return SubscriptionStatus.ACTIVE
-        return SubscriptionStatus.PAUSED
+        return SubscriptionStatus.ACTIVE
 
     async def execute(self, transaction_id: str, *, subscription_id: str) -> bool:
-        tx = await self._transactions.get_by_id(transaction_id)
-        if tx is None:
-            return False
-        if tx.subscription_id != subscription_id:
-            raise ValueError("Transaction is not linked to this subscription")
+        async def _run() -> bool:
+            tx = await self._transactions.get_by_id(transaction_id)
+            if tx is None:
+                return False
+            if tx.subscription_id != subscription_id:
+                raise ValueError("Transaction is not linked to this subscription")
 
-        deleted = await self._delete_transaction.execute(transaction_id)
-        if not deleted:
-            return False
+            deleted = await self._delete_transaction.execute(transaction_id)
+            if not deleted:
+                return False
 
-        sub = await self._subscriptions.get_by_id(subscription_id)
-        if sub is None:
+            sub = await self._subscriptions.get_by_id(subscription_id)
+            if sub is None:
+                return True
+
+            remaining = await self._transactions.list(
+                subscription_id=subscription_id,
+                limit=1,
+                offset=0,
+            )
+            last_charged = remaining[0].date if remaining else None
+            payments = max(0, int(sub.payments_made or 0) - 1)
+            next_date = retreat_billing_date(
+                _as_utc(sub.next_billing_date),
+                sub.periodicity,
+                custom_interval_days=sub.custom_interval_days,
+            )
+            status = sub.status
+            if status == SubscriptionStatus.EXPIRED:
+                under_max = (
+                    sub.max_payments is None or payments < sub.max_payments
+                )
+                before_end = (
+                    sub.end_date is None or next_date.date() <= sub.end_date
+                )
+                if under_max and before_end:
+                    # Restore PAUSED when that was the last user intent; never
+                    # silently re-enable auto-billing after an expired pause.
+                    status = await self._status_before_expiry(subscription_id)
+            updated = sub.model_copy(
+                update={
+                    "last_charged_at": last_charged,
+                    "payments_made": payments,
+                    "next_billing_date": next_date,
+                    "status": status,
+                    "is_active": _sync_active(status),
+                    "updated_at": _utc_now(),
+                }
+            )
+            await self._subscriptions.update(updated)
             return True
 
-        remaining = await self._transactions.list(
-            subscription_id=subscription_id,
-            limit=1,
-            offset=0,
-        )
-        last_charged = remaining[0].date if remaining else None
-        payments = max(0, int(sub.payments_made or 0) - 1)
-        next_date = retreat_billing_date(
-            _as_utc(sub.next_billing_date),
-            sub.periodicity,
-            custom_interval_days=sub.custom_interval_days,
-        )
-        status = sub.status
-        if status == SubscriptionStatus.EXPIRED:
-            under_max = (
-                sub.max_payments is None or payments < sub.max_payments
-            )
-            before_end = (
-                sub.end_date is None or next_date.date() <= sub.end_date
-            )
-            if under_max and before_end:
-                # Restore PAUSED when that was the last user intent; never
-                # silently re-enable auto-billing after an expired pause.
-                status = await self._status_before_expiry(subscription_id)
-        updated = sub.model_copy(
-            update={
-                "last_charged_at": last_charged,
-                "payments_made": payments,
-                "next_billing_date": next_date,
-                "status": status,
-                "is_active": _sync_active(status),
-                "updated_at": _utc_now(),
-            }
-        )
-        await self._subscriptions.update(updated)
-        return True
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
 
 
 class ProcessDueSubscriptionsUseCase:
@@ -709,6 +755,7 @@ class ProcessDueSubscriptionsUseCase:
         add_transaction: Optional["AddTransactionUseCase"] = None,
         currencies: Optional[CurrencyRepository] = None,
         categories: Optional[CategoryRepository] = None,
+        session_factory: object = None,
     ) -> None:
         self._subscriptions = subscriptions
         self._accounts = accounts
@@ -716,6 +763,7 @@ class ProcessDueSubscriptionsUseCase:
         self._add = add_transaction
         self._currencies = currencies
         self._categories = categories
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -785,114 +833,133 @@ class ProcessDueSubscriptionsUseCase:
             account = accounts_by_id.get(sub.account_id)
             if account is None:
                 continue
-            category = await sync_subscription_category(self._categories, sub)
 
-            amount = quantize_money(sub.amount)
-            sub_currency = sub.currency or account.currency
-            next_date = _as_utc(sub.next_billing_date)
-            payments_made = int(sub.payments_made or 0)
-            charged_any = False
-            expired = False
-            charged_count = 0
+            async def _process_one(
+                sub: Subscription = sub,
+                account: Any = account,
+            ) -> None:
+                nonlocal accounts_by_id
+                category = await sync_subscription_category(self._categories, sub)
 
-            while next_date <= as_of and charged_count < charge_cap:
-                billing_day = next_date.date()
-                if sub.end_date is not None and billing_day > sub.end_date:
-                    expired = True
-                    break
-                if sub.max_payments is not None and payments_made >= sub.max_payments:
-                    expired = True
-                    break
+                amount = quantize_money(sub.amount)
+                sub_currency = sub.currency or account.currency
+                next_date = _as_utc(sub.next_billing_date)
+                payments_made = int(sub.payments_made or 0)
+                charged_any = False
+                expired = False
+                charged_count = 0
 
-                try:
-                    cash_amount = await _subscription_cash_amount(
-                        self._currencies,
-                        amount=amount,
-                        from_currency=sub_currency,
-                        to_currency=account.currency,
+                while next_date <= as_of and charged_count < charge_cap:
+                    billing_day = next_date.date()
+                    if sub.end_date is not None and billing_day > sub.end_date:
+                        expired = True
+                        break
+                    if (
+                        sub.max_payments is not None
+                        and payments_made >= sub.max_payments
+                    ):
+                        expired = True
+                        break
+
+                    try:
+                        cash_amount = await _subscription_cash_amount(
+                            self._currencies,
+                            amount=amount,
+                            from_currency=sub_currency,
+                            to_currency=account.currency,
+                        )
+                    except ValueError:
+                        sub = sub.model_copy(
+                            update={
+                                "last_skip_date": billing_day,
+                                "updated_at": _utc_now(),
+                            }
+                        )
+                        await self._subscriptions.update(sub)
+                        return
+
+                    if check_balance and account.balance < cash_amount:
+                        sub = sub.model_copy(
+                            update={
+                                "last_skip_date": billing_day,
+                                "updated_at": _utc_now(),
+                            }
+                        )
+                        await self._subscriptions.update(sub)
+                        self._notify_insufficient(
+                            notifier,
+                            sub,
+                            account_name=getattr(account, "name", ""),
+                            language=language,
+                        )
+                        return
+
+                    now = _utc_now()
+                    saved_tx = await self._add.execute(
+                        Transaction(
+                            account_id=sub.account_id,
+                            amount=cash_amount,
+                            category=category,
+                            tags=["subscription"],
+                            date=next_date,
+                            comment=sub.comment or f"Subscription: {sub.name}",
+                            type=TransactionType.EXPENSE,
+                            currency=account.currency,
+                            subscription_id=sub.id,
+                            created_at=now,
+                            updated_at=now,
+                        )
                     )
-                except ValueError:
+                    refreshed = await self._accounts.get_by_id(account.id)
+                    if refreshed is not None:
+                        account = refreshed
+                        accounts_by_id[account.id] = account
+                    created_txs.append(saved_tx)
+                    charged_any = True
+                    charged_count += 1
+                    payments_made += 1
+                    sub.last_charged_at = now
+                    next_date = advance_billing_date(
+                        next_date,
+                        sub.periodicity,
+                        custom_interval_days=sub.custom_interval_days,
+                    )
+
+                if expired:
                     sub = sub.model_copy(
                         update={
-                            "last_skip_date": billing_day,
+                            "status": SubscriptionStatus.EXPIRED,
+                            "is_active": False,
+                            "next_billing_date": next_date,
+                            "payments_made": payments_made,
                             "updated_at": _utc_now(),
                         }
                     )
                     await self._subscriptions.update(sub)
-                    break
+                    self._notify_expired(notifier, sub, language=language)
+                    return
 
-                if check_balance and account.balance < cash_amount:
+                if charged_any:
                     sub = sub.model_copy(
                         update={
-                            "last_skip_date": billing_day,
+                            "next_billing_date": next_date,
+                            "payments_made": payments_made,
+                            "last_charged_at": sub.last_charged_at,
                             "updated_at": _utc_now(),
                         }
                     )
                     await self._subscriptions.update(sub)
-                    self._notify_insufficient(
-                        notifier,
-                        sub,
-                        account_name=getattr(account, "name", ""),
-                        language=language,
-                    )
-                    # Do not advance billing — retry next run for this period.
-                    break
 
-                now = _utc_now()
-                saved_tx = await self._add.execute(
-                    Transaction(
-                        account_id=sub.account_id,
-                        amount=cash_amount,
-                        category=category,
-                        tags=["subscription"],
-                        date=next_date,
-                        comment=sub.comment or f"Subscription: {sub.name}",
-                        type=TransactionType.EXPENSE,
-                        currency=account.currency,
-                        subscription_id=sub.id,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
-                refreshed = await self._accounts.get_by_id(account.id)
-                if refreshed is not None:
-                    account = refreshed
-                    accounts_by_id[account.id] = account
-                created_txs.append(saved_tx)
-                charged_any = True
-                charged_count += 1
-                payments_made += 1
-                sub.last_charged_at = now
-                next_date = advance_billing_date(
-                    next_date,
-                    sub.periodicity,
-                    custom_interval_days=sub.custom_interval_days,
-                )
+            if self._session_factory is not None:
+                from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
 
-            if expired:
-                sub = sub.model_copy(
-                    update={
-                        "status": SubscriptionStatus.EXPIRED,
-                        "is_active": False,
-                        "next_billing_date": next_date,
-                        "payments_made": payments_made,
-                        "updated_at": _utc_now(),
-                    }
-                )
-                await self._subscriptions.update(sub)
-                self._notify_expired(notifier, sub, language=language)
-                continue
-
-            if charged_any:
-                sub = sub.model_copy(
-                    update={
-                        "next_billing_date": next_date,
-                        "payments_made": payments_made,
-                        "last_charged_at": sub.last_charged_at,
-                        "updated_at": _utc_now(),
-                    }
-                )
-                await self._subscriptions.update(sub)
+                if in_unit_of_work():
+                    await _process_one()
+                else:
+                    with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                        await _process_one()
+            else:
+                await _process_one()
 
         return created_txs
 
@@ -1043,6 +1110,8 @@ class GetSubscriptionAnalyticsUseCase:
                     "icon": icon,
                     "color": color,
                     "share": share,
+                    "start_date": getattr(sub, "start_date", None) if sub else None,
+                    "end_date": getattr(sub, "end_date", None) if sub else None,
                 }
             )
 

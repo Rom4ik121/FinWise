@@ -110,3 +110,40 @@ def test_bitmart_reports_unavailable() -> None:
         return
     with pytest.raises(ExchangeClientError, match="BitMart"):
         build_exchange(spec, api_key="k", secret="s")
+
+
+def test_is_auth_failure_detects_bingx_key_error() -> None:
+    from lib.infrastructure.api.ccxt_exchange_client import (
+        INVALID_CREDENTIALS,
+        is_auth_failure,
+        _raise_client_error,
+    )
+
+    exc = RuntimeError(
+        'bingx {"code":100413,"msg":"Incorrect apiKey, please check your valid '
+        'api key in https://bingx.com/en/account/api"}'
+    )
+    assert is_auth_failure(exc) is True
+    with pytest.raises(ExchangeClientError, match=INVALID_CREDENTIALS):
+        _raise_client_error(exc, provider="bingx")
+
+
+def test_user_facing_maps_exchange_credentials() -> None:
+    from lib.presentation.utils import user_facing_error
+
+    msg = user_facing_error("Invalid exchange API credentials", "en")
+    assert "key" in msg.lower()
+    assert "bingx" not in msg.lower()
+
+
+def test_user_facing_maps_common_domain_errors() -> None:
+    from lib.presentation.utils import user_facing_error
+
+    assert "limit" in user_facing_error("Budget limit must be positive", "en").lower()
+    assert "comment" in user_facing_error(
+        "Transfer legs cannot be edited independently", "en"
+    ).lower()
+    assert "archive" in user_facing_error("Only paid debts can be archived", "en").lower()
+    assert "categories" in user_facing_error(
+        "System categories cannot be deleted", "en"
+    ).lower()

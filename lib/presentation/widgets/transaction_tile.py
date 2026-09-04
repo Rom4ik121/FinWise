@@ -15,7 +15,13 @@ from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import amount_color
-from lib.presentation.utils import category_icon, format_date, format_money_compact
+from lib.presentation.utils import (
+    category_icon,
+    format_date,
+    format_money,
+    format_money_compact,
+    is_money_abbreviated,
+)
 
 # Uniform card size across phones / tablets / desktop list widths.
 _TILE_HEIGHT = 56
@@ -157,6 +163,66 @@ class TransactionTile(ft.Container):
         )
 
         # --- Front layer (main content) ---
+        signed_amount = (
+            transaction.amount
+            if is_income or is_transfer
+            else -abs(transaction.amount)
+        )
+        amount_label = mark_money_text(
+            ft.Text(
+                signed,
+                color=amount_color_value,
+                weight=ft.FontWeight.W_700,
+                size=12,
+                text_align=ft.TextAlign.RIGHT,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+            signed_amount,
+            currency=transaction.currency,
+            compact=True,
+            signed=True,
+        )
+        full_amount = format_money(
+            abs(transaction.amount),
+            transaction.currency,
+            signed=False,
+        )
+        if not is_income and not is_transfer:
+            full_amount = f"−{full_amount}"
+        elif is_income and not is_transfer:
+            full_amount = format_money(
+                transaction.amount, transaction.currency, signed=True
+            )
+        can_expand = is_money_abbreviated(
+            abs(transaction.amount), transaction.currency
+        )
+
+        def _show_full(
+            _e: ft.ControlEvent | None = None, *, _full: str = full_amount
+        ) -> None:
+            if not can_expand:
+                return
+            page = getattr(_e, "page", None) if _e is not None else None
+            if page is None:
+                return
+            try:
+                from lib.presentation.haptics import haptic
+                from lib.presentation.utils import snack
+
+                haptic("selection")
+                snack(page, _full)
+            except Exception:  # noqa: BLE001
+                pass
+
+        amount_box = ft.Container(
+            width=_AMOUNT_WIDTH,
+            alignment=ft.Alignment.CENTER_RIGHT,
+            ink=can_expand,
+            on_click=_show_full if can_expand else None,
+            tooltip=full_amount if can_expand else None,
+            content=amount_label,
+        )
         front_row = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -193,27 +259,7 @@ class TransactionTile(ft.Container):
                         ),
                     ],
                 ),
-                ft.Container(
-                    width=_AMOUNT_WIDTH,
-                    alignment=ft.Alignment.CENTER_RIGHT,
-                    content=mark_money_text(
-                        ft.Text(
-                            signed,
-                            color=amount_color_value,
-                            weight=ft.FontWeight.W_700,
-                            size=12,
-                            text_align=ft.TextAlign.RIGHT,
-                            max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                        transaction.amount
-                        if is_income or is_transfer
-                        else -abs(transaction.amount),
-                        currency=transaction.currency,
-                        compact=True,
-                        signed=True,
-                    ),
-                ),
+                amount_box,
                 self._arrow_container,
             ],
         )

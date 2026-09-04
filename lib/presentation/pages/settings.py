@@ -366,7 +366,7 @@ class SettingsPage(ft.Column):
 
         self._pin_tf = ft.TextField(
             password=True,
-            can_reveal_password=True,
+            can_reveal_password=False,
             expand=True,
             max_length=8,
             keyboard_type=ft.KeyboardType.NUMBER,
@@ -565,24 +565,24 @@ class SettingsPage(ft.Column):
                                     tr("settings.export_json", lang),
                                     icon=ft.Icons.DATA_OBJECT,
                                     style=btn_style,
-                                    on_click=lambda _e: run_async(
-                                        page, self.export_json
+                                    on_click=lambda _e: self._confirm_export(
+                                        self.export_json
                                     ),
                                 ),
                                 ft.OutlinedButton(
                                     tr("settings.export_csv", lang),
                                     icon=ft.Icons.TABLE_VIEW,
                                     style=btn_style,
-                                    on_click=lambda _e: run_async(
-                                        page, self.export_csv
+                                    on_click=lambda _e: self._confirm_export(
+                                        self.export_csv
                                     ),
                                 ),
                                 ft.OutlinedButton(
                                     tr("settings.export_pdf", lang),
                                     icon=ft.Icons.PICTURE_AS_PDF,
                                     style=btn_style,
-                                    on_click=lambda _e: run_async(
-                                        page, self.export_pdf
+                                    on_click=lambda _e: self._confirm_export(
+                                        self.export_pdf
                                     ),
                                 ),
                                 ft.OutlinedButton(
@@ -869,10 +869,10 @@ class SettingsPage(ft.Column):
             self._bio_toggle_busy = False
 
     async def _enable_biometric(self, lang: str) -> None:
-        repo = self._state.container.settings_repository
+        get_pin = getattr(self._state.container, "get_pin_credentials", None)
         has_pin = False
-        if repo is not None and hasattr(repo, "get_pin_credentials"):
-            pin_hash, pin_salt, _ = await repo.get_pin_credentials()
+        if get_pin is not None:
+            pin_hash, pin_salt, _ = await get_pin.execute()
             has_pin = bool(pin_hash and pin_salt)
         if not has_pin:
             self._biometric.value = False
@@ -979,9 +979,10 @@ class SettingsPage(ft.Column):
             return
         try:
             saved = await self._state.container.update_settings.execute(settings)
-            repo = self._state.container.settings_repository
-            if repo is not None and hasattr(repo, "set_pin_credentials"):
-                pin_hash, pin_salt, _ = await repo.get_pin_credentials()
+            get_pin = getattr(self._state.container, "get_pin_credentials", None)
+            set_pin = getattr(self._state.container, "set_pin_credentials", None)
+            if get_pin is not None and set_pin is not None:
+                pin_hash, pin_salt, _ = await get_pin.execute()
                 if bool(self._biometric.value) and not (pin_hash and pin_salt):
                     snack(
                         self._page,
@@ -997,7 +998,7 @@ class SettingsPage(ft.Column):
                         saved.model_copy(update={"biometric_enabled": False})
                     )
                 elif pin_hash and pin_salt:
-                    await repo.set_pin_credentials(
+                    await set_pin.execute(
                         pin_hash,
                         pin_salt,
                         biometric_enabled=saved.biometric_enabled,
@@ -1074,7 +1075,11 @@ class SettingsPage(ft.Column):
             await c.update_account.execute(updated)
             if c.list_transactions is None or c.update_transaction is None:
                 continue
-            txs = await c.list_transactions.execute(account_id=account.id)
+            from lib.presentation.tx_query import fetch_transactions_paged
+
+            txs = await fetch_transactions_paged(
+                c.list_transactions, account_id=account.id
+            )
             for tx in txs:
                 if normalize_currency_code(tx.currency) != old:
                     continue
@@ -1085,6 +1090,18 @@ class SettingsPage(ft.Column):
     def _io_error_snack(self, exc: Exception) -> None:
         lang = self._state.language
         snack_exception(self._page, exc, lang=lang)
+
+    def _confirm_export(self, action: Callable) -> None:
+        """Confirm before writing an unencrypted ledger export."""
+        lang = self._state.language
+        confirm_dialog(
+            self._page,
+            title=tr("settings.export", lang),
+            message=tr("settings.export_confirm", lang),
+            confirm_text=tr("action.save", lang),
+            cancel_text=tr("action.cancel", lang),
+            on_confirm=lambda: run_async(self._page, action),
+        )
 
     async def export_json(self) -> None:
         try:
@@ -1103,7 +1120,7 @@ class SettingsPage(ft.Column):
         pwd = ft.TextField(
             label=tr("settings.export_password", lang),
             password=True,
-            can_reveal_password=True,
+            can_reveal_password=False,
             autofocus=True,
         )
         done: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
@@ -1154,8 +1171,10 @@ class SettingsPage(ft.Column):
 
     async def export_csv(self) -> None:
         try:
+            from lib.presentation.tx_query import fetch_transactions_paged
+
             c = self._state.container
-            txs = await c.list_transactions.execute()
+            txs = await fetch_transactions_paged(c.list_transactions)
             path = ExportService(c.config).export_transactions_csv(txs)
             await self._offer_file(path, kind="CSV")
         except Exception as exc:  # noqa: BLE001
@@ -1163,9 +1182,11 @@ class SettingsPage(ft.Column):
 
     async def export_pdf(self) -> None:
         try:
+            from lib.presentation.tx_query import fetch_transactions_paged
+
             c = self._state.container
             accounts = await c.list_accounts.execute()
-            txs = await c.list_transactions.execute()
+            txs = await fetch_transactions_paged(c.list_transactions)
             goals = await c.list_goals.execute()
             debts = await c.list_debts.execute()
             subs = await c.list_subscriptions.execute()
@@ -1305,7 +1326,7 @@ class SettingsPage(ft.Column):
             snack_exception(self._page, exc, lang=self._state.language)
 
     def set_pin(self) -> None:
-        """Hash PIN and persist credentials via settings repository."""
+        """Hash PIN and persist credentials via use case."""
         lang = self._state.language
         pin = (self._pin_tf.value or "").strip()
         if len(pin) < 4:
@@ -1316,13 +1337,19 @@ class SettingsPage(ft.Column):
         safe_update(self._pin_tf)
 
         async def _persist() -> None:
-            repo = self._state.container.settings_repository
-            if repo is not None and hasattr(repo, "set_pin_credentials"):
-                await repo.set_pin_credentials(
+            set_pin = getattr(self._state.container, "set_pin_credentials", None)
+            if set_pin is None:
+                snack(self._page, tr("error.generic", lang), error=True)
+                return
+            try:
+                await set_pin.execute(
                     creds.pin_hash,
                     creds.pin_salt,
                     biometric_enabled=bool(self._biometric.value),
                 )
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
             snack(self._page, tr("settings.pin_saved", lang))
 
         run_async(self._page, _persist)
@@ -1330,21 +1357,21 @@ class SettingsPage(ft.Column):
     async def clear_pin(self) -> None:
         """Remove PIN lock credentials and disable biometric unlock."""
         lang = self._state.language
-        repo = self._state.container.settings_repository
-        if repo is not None and hasattr(repo, "clear_pin_credentials"):
-            await repo.clear_pin_credentials()
+        clear_pin = getattr(self._state.container, "clear_pin_credentials", None)
+        if clear_pin is None:
+            snack(self._page, tr("error.generic", lang), error=True)
+            return
+        try:
+            settings = await clear_pin.execute()
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=lang)
+            return
         self._biometric.value = False
         try:
             safe_update(self._biometric)
         except Exception:  # noqa: BLE001
             pass
-        if self._state.settings.biometric_enabled:
-            self._state.set_settings(
-                self._state.settings.model_copy(
-                    update={"biometric_enabled": False}
-                ),
-                notify=False,
-            )
+        self._state.set_settings(settings, notify=False)
         snack(self._page, tr("settings.pin_cleared", lang))
 
     def _confirm_wipe(self) -> None:
@@ -1384,12 +1411,9 @@ class SettingsPage(ft.Column):
                 / "data"
                 / "currencies.json"
             )
-            if (
-                c.currency_repository is not None
-                and hasattr(c.currency_repository, "seed_from_json")
-                and currencies_path.exists()
-            ):
-                await c.currency_repository.seed_from_json(currencies_path)
+            seed = getattr(c, "seed_currencies", None)
+            if seed is not None and currencies_path.exists():
+                await seed.execute(currencies_path)
             if c.get_settings is not None:
                 settings = await c.get_settings.execute()
                 self._state.set_settings(settings, notify=False)

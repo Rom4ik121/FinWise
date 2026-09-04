@@ -67,7 +67,11 @@ class UpdateExchangeRatesUseCase:
                 )
                 for r in rates
             ]
-            return await self._currencies.upsert_rates(normalized)
+            saved = await self._currencies.upsert_rates(normalized)
+            from lib.domain.services.rate_cache import invalidate_rate_book_cache
+
+            invalidate_rate_book_cache()
+            return saved
 
         if self._provider is None:
             raise RuntimeError(
@@ -88,7 +92,11 @@ class UpdateExchangeRatesUseCase:
             )
             for r in fetched
         ]
-        return await self._currencies.upsert_rates(normalized)
+        saved = await self._currencies.upsert_rates(normalized)
+        from lib.domain.services.rate_cache import invalidate_rate_book_cache
+
+        invalidate_rate_book_cache()
+        return saved
 
 
 _PIVOTS = ("USD", "USDT", "EUR", "UZS", "RUB", "KZT", "GBP")
@@ -160,3 +168,14 @@ class ListCurrenciesUseCase:
     async def execute(self, *, include_crypto: bool = True) -> list[Currency]:
         """Return currency definitions."""
         return await self._currencies.list_currencies(include_crypto=include_crypto)
+
+
+class SeedCurrenciesUseCase:
+    """Seed currency catalog from a JSON asset after wipe / first run."""
+
+    def __init__(self, currencies: CurrencyRepository) -> None:
+        self._currencies = currencies
+
+    async def execute(self, path: object) -> int:
+        """Return number of upserted currency rows."""
+        return await self._currencies.seed_from_json(path)

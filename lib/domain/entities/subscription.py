@@ -115,5 +115,5 @@ class Subscription(BaseModel):
             self.periodicity == Periodicity.CUSTOM
             and (self.custom_interval_days is None or self.custom_interval_days < 1)
         ):
-            raise ValueError("custom_interval_days is required for custom periodicity")
+            raise ValueError("Custom interval days is required")
         return self

@@ -10,7 +10,9 @@ import flet as ft
 
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.transaction import TransactionType
-from lib.presentation.count_up import mark_money_text, play_count_ups
+from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups, mark_progress
+from lib.presentation.reload_gate import ReloadGate
+from lib.presentation.ui_motion import replace_controls, ui_animation
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
     DEBT_ALERT_KINDS,
@@ -34,6 +36,7 @@ from lib.presentation.utils import (
     safe_update,
     snack,
     snack_exception,
+    tappable_compact_money,
     tr,
 )
 from lib.infrastructure.services.localization import localize_category_name
@@ -54,6 +57,21 @@ _HIDDEN_MONEY = "••••••"
 _HIDDEN_SMALL = "••••"
 
 
+def _home_budget_bar(percent: float, color: str) -> ft.Control:
+    from lib.presentation.ui_motion import is_ui_animating
+
+    clamped = min(float(percent) / 100.0, 1.0)
+    animate = is_ui_animating()
+    bar = ft.ProgressBar(
+        value=0.0 if animate else clamped,
+        color=color,
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+    )
+    if animate:
+        mark_progress(bar, clamped)
+    return bar
+
+
 class DashboardPage(ft.Column):
     """Total balance, quick actions, and section shortcuts."""
 
@@ -69,6 +87,7 @@ class DashboardPage(ft.Column):
         self._chart_days = days if days in _CHART_PERIODS else _CHART_DAYS
         self._sections_open = True
         self._balance_cache: dict = {}
+        self._animate_charts = False
         super().__init__(
             expand=True,
             spacing=0,
@@ -80,7 +99,7 @@ class DashboardPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload, True),
+                            on_click=lambda _e: self._reload_gate.request(True),
                         ),
                     ],
                 ),
@@ -92,11 +111,16 @@ class DashboardPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request(True)
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         if state.dashboard_token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     async def _total_in_base(self, accounts: list, base: str) -> tuple[Decimal, bool]:
         """Convert account balances into ``base`` currency.
@@ -164,7 +188,10 @@ class DashboardPage(ft.Column):
         list_uc = getattr(self._state.container, "list_transactions", None)
         if list_uc is not None:
             try:
-                txs = await list_uc.execute(
+                from lib.presentation.tx_query import fetch_transactions_paged
+
+                txs = await fetch_transactions_paged(
+                    list_uc,
                     date_from=period_start,
                     date_to=period_end,
                     has_transfer=False,
@@ -278,7 +305,7 @@ class DashboardPage(ft.Column):
             self._chart_days = days
             close()
             await self._persist_chart_prefs()
-            await self.reload()
+            await self.reload(True)
 
         from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 
@@ -299,8 +326,7 @@ class DashboardPage(ft.Column):
         cache = self._balance_cache
         if not cache:
             return
-        self._body.controls = cache["build"]()
-        safe_update(self._body)
+        replace_controls(self._body, cache["build"](), self._page)
 
     @staticmethod
     def _abbrev_today_amount(amount: Decimal, currency: str) -> tuple[str, str, bool]:
@@ -505,7 +531,7 @@ class DashboardPage(ft.Column):
                 show_expense=True,
                 page=self._page,
                 compact=True,
-                animate=False,
+                animate=bool(self._animate_charts),
             )
             panel_controls.append(
                 ft.Container(
@@ -682,16 +708,52 @@ class DashboardPage(ft.Column):
     async def reload(self, animate: bool = False) -> None:
         """Reload dashboard data from use cases."""
         self._token = self._state.dashboard_token
+        self._animate_charts = bool(animate)
         lang = self._state.language
+        # Keep chart period in sync with settings (e.g. after restore).
+        prefs = self._state.settings
+        days = int(getattr(prefs, "dashboard_chart_days", None) or _CHART_DAYS)
+        if days in _CHART_PERIODS:
+            self._chart_days = days
+        self._hide_chart = bool(getattr(prefs, "dashboard_hide_chart", False))
         fill_loading(self._body, message=tr("action.refresh", lang))
         c = self._state.container
+        if animate:
+            # Manual refresh: drop FX cache so totals/charts recompute cleanly.
+            try:
+                from lib.presentation.utils import invalidate_rate_book_cache
+
+                invalidate_rate_book_cache()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             accounts = await c.list_accounts.execute(active_only=True)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=lang)
-            self._body.controls = [
-                EmptyState(tr("error.generic", lang), icon=ft.Icons.ERROR_OUTLINE)
-            ]
+            replace_controls(
+                self._body,
+                [
+                    EmptyState(
+                        tr("error.generic", lang), icon=ft.Icons.ERROR_OUTLINE
+                    )
+                ],
+                self._page,
+            )
+            safe_update(self._body)
+            return
+        if not accounts:
+            replace_controls(
+                self._body,
+                [
+                    EmptyState(
+                        tr("empty.accounts", lang),
+                        icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
+                        action_label=tr("nav.accounts", lang),
+                        on_action=lambda _e: self._state.set_tab(2),
+                    )
+                ],
+                self._page,
+            )
             safe_update(self._body)
             return
         base = normalize_currency_code(self._state.base_currency)
@@ -732,52 +794,66 @@ class DashboardPage(ft.Column):
         debts_badge = badges["debts"]
         subs_badge = badges["subs"]
         budgets_badge = badges["budgets"]
-        budget_widget = await self._budgets_widget(lang, base)
-
-        def _build() -> list[ft.Control]:
-            return [
-                self._balance_panel(
-                    lang,
-                    total,
-                    base,
-                    today_income,
-                    today_expense,
-                    periods,
-                    incomes,
-                    expenses,
-                ),
-                dual_add_button(
-                    lang,
-                    on_expense=lambda: open_quick_add(
-                        self._page,
-                        self._state,
-                        accounts=accounts,
-                        default_type=TransactionType.EXPENSE,
-                    ),
-                    on_income=lambda: open_quick_add(
-                        self._page,
-                        self._state,
-                        accounts=accounts,
-                        default_type=TransactionType.INCOME,
-                    ),
-                ),
-                self._analytics_button(lang),
-                self._sections_panel(
-                    lang,
-                    goals_badge=goals_badge,
-                    debts_badge=debts_badge,
-                    subs_badge=subs_badge,
-                    budgets_badge=budgets_badge,
-                ),
-                budget_widget,
-                ft.Container(height=10),
-            ]
-
-        self._balance_cache = {"build": _build}
-        self._body.controls = _build()
-        safe_update(self._body)
+        now = datetime.now(timezone.utc)
+        # Spent is kept current via apply_expense_delta; full month scan only
+        # on explicit refresh so home stays fast with large ledgers.
         if animate:
-            await play_count_ups(self._body, self._page)
+            recalc = getattr(c, "recalculate_budget_spent", None)
+            if recalc is not None:
+                try:
+                    await recalc.execute(month=now.month, year=now.year)
+                except Exception:  # noqa: BLE001
+                    pass
+        try:
+            with ui_animation(animate):
+                budget_widget = await self._budgets_widget(lang, base)
+
+                def _build() -> list[ft.Control]:
+                    return [
+                        self._balance_panel(
+                            lang,
+                            total,
+                            base,
+                            today_income,
+                            today_expense,
+                            periods,
+                            incomes,
+                            expenses,
+                        ),
+                        dual_add_button(
+                            lang,
+                            on_expense=lambda: open_quick_add(
+                                self._page,
+                                self._state,
+                                accounts=accounts,
+                                default_type=TransactionType.EXPENSE,
+                            ),
+                            on_income=lambda: open_quick_add(
+                                self._page,
+                                self._state,
+                                accounts=accounts,
+                                default_type=TransactionType.INCOME,
+                            ),
+                        ),
+                        self._analytics_button(lang),
+                        self._sections_panel(
+                            lang,
+                            goals_badge=goals_badge,
+                            debts_badge=debts_badge,
+                            subs_badge=subs_badge,
+                            budgets_badge=budgets_badge,
+                        ),
+                        budget_widget,
+                        ft.Container(height=10),
+                    ]
+
+                self._balance_cache = {"build": _build}
+                replace_controls(self._body, _build(), self._page)
+            if animate:
+                await play_count_ups(self._body, self._page)
+        finally:
+            await flush_chart_draws()
+            self._animate_charts = False
 
     async def _budgets_widget(self, lang: str, currency: str) -> ft.Control:
         """Category budgets for the current month."""
@@ -840,14 +916,24 @@ class DashboardPage(ft.Column):
                                     ft.Text(f"{percent:.0f}%", size=13, color=color),
                                 ],
                             ),
-                            ft.ProgressBar(
-                                value=min(float(percent) / 100.0, 1.0),
-                                color=color,
-                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                            ),
-                            muted_text(
-                                f"{tr('budgets.overspend', lang) if progress.is_over_budget else tr('budgets.remaining', lang)}: "
-                                f"{format_money_compact(progress.remaining, currency, signed=progress.is_over_budget)}"
+                            _home_budget_bar(percent, color),
+                            ft.Row(
+                                spacing=6,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    muted_text(
+                                        f"{tr('budgets.overspend', lang) if progress.is_over_budget else tr('budgets.remaining', lang)}:"
+                                    ),
+                                    tappable_compact_money(
+                                        self._page,
+                                        progress.remaining,
+                                        currency,
+                                        signed=progress.is_over_budget,
+                                        language=lang,
+                                        size=12,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
+                                    ),
+                                ],
                             ),
                         ],
                     )

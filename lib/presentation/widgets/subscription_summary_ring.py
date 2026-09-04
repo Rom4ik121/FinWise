@@ -9,7 +9,9 @@ import flet as ft
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.widgets.goal_progress import circular_progress_badge
-from lib.presentation.utils import format_money_compact, tr
+from lib.presentation.utils import format_money_compact, tappable_compact_money, tr
+from lib.presentation.count_up import mark_money_text
+from lib.presentation.widgets.period_scale import period_progress_scale
 
 
 def subscriptions_summary_ring(
@@ -173,11 +175,16 @@ def analytics_subscriptions_summary(
                                     weight=ft.FontWeight.W_700,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
-                                ft.Text(
-                                    format_money_compact(spent, currency),
-                                    size=26,
-                                    weight=ft.FontWeight.W_800,
-                                    color=primary,
+                                mark_money_text(
+                                    ft.Text(
+                                        format_money_compact(spent, currency),
+                                        size=26,
+                                        weight=ft.FontWeight.W_800,
+                                        color=primary,
+                                    ),
+                                    spent,
+                                    currency=currency,
+                                    compact=True,
                                 ),
                                 muted_text(
                                     tr("analytics.subscriptions_spent", language)
@@ -203,6 +210,8 @@ def analytics_subscription_tile(
     currency: str,
     language: str,
     share: float = 0.0,
+    period_start=None,
+    period_end=None,
 ) -> ft.Control:
     """One subscription row: icon, spend in period, monthly run-rate."""
     from lib.presentation.account_icons import account_icon_badge
@@ -210,64 +219,80 @@ def analytics_subscription_tile(
     share_clamped = max(0.0, min(float(share), 1.0))
     pct = int(round(share_clamped * 100))
     accent = color or get_active_skin().primary_hex(dark=True)
-    return card_surface(
-        ft.Column(
-            spacing=8,
-            tight=True,
+    body: list[ft.Control] = [
+        ft.Row(
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Row(
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                account_icon_badge(
+                    icon or "autorenew",
+                    color=accent,
+                    size=40,
+                    glyph_size=18,
+                ),
+                ft.Column(
+                    spacing=2,
+                    tight=True,
+                    expand=True,
                     controls=[
-                        account_icon_badge(
-                            icon or "autorenew",
-                            color=accent,
-                            size=40,
-                            glyph_size=18,
+                        ft.Text(
+                            name,
+                            weight=ft.FontWeight.W_700,
+                            size=15,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
-                        ft.Column(
-                            spacing=2,
+                        ft.Row(
+                            spacing=4,
                             tight=True,
-                            expand=True,
                             controls=[
-                                ft.Text(
-                                    name,
-                                    weight=ft.FontWeight.W_700,
-                                    size=15,
-                                    max_lines=1,
-                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                ),
                                 muted_text(
                                     tr(
                                         "analytics.subscriptions_monthly_cost",
                                         language,
                                     )
-                                    + " · "
-                                    + format_money_compact(monthly, currency)
+                                    + " ·"
                                 ),
-                            ],
-                        ),
-                        ft.Column(
-                            spacing=0,
-                            tight=True,
-                            horizontal_alignment=ft.CrossAxisAlignment.END,
-                            controls=[
-                                ft.Text(
-                                    format_money_compact(spent, currency),
-                                    size=15,
-                                    weight=ft.FontWeight.W_800,
+                                tappable_compact_money(
+                                    None,
+                                    monthly,
+                                    currency,
+                                    language=language,
+                                    size=12,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
-                                muted_text(f"{pct}%") if pct > 0 else muted_text("—"),
                             ],
                         ),
                     ],
                 ),
-                ft.ProgressBar(
-                    value=share_clamped,
-                    color=accent,
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                ft.Column(
+                    spacing=0,
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.END,
+                    controls=[
+                        tappable_compact_money(
+                            None,
+                            spent,
+                            currency,
+                            language=language,
+                            size=15,
+                            weight=ft.FontWeight.W_800,
+                        ),
+                        muted_text(f"{pct}%") if pct > 0 else muted_text("—"),
+                    ],
                 ),
             ],
         ),
+    ]
+    # Only when subscription has an explicit end date.
+    scale = period_progress_scale(
+        color=accent,
+        start=period_start,
+        end=period_end,
+    )
+    if scale is not None:
+        body.append(scale)
+    return card_surface(
+        ft.Column(spacing=8, tight=True, controls=body),
         padding=12,
     )

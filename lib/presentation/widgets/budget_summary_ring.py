@@ -12,7 +12,12 @@ from lib.presentation.account_icons import account_icon_badge
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import alert_corner, card_surface, muted_text
 from lib.presentation.widgets.goal_progress import circular_progress_badge
-from lib.presentation.utils import format_money_compact, tr
+from lib.presentation.utils import format_money_compact, tappable_compact_money, tr
+from lib.presentation.count_up import mark_money_text, mark_progress
+from lib.presentation.widgets.period_scale import (
+    budget_month_bounds,
+    period_progress_scale,
+)
 
 if TYPE_CHECKING:
     from lib.domain.entities.budget import BudgetProgress
@@ -103,11 +108,16 @@ def budgets_summary_ring(
                                     weight=ft.FontWeight.W_700,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
-                                ft.Text(
-                                    format_money_compact(spent, currency),
-                                    size=26,
-                                    weight=ft.FontWeight.W_800,
-                                    color=ft.Colors.ERROR if over else primary,
+                                mark_money_text(
+                                    ft.Text(
+                                        format_money_compact(spent, currency),
+                                        size=26,
+                                        weight=ft.FontWeight.W_800,
+                                        color=ft.Colors.ERROR if over else primary,
+                                    ),
+                                    spent,
+                                    currency=currency,
+                                    compact=True,
                                 ),
                                 muted_text(tr("budgets.total_spent", language)),
                             ],
@@ -194,11 +204,7 @@ def budget_list_card(
                 ),
             ],
         ),
-        ft.ProgressBar(
-            value=min(float(percent) / 100.0, 1.0),
-            color=color,
-            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-        ),
+        _budget_spend_bar(percent, color),
         muted_text(leftover_txt),
     ]
     if pace_line is not None:
@@ -235,70 +241,92 @@ def analytics_budget_tile(
     ratio = min(float(percent) / 100.0, 1.0) if percent > 0 else 0.0
     color = _bar_color(percent)
     over = progress.is_over_budget
-    return card_surface(
-        ft.Column(
-            spacing=8,
-            tight=True,
+    body: list[ft.Control] = [
+        ft.Row(
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Row(
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                circular_progress_badge(
+                    ratio,
+                    f"{int(round(min(float(percent), 999)))}%",
+                    size=52,
+                    color=color,
+                ),
+                ft.Column(
+                    spacing=2,
+                    tight=True,
+                    expand=True,
                     controls=[
-                        circular_progress_badge(
-                            ratio,
-                            f"{int(round(min(float(percent), 999)))}%",
-                            size=52,
-                            color=color,
-                        ),
-                        ft.Column(
-                            spacing=2,
-                            tight=True,
-                            expand=True,
+                        ft.Row(
+                            spacing=8,
                             controls=[
-                                ft.Row(
-                                    spacing=8,
-                                    controls=[
-                                        account_icon_badge(
-                                            category_icon,
-                                            color=category_color,
-                                            size=28,
-                                            glyph_size=14,
-                                            glyph_color="#FFFFFF",
-                                        ),
-                                        ft.Text(
-                                            category_name,
-                                            expand=True,
-                                            weight=ft.FontWeight.W_700,
-                                            size=15,
-                                            max_lines=1,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                        ),
-                                    ],
+                                account_icon_badge(
+                                    category_icon,
+                                    color=category_color,
+                                    size=28,
+                                    glyph_size=14,
+                                    glyph_color="#FFFFFF",
                                 ),
-                                muted_text(
-                                    tr("budgets.overspend", language)
-                                    if over
-                                    else tr("budgets.remaining", language)
+                                ft.Text(
+                                    category_name,
+                                    expand=True,
+                                    weight=ft.FontWeight.W_700,
+                                    size=15,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                             ],
                         ),
-                        ft.Text(
-                            format_money_compact(progress.spent, currency),
-                            size=15,
-                            weight=ft.FontWeight.W_800,
-                            color=color,
+                        muted_text(
+                            tr("budgets.overspend", language)
+                            if over
+                            else tr("budgets.remaining", language)
                         ),
                     ],
                 ),
-                ft.ProgressBar(
-                    value=ratio,
+                tappable_compact_money(
+                    None,
+                    progress.spent,
+                    currency,
+                    language=language,
+                    size=15,
+                    weight=ft.FontWeight.W_800,
                     color=color,
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
                 ),
             ],
         ),
+    ]
+    month = int(getattr(progress, "month", 0) or 0)
+    year = int(getattr(progress, "year", 0) or 0)
+    if month and year:
+        start, end = budget_month_bounds(month, year)
+        scale = period_progress_scale(
+            color=color,
+            start=start,
+            end=end,
+        )
+        if scale is not None:
+            body.append(scale)
+
+    return card_surface(
+        ft.Column(spacing=8, tight=True, controls=body),
         padding=12,
     )
+
+
+def _budget_spend_bar(percent: float, color: str) -> ft.Control:
+    from lib.presentation.ui_motion import is_ui_animating
+
+    clamped = min(float(percent) / 100.0, 1.0)
+    animate = is_ui_animating()
+    bar = ft.ProgressBar(
+        value=0.0 if animate else clamped,
+        color=color,
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+    )
+    if animate:
+        mark_progress(bar, clamped)
+    return bar
 
 
 def _metric_chip(

@@ -13,10 +13,12 @@ import flet as ft
 from lib.core.config import DEFAULT_SAVINGS_CATEGORY, SAVINGS_CATEGORIES, normalize_savings_category
 from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.transaction import Transaction, TransactionType
+from lib.domain.use_cases.goals import strip_goal_allocation_tags
 from lib.domain.use_cases.transactions import FEE_CATEGORY, StatsPeriod, make_fee_expense
 from lib.infrastructure.services.localization import localize_category_name
 from lib.infrastructure.services.notification_service import NotificationKind
 from lib.presentation.count_up import mark_money_text, play_count_ups
+from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.dropdown_options import (
     account_dropdown_options,
     icon_dropdown_option,
@@ -38,6 +40,7 @@ from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.layout import make_v_scroll
+from lib.presentation.ui_motion import replace_controls
 from lib.presentation.widgets.line_items_editor import LineItemsEditor
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.transaction_tile import TransactionTile
@@ -75,6 +78,11 @@ def _period_key(dt: datetime, group_by: str) -> str:
     return format_date(dt)
 
 
+def _user_tags(tx: Transaction) -> list[str]:
+    """Tags safe to show/edit — hide internal goal allocation markers."""
+    return strip_goal_allocation_tags(tx.tags)
+
+
 def _matches_query(tx: Transaction, query: str) -> bool:
     if not query:
         return True
@@ -82,7 +90,7 @@ def _matches_query(tx: Transaction, query: str) -> bool:
         return True
     if query in (tx.comment or "").lower():
         return True
-    return any(query in tag.lower() for tag in (tx.tags or []))
+    return any(query in tag.lower() for tag in _user_tags(tx))
 
 
 class TransactionsPage(ft.Column):
@@ -181,7 +189,7 @@ class TransactionsPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", lang),
-                            on_click=lambda _e: run_async(page, self.reload, True),
+                            on_click=lambda _e: self._reload_gate.request(True),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.ADD,
@@ -210,22 +218,18 @@ class TransactionsPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request()
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         if state.transactions_token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     # --- Day navigation ---
-
-    _MONTH_NAMES_RU = [
-        "", "Января", "Февраля", "Марта", "Апреля", "Мая", "Июня",
-        "Июля", "Августа", "Сентября", "Октября", "Ноября", "Декабря",
-    ]
-    _MONTH_NAMES_EN = [
-        "", "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
-    ]
 
     def _format_day_label(self, lang: str) -> str:
         if self._range_mode and self._range_from and self._range_to:
@@ -233,31 +237,19 @@ class TransactionsPage(ft.Column):
         d = self._selected_date
         today = date.today()
         yesterday = today - timedelta(days=1)
-        if lang == "ru":
-            if d == today:
-                return f"Сегодня, {d.day} {self._MONTH_NAMES_RU[d.month]}"
-            if d == yesterday:
-                return f"Вчера, {d.day} {self._MONTH_NAMES_RU[d.month]}"
-            return f"{d.day} {self._MONTH_NAMES_RU[d.month]} {d.year}"
+        month = tr(f"date.month.{d.month}", lang)
         if d == today:
-            return f"Today, {d.strftime('%b %d')}"
+            return f"{tr('date.today', lang)}, {d.day} {month}"
         if d == yesterday:
-            return f"Yesterday, {d.strftime('%b %d')}"
-        return d.strftime("%b %d, %Y")
+            return f"{tr('date.yesterday', lang)}, {d.day} {month}"
+        return f"{d.day} {month} {d.year}"
 
     def _format_range_label(self, fr: date, to: date, lang: str) -> str:
-        if lang == "ru":
-            f_str = f"{fr.day} {self._MONTH_NAMES_RU[fr.month]}"
-            t_str = f"{to.day} {self._MONTH_NAMES_RU[to.month]}"
-            if fr.year != to.year:
-                f_str += f" {fr.year}"
-                t_str += f" {to.year}"
-            return f"{f_str} – {t_str}"
-        f_str = fr.strftime("%b %d")
-        t_str = to.strftime("%b %d")
+        f_str = f"{fr.day} {tr(f'date.month.{fr.month}', lang)}"
+        t_str = f"{to.day} {tr(f'date.month.{to.month}', lang)}"
         if fr.year != to.year:
-            f_str = fr.strftime("%b %d, %Y")
-            t_str = to.strftime("%b %d, %Y")
+            f_str += f" {fr.year}"
+            t_str += f" {to.year}"
         return f"{f_str} – {t_str}"
 
     def _shift_day(self, delta: int) -> None:
@@ -304,7 +296,7 @@ class TransactionsPage(ft.Column):
         self._date_to_value = to
         self._day_label.value = self._format_day_label(lang)
         safe_update(self._day_label)
-        run_async(self._page, self.reload)
+        self._reload_gate.request()
 
     def _filter_summary_text(self) -> str:
         lang = self._state.language
@@ -521,11 +513,7 @@ class TransactionsPage(ft.Column):
         return ft.Container(
             padding=ft.Padding.symmetric(vertical=8),
             content=ft.OutlinedButton(
-                tr(
-                    "action.load_more",
-                    lang,
-                    default="Показать ещё",
-                ),
+                tr("action.load_more", lang),
                 icon=ft.Icons.EXPAND_MORE,
                 on_click=lambda _e: run_async(self._page, self._load_more),
             ),
@@ -540,17 +528,20 @@ class TransactionsPage(ft.Column):
         incremental: bool = False,
     ) -> None:
         if not items and not incremental:
-            self._list.controls = [
-                EmptyState(
-                    tr("empty.transactions", lang),
-                    action_label=tr("action.add", lang),
-                    on_action=lambda _e: run_async(
-                        self._page, self._open_editor_async
-                    ),
-                )
-            ]
+            replace_controls(
+                self._list,
+                [
+                    EmptyState(
+                        tr("empty.transactions", lang),
+                        action_label=tr("action.add", lang),
+                        on_action=lambda _e: run_async(
+                            self._page, self._open_editor_async
+                        ),
+                    )
+                ],
+                self._page,
+            )
             self._last_group = None
-            safe_update(self._list)
             return
 
         if not incremental:
@@ -563,9 +554,9 @@ class TransactionsPage(ft.Column):
             if isinstance(last, ft.Container):
                 self._list.controls.pop()
             self._list.controls.extend(extra)
-        else:
-            self._list.controls = extra
-        safe_update(self._list)
+            safe_update(self._list)
+            return
+        replace_controls(self._list, extra, self._page)
 
     def _build_item_controls(
         self, items: list[Transaction], *, lang: str
@@ -655,8 +646,9 @@ class TransactionsPage(ft.Column):
             date_to = _parse_date(self._date_to_value, end_of_day=True)
         except ValueError:
             snack(self._page, tr("invalid_date", lang), error=True)
-            self._list.controls = [EmptyState(tr("invalid_date", lang))]
-            safe_update(self._list)
+            replace_controls(
+                self._list, [EmptyState(tr("invalid_date", lang))], self._page
+            )
             return
 
         try:
@@ -692,8 +684,9 @@ class TransactionsPage(ft.Column):
                 self._offset = len(self._shown)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
-            self._list.controls = [EmptyState(tr("error.generic", lang))]
-            safe_update(self._list)
+            replace_controls(
+                self._list, [EmptyState(tr("error.generic", lang))], self._page
+            )
             return
 
         self._render_list(self._shown, lang=lang)
@@ -744,11 +737,11 @@ class TransactionsPage(ft.Column):
                 tx.comment or tr("tx.no_comment", lang),
             ),
         ]
-        if tx.tags:
+        if _user_tags(tx):
             rows.append(
                 self._detail_row(
                     tr("field.tags", lang),
-                    ", ".join(f"#{t}" for t in tx.tags),
+                    ", ".join(f"#{t}" for t in _user_tags(tx)),
                 )
             )
         if tx.has_items:
@@ -852,7 +845,11 @@ class TransactionsPage(ft.Column):
         lang = self._state.language
 
         async def _do() -> None:
-            await self._state.container.delete_transaction.execute(tx.id)
+            try:
+                await self._state.container.delete_transaction.execute(tx.id)
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
             self._state.bump_refresh("dashboard", "transactions", "accounts", "budgets")
             snack(self._page, tr("action.saved", lang))
 
@@ -1006,7 +1003,7 @@ class TransactionsPage(ft.Column):
         )
         tags_tf = ft.TextField(
             label=tr("field.tags", lang),
-            value=", ".join(tx.tags) if tx else "",
+            value=", ".join(_user_tags(tx)) if tx else "",
         )
         from lib.presentation.form_keyboard import configure_field, wire_field_chain
 
@@ -1186,7 +1183,7 @@ class TransactionsPage(ft.Column):
         )
         tags_tf = ft.TextField(
             label=tr("field.tags", lang),
-            value=", ".join(tx.tags),
+            value=", ".join(_user_tags(tx)),
         )
         from lib.presentation.form_keyboard import configure_field, wire_field_chain
 

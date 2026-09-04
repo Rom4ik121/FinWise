@@ -208,6 +208,9 @@ def _nice_floor(value: float) -> float:
     return -_nice_ceiling(-value)
 
 
+_QUEUED_DRAWS: list[tuple] = []
+
+
 def _start_draw(
     canvas: cv.Canvas,
     make_shapes,
@@ -216,7 +219,7 @@ def _start_draw(
     frames: int = 36,
     playing: list[bool] | None = None,
 ) -> None:
-    """Draw the chart from empty to full after the canvas is mounted."""
+    """Queue a draw-from-empty animation until the canvas is on the page."""
     flag = playing if playing is not None else [False]
     if page is None or frames <= 1:
         canvas.shapes = make_shapes(1.0)
@@ -224,41 +227,57 @@ def _start_draw(
         return
     canvas.shapes = make_shapes(0.0)
     flag[0] = True
+    _QUEUED_DRAWS.append((canvas, make_shapes, max(8, frames), flag, page))
 
-    async def _play() -> None:
+
+async def play_queued_charts() -> None:
+    """Play chart animations after parents are mounted (reload / refresh)."""
+    batch = _QUEUED_DRAWS[:]
+    _QUEUED_DRAWS.clear()
+    if not batch:
+        return
+
+    async def _snap(canvas, make_shapes, flag: list[bool]) -> None:
+        try:
+            canvas.shapes = make_shapes(1.0)
+        except Exception:  # noqa: BLE001
+            pass
+        flag[0] = False
+
+    async def _play(canvas, make_shapes, frames: int, flag: list[bool], page: ft.Page) -> None:
         from lib.presentation.utils import control_page, safe_update
 
         try:
             mounted = False
-            for _ in range(80):
+            for _ in range(12):
                 if control_page(canvas) is None:
                     await asyncio.sleep(0.02)
                     continue
                 mounted = True
                 break
             if not mounted:
+                await _snap(canvas, make_shapes, flag)
                 return
-            total = max(8, frames)
+            total = frames
             for i in range(1, total + 1):
                 if control_page(canvas) is None:
+                    await _snap(canvas, make_shapes, flag)
                     return
                 t = i / total
                 eased = 1.0 - (1.0 - t) ** 2
                 canvas.shapes = make_shapes(eased)
                 safe_update(canvas)
                 await asyncio.sleep(0.016)
-            if control_page(canvas) is None:
-                return
-            canvas.shapes = make_shapes(1.0)
-            safe_update(canvas)
+            if control_page(canvas) is not None:
+                canvas.shapes = make_shapes(1.0)
+                safe_update(canvas)
         except Exception:  # noqa: BLE001
+            await _snap(canvas, make_shapes, flag)
             return
         finally:
             flag[0] = False
 
-    from lib.presentation.utils import run_async
-
-    run_async(page, _play)
+    await asyncio.gather(*(_play(*item) for item in batch))
 
 
 def _chart_shell(control: ft.Control) -> ft.Container:
@@ -630,7 +649,7 @@ def _info_line_chart(
             )
         return shapes
 
-    # Compact: grow to card width (height fixed). Full charts also expand.
+    # Compact sparkline and full charts both fill the card width.
     canvas = _SafeCanvas(
         expand=True,
         width=None if compact else width,
@@ -782,6 +801,7 @@ def _info_donut_chart(
     show_legend: bool,
     empty_message: str | None = None,
     page: ft.Page | None = None,
+    animate: bool = True,
 ) -> ft.Control:
     from lib.infrastructure.services.localization import t
 
@@ -890,7 +910,7 @@ def _info_donut_chart(
         width=size,
         height=size,
         expand=False,
-        shapes=_shapes(1.0 if page is None else 0.0),
+        shapes=_shapes(1.0 if page is None or not animate else 0.0),
         content=ft.Container(alignment=ft.Alignment.CENTER, content=center),
     )
 
@@ -920,7 +940,12 @@ def _info_donut_chart(
             return
         _show_slice(_donut_slice_index(xy[0] - cx, xy[1] - cy, sweeps), buzz=True)
 
-    _start_draw(ring, _shapes, page=page, frames=36)
+    _start_draw(
+        ring,
+        _shapes,
+        page=page,
+        frames=1 if not animate else 36,
+    )
     donut = ft.Container(
         width=size,
         height=size,
@@ -975,6 +1000,7 @@ def build_pie_chart_image(
     show_legend: bool = True,
     empty_message: str | None = None,
     page: ft.Page | None = None,
+    animate: bool = True,
 ) -> ft.Control:
     """Category share donut used on every platform."""
     _ = title
@@ -988,6 +1014,7 @@ def build_pie_chart_image(
         show_legend=show_legend,
         empty_message=empty_message,
         page=page,
+        animate=animate,
     )
 
 

@@ -1,13 +1,15 @@
-"""RU/EN/UZ UI string dictionaries and translation helper."""
+"""RU/EN/UZ/UK/BE/KK UI string dictionaries and translation helper."""
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Mapping
 
 logger = logging.getLogger("finanse.infrastructure.services.localization")
 
-SUPPORTED_LANGS = ("ru", "en", "uz")
+SUPPORTED_LANGS = ("ru", "en", "uz", "uk", "be", "kk")
 DEFAULT_LANG = "ru"
 
 STRINGS: dict[str, dict[str, str]] = {
@@ -103,8 +105,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Birjadagi aktivlar",
     },
     "account.exchange.hint": {
-        "ru": "Название и валюта подтянутся с биржи. Достаточно ключа только для чтения.",
-        "en": "We'll fill in the name and currency from the exchange. A read-only API key is enough.",
+        "ru": "Название и валюта подтянутся с биржи. Достаточно ключа с доступом только для чтения.",
+        "en": "We’ll fill in the name and currency from the exchange. A read-only key is enough.",
         "uz": "Nomi va valyuta birjadan olinadi. Faqat o‘qish uchun kalit yetarli.",
     },
     "account.exchange.connecting": {
@@ -113,9 +115,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Birja ulanmoqda, balans yuklanmoqda…",
     },
     "account.exchange.keys_hint": {
-        "ru": "Используйте ключ только для чтения. При правке оставьте поля пустыми — старые ключи сохранятся.",
-        "en": "Use a read-only key. When editing, leave the fields empty to keep your saved keys.",
-        "uz": "Faqat o‘qish uchun kalitdan foydalaning. Tahrirlashda maydonlarni bo‘sh qoldiring — eski kalitlar saqlanadi.",
+        "ru": "Берите ключ только для чтения. Если правите счёт и не меняете доступ — оставьте поля пустыми.",
+        "en": "Use a read-only key. When editing the account, leave the key fields blank to keep the saved ones.",
+        "uz": "Faqat o‘qish uchun kalitdan foydalaning. Hisobni tahrirlaganda maydonlarni bo‘sh qoldirsangiz — saqlangan kalitlar qoladi.",
     },
     "account.exchange.last_sync": {
         "ru": "Последняя синхронизация: {when}",
@@ -172,10 +174,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Sync failed. Please try again later.",
         "uz": "Sinxronlash muvaffaqiyatsiz. Keyinroq urinib ko‘ring.",
     },
+    "error.exchange_bad_credentials": {
+        "ru": "Неверный ключ биржи. Проверьте ключ и секретный код в настройках счёта.",
+        "en": "Invalid exchange key. Check the key and secret in account settings.",
+        "uz": "Birja kaliti noto‘g‘ri. Hisob sozlamalarida kalit va maxfiy kodni tekshiring.",
+    },
     "error.exchange_unavailable": {
-        "ru": "Библиотека бирж недоступна. Переустановите приложение.",
-        "en": "Exchange library is unavailable. Please reinstall the app.",
-        "uz": "Birja kutubxonasi mavjud emas. Ilovani qayta o‘rnating.",
+        "ru": "Не удалось подключить биржу. Переустановите приложение или попробуйте позже.",
+        "en": "Couldn’t connect to the exchange. Reinstall the app or try again later.",
+        "uz": "Birjaga ulanib bo‘lmadi. Ilovani qayta o‘rnating yoki keyinroq urinib ko‘ring.",
+    },
+    "account.exchange.keys_required": {
+        "ru": "Укажите ключ и секретный код биржи",
+        "en": "Enter the exchange key and secret",
+        "uz": "Birja kaliti va maxfiy kodini kiriting",
+    },
+    "account.exchange.not_linked": {
+        "ru": "Этот счёт не связан с биржей",
+        "en": "This account isn’t linked to an exchange",
+        "uz": "Bu hisob birjaga ulanmagan",
+    },
+    "account.exchange.unknown": {
+        "ru": "Неизвестная биржа",
+        "en": "Unknown exchange",
+        "uz": "Noma’lum birja",
     },
     "exchange.binance": {"ru": "Binance", "en": "Binance", "uz": "Binance"},
     "exchange.coinbase": {"ru": "Coinbase", "en": "Coinbase", "uz": "Coinbase"},
@@ -340,14 +362,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "«xarajat taksi 500» yoki «daromad oylik 2 mln» deng — darhol saqlanadi.",
     },
     "voice.shortcut_android": {
-        "ru": "Android: Настройки → кнопки / боковая клавиша / режимы → ярлык или «открыть URL» → finwise://voice. После зажатия кнопки откроется FinWise и начнётся запись. Пока приложение открыто, можно зажать кнопку громкости вниз.",
-        "en": "Android: Settings → buttons / side key / Routines → shortcut or Open URL → finwise://voice. A long-press opens FinWise and starts listening. While the app is open you can also long-press volume down.",
-        "uz": "Android: Sozlamalar → tugmalar / yon tugma → finwise://voice. Tugmani bosib tursangiz FinWise ochiladi va yozuv boshlanadi. Ilova ochiq bo‘lsa, ovozni pasaytirish tugmasini bosib turishingiz mumkin.",
+        "ru": "Чтобы запускать голосовой ввод кнопкой: в настройках Android назначьте ярлык или «Открыть ссылку» на finwise://voice. Пока FinWise открыт, можно также зажать кнопку громкости вниз.",
+        "en": "To start voice input from a button: in Android settings assign a shortcut or Open URL to finwise://voice. While FinWise is open, you can also long-press volume down.",
+        "uz": "Ovozli kiritishni tugma bilan ishga tushirish uchun Android sozlamalarida finwise://voice uchun yorliq yoki «URL ochish»ni belgilang. FinWise ochiq bo‘lsa, ovozni pasaytirish tugmasini bosib turishingiz mumkin.",
     },
     "voice.shortcut_ios": {
-        "ru": "iPhone: кнопку блокировки отдать другому приложению нельзя (это Siri). Назначьте ярлык: Настройки → Универсальный доступ → Касание → Касание задней панели — или кнопка Действие — команда «Открыть URL» finwise://voice.",
-        "en": "iPhone: the lock button cannot be given to another app (it is Siri). Bind a shortcut instead: Settings → Accessibility → Touch → Back Tap, or the Action button → Open URL finwise://voice.",
-        "uz": "iPhone: bloklash tugmasini boshqa ilovaga berib bo‘lmaydi (bu Siri). O‘rniga: Sozlamalar → Foydalanish imkoniyati → Teginish → Orqa panel yoki Action tugmasi → URL: finwise://voice.",
+        "ru": "На iPhone кнопку блокировки отдать приложению нельзя. Назначьте ярлык: Настройки → Универсальный доступ → Касание → Касание задней панели (или кнопка Действие) → «Открыть URL» finwise://voice.",
+        "en": "On iPhone the lock button can’t be remapped. Set a shortcut instead: Settings → Accessibility → Touch → Back Tap (or Action button) → Open URL finwise://voice.",
+        "uz": "iPhone’da bloklash tugmasini ilovaga biriktirib bo‘lmaydi. Yorliq qo‘ying: Sozlamalar → Foydalanish imkoniyati → Teginish → Orqa panel (yoki Action) → URL ochish: finwise://voice.",
     },
     "action.refresh": {
         "ru": "Обновить",
@@ -468,6 +490,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Новая категория",
         "en": "New category",
         "uz": "Yangi kategoriya",
+    },
+    "category.name_required": {
+        "ru": "Введите название категории",
+        "en": "Enter a category name",
+        "uz": "Kategoriya nomini kiriting",
+    },
+    "category.system_locked": {
+        "ru": "Системную категорию удалить нельзя",
+        "en": "Built-in categories can’t be deleted",
+        "uz": "Tizim kategoriyasini o‘chirib bo‘lmaydi",
+    },
+    "category.duplicate": {
+        "ru": "Такая категория уже есть",
+        "en": "This category already exists",
+        "uz": "Bunday kategoriya allaqachon bor",
     },
     "category.empty_hint": {
         "ru": "Пока категорий нет — создайте первую, и она появится в быстром выборе",
@@ -773,6 +810,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Нажмите, чтобы увидеть полную сумму",
         "en": "Tap to see the full amount",
         "uz": "To‘liq summani ko‘rish uchun bosing",
+    },
+    "money.tap_full": {
+        "ru": "Нажмите, чтобы увидеть полную сумму",
+        "en": "Tap to see the full amount",
+        "uz": "To‘liq summani ko‘rish uchun bosing",
+    },
+    "field.exchange.pick": {
+        "ru": "Выберите биржу",
+        "en": "Choose an exchange",
+        "uz": "Birjani tanlang",
     },
     "dashboard.month_dynamics": {
         "ru": "Динамика за месяц",
@@ -1251,13 +1298,38 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "debt.archive_unpaid": {
         "ru": "Архивировать можно только погашенный долг",
-        "en": "Debt must be fully paid before archiving",
+        "en": "You can archive a debt only after it’s fully paid",
         "uz": "Faqat to‘liq to‘langan qarzni arxivlash mumkin",
     },
     "debt.archived_block": {
         "ru": "Долг в архиве",
         "en": "Debt is archived",
         "uz": "Qarz arxivda",
+    },
+    "debt.interest_too_high": {
+        "ru": "Проценты не могут быть больше суммы платежа",
+        "en": "Interest can’t be greater than the payment",
+        "uz": "Foiz to‘lov summasidan katta bo‘lishi mumkin emas",
+    },
+    "debt.nothing_to_undo": {
+        "ru": "Нет платежей, которые можно отменить",
+        "en": "There’s nothing to undo",
+        "uz": "Bekor qilish uchun to‘lov yo‘q",
+    },
+    "debt.account_required": {
+        "ru": "Выберите счёт для платежа по долгу",
+        "en": "Choose an account for the debt payment",
+        "uz": "Qarz to‘lovi uchun hisobni tanlang",
+    },
+    "debt.tx_not_linked": {
+        "ru": "Операция не связана с этим долгом",
+        "en": "This transaction isn’t linked to this debt",
+        "uz": "Bu amal ushbu qarzga bog‘lanmagan",
+    },
+    "debt.no_interest_rate": {
+        "ru": "У долга не задана процентная ставка",
+        "en": "This debt has no interest rate",
+        "uz": "Bu qarzda foiz stavkasi yo‘q",
     },
     "debt.paid_block": {
         "ru": "Долг уже погашен",
@@ -1370,9 +1442,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Hali amaliyotlar yo‘q",
     },
     "error.generic": {
-        "ru": "Произошла ошибка",
-        "en": "Something went wrong",
-        "uz": "Xatolik yuz berdi",
+        "ru": "Что-то пошло не так. Попробуйте ещё раз.",
+        "en": "Something went wrong. Please try again.",
+        "uz": "Nimadir noto‘g‘ri ketdi. Qayta urinib ko‘ring.",
     },
     "error.insufficient_funds": {
         "ru": "Недостаточно средств на счёте",
@@ -1499,6 +1571,28 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Pick a date",
         "uz": "Sanani tanlang",
     },
+    "date.today": {
+        "ru": "Сегодня",
+        "en": "Today",
+        "uz": "Bugun",
+    },
+    "date.yesterday": {
+        "ru": "Вчера",
+        "en": "Yesterday",
+        "uz": "Kecha",
+    },
+    "date.month.1": {"ru": "января", "en": "January", "uz": "yanvar"},
+    "date.month.2": {"ru": "февраля", "en": "February", "uz": "fevral"},
+    "date.month.3": {"ru": "марта", "en": "March", "uz": "mart"},
+    "date.month.4": {"ru": "апреля", "en": "April", "uz": "aprel"},
+    "date.month.5": {"ru": "мая", "en": "May", "uz": "may"},
+    "date.month.6": {"ru": "июня", "en": "June", "uz": "iyun"},
+    "date.month.7": {"ru": "июля", "en": "July", "uz": "iyul"},
+    "date.month.8": {"ru": "августа", "en": "August", "uz": "avgust"},
+    "date.month.9": {"ru": "сентября", "en": "September", "uz": "sentabr"},
+    "date.month.10": {"ru": "октября", "en": "October", "uz": "oktabr"},
+    "date.month.11": {"ru": "ноября", "en": "November", "uz": "noyabr"},
+    "date.month.12": {"ru": "декабря", "en": "December", "uz": "dekabr"},
     "date.clear": {
         "ru": "Очистить дату",
         "en": "Clear date",
@@ -1925,9 +2019,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Pozitsiya",
     },
     "goal.items_required": {
-        "ru": "Добавьте позицию или отключите режим",
-        "en": "Add an item or turn off multi-item mode",
-        "uz": "Pozitsiya qo‘shing yoki rejimni o‘chiring",
+        "ru": "Добавьте хотя бы одну позицию или выключите список позиций",
+        "en": "Add at least one item, or turn off the item list",
+        "uz": "Kamida bitta pozitsiya qo‘shing yoki ro‘yxatni o‘chiring",
     },
     "goals.total_remaining": {
         "ru": "Ещё нужно",
@@ -2036,8 +2130,28 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "goal.withdraw_exceeds_item": {
         "ru": "Сумма больше накопленного по позиции",
-        "en": "Amount exceeds item balance",
-        "uz": "Summa pozitsiya balansidan katta",
+        "en": "Amount exceeds what’s saved for this item",
+        "uz": "Summa shu pozitsiya jamg‘armasidan katta",
+    },
+    "goal.withdraw_exceeds": {
+        "ru": "Сумма больше накопленного по цели",
+        "en": "Amount exceeds what’s saved for this goal",
+        "uz": "Summa maqsad jamg‘armasidan katta",
+    },
+    "goal.tx_not_linked": {
+        "ru": "Операция не связана с этой целью",
+        "en": "This transaction isn’t linked to this goal",
+        "uz": "Bu amal ushbu maqsadga bog‘lanmagan",
+    },
+    "goal.account_required": {
+        "ru": "Выберите счёт для пополнения цели",
+        "en": "Choose an account to fund the goal",
+        "uz": "Maqsadni to‘ldirish uchun hisobni tanlang",
+    },
+    "goal.no_items": {
+        "ru": "У цели нет позиций для снятия",
+        "en": "This goal has no items to withdraw from",
+        "uz": "Bu maqsadda yechib olish uchun pozitsiya yo‘q",
     },
     "goal.complete_archive_title": {
         "ru": "Цель достигнута",
@@ -2560,9 +2674,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "To‘g‘ri summa kiriting",
     },
     "invalid_date": {
-        "ru": "Дата: YYYY-MM-DD или YYYY-MM-DD HH:MM",
-        "en": "Date: YYYY-MM-DD or YYYY-MM-DD HH:MM",
-        "uz": "Sana: YYYY-MM-DD yoki YYYY-MM-DD HH:MM",
+        "ru": "Проверьте дату — выберите её в календаре или введите корректно",
+        "en": "Check the date — pick it from the calendar or enter a valid one",
+        "uz": "Sanani tekshiring — kalendardan tanlang yoki to‘g‘ri kiriting",
     },
     "lang.en": {
         "ru": "English",
@@ -2643,6 +2757,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Разблокировать",
         "en": "Unlock",
         "uz": "Qulfni ochish",
+    },
+    "lock.pin_load_failed": {
+        "ru": "Не удалось загрузить защиту. Перезапустите приложение.",
+        "en": "Could not load lock settings. Restart the app.",
+        "uz": "Qulf sozlamalarini yuklab bo‘lmadi. Ilovani qayta ishga tushiring.",
     },
     "lock.wrong_pin": {
         "ru": "Неверный PIN",
@@ -2914,11 +3033,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "By category",
         "uz": "Toifalar bo‘yicha",
     },
-    "analytics.budgets_trend": {
-        "ru": "Лимит и расходы по месяцам",
-        "en": "Limits vs spend by month",
-        "uz": "Oylik limit va xarajat",
-    },
     "budgets.category_required": {
         "ru": "Выберите категорию",
         "en": "Choose a category",
@@ -2928,6 +3042,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Введите лимит",
         "en": "Enter a limit",
         "uz": "Limitni kiriting",
+    },
+    "budgets.month_invalid": {
+        "ru": "Выберите месяц от 1 до 12",
+        "en": "Choose a month from 1 to 12",
+        "uz": "1 dan 12 gacha oyni tanlang",
+    },
+    "budgets.year_invalid": {
+        "ru": "Проверьте год бюджета",
+        "en": "Check the budget year",
+        "uz": "Byudjet yilini tekshiring",
     },
     "budgets.month": {
         "ru": "Месяц",
@@ -3097,9 +3221,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Zaxira nusxalar",
     },
     "settings.daily_backup_hint": {
-        "ru": "Раз в день приложение само обновляет файл finanse_daily.db в папке backups (не создаёт новый).",
-        "en": "Once a day the app updates finanse_daily.db in the backups folder (same file, not a new copy).",
-        "uz": "Har kuni ilova backups papkasidagi finanse_daily.db faylini yangilaydi (yangi nusxa yaratmaydi).",
+        "ru": "Раз в день приложение само обновляет резервную копию (один и тот же файл).",
+        "en": "Once a day the app refreshes your automatic backup (same file, not a new one).",
+        "uz": "Har kuni ilova avtomatik zaxirani yangilaydi (bir xil fayl).",
     },
     "settings.basics": {
         "ru": "Основные",
@@ -3132,9 +3256,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Avval PIN o‘rnating — Face ID u bilan birga ishlaydi",
     },
     "settings.biometric_unsupported": {
-        "ru": "Face ID недоступен на этой платформе",
-        "en": "Face ID is not available on this platform",
-        "uz": "Bu platformada Face ID yo‘q",
+        "ru": "Face ID на этом устройстве недоступен",
+        "en": "Face ID isn’t available on this device",
+        "uz": "Bu qurilmada Face ID yo‘q",
     },
     "settings.biometric_confirmed": {
         "ru": "Face ID подтверждён",
@@ -3206,6 +3330,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Export JSON",
         "uz": "JSON eksport",
     },
+    "settings.export_confirm": {
+        "ru": "Файл с полным учётом будет сохранён на устройстве. Продолжить?",
+        "en": "A file with your full ledger will be saved on this device. Continue?",
+        "uz": "To‘liq hisob fayli qurilmada saqlanadi. Davom etasizmi?",
+    },
     "settings.export_json_encrypted": {
         "ru": "Экспорт JSON (пароль)",
         "en": "Export JSON (password)",
@@ -3272,9 +3401,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Saqlash bekor qilindi",
     },
     "settings.restore_need_db": {
-        "ru": "Для восстановления выберите файл резервной копии (.db), а не JSON-экспорт",
-        "en": "To restore, pick a backup file (.db), not a JSON export",
-        "uz": "Tiklash uchun JSON emas, zaxira (.db) faylini tanlang",
+        "ru": "Для восстановления выберите файл резервной копии, а не обычный экспорт",
+        "en": "To restore, pick a backup file, not a regular export",
+        "uz": "Tiklash uchun oddiy eksport emas, zaxira faylini tanlang",
     },
     "settings.restore_bad_file": {
         "ru": "Этот файл нельзя восстановить",
@@ -3317,9 +3446,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Jadval",
     },
     "settings.export_hint": {
-        "ru": "Сохраните данные в файл на устройстве. Зашифрованный JSON защищён паролем.",
-        "en": "Save data to a file on your device. Encrypted JSON is protected with a password.",
-        "uz": "Ma’lumotlarni qurilmadagi faylga saqlang. Shifrlangan JSON parol bilan himoyalangan.",
+        "ru": "Сохраните данные в защищённый паролем файл на устройстве.",
+        "en": "Save your data to a password-protected file on this device.",
+        "uz": "Ma’lumotlarni parol bilan himoyalangan faylga saqlang.",
     },
     "settings.sections_hint": {
         "ru": "Быстрый переход к разделам приложения",
@@ -3390,6 +3519,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Напоминать о подписках за N дней",
         "en": "Remind about subscriptions N days ahead",
         "uz": "Obunalar haqida N kun oldin eslatish",
+    },
+    "settings.reminder_days_invalid": {
+        "ru": "Число дней напоминания — от 0 до 365",
+        "en": "Reminder days must be between 0 and 365",
+        "uz": "Eslatma kunlari 0 dan 365 gacha bo‘lishi kerak",
+    },
+    "settings.reminder_time_invalid": {
+        "ru": "Время напоминания: часы и минуты, например 09:30",
+        "en": "Enter reminder time as hours and minutes, for example 09:30",
+        "uz": "Eslatma vaqtini soat:daqiqa ko‘rinishida kiriting, masalan 09:30",
     },
     "settings.check_balance_before_subscription": {
         "ru": "Проверять баланс перед списанием подписки",
@@ -3497,9 +3636,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Maks. to‘lovlar",
     },
     "subscription.max_payments_hint": {
-        "ru": "Сколько раз списывать. Пусто — без лимита",
-        "en": "How many times to charge. Empty — no limit",
-        "uz": "Necha marta yechiladi. Bo‘sh — cheklovsiz",
+        "ru": "Сколько раз списывать. Оставьте пустым — без ограничения",
+        "en": "How many times to charge. Leave empty for no limit",
+        "uz": "Necha marta yechiladi. Bo‘sh qoldiring — cheklovsiz",
     },
     "subscription.status.active": {
         "ru": "Активна",
@@ -3806,20 +3945,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Payment limit reached",
         "uz": "To‘lov limiti tugadi",
     },
+    "subscription.tx_not_linked": {
+        "ru": "Операция не связана с этой подпиской",
+        "en": "This transaction isn’t linked to this subscription",
+        "uz": "Bu amal ushbu obunaga bog‘lanmagan",
+    },
+    "subscription.custom_interval_required": {
+        "ru": "Укажите интервал в днях для своего расписания",
+        "en": "Enter the interval in days for a custom schedule",
+        "uz": "Maxsus jadval uchun kunlar oralig‘ini kiriting",
+    },
     "subscription.resume_cancelled": {
         "ru": "Отменённую подписку нельзя возобновить — создайте новую",
         "en": "A cancelled subscription cannot be resumed — create a new one",
         "uz": "Bekor qilingan obunani davom ettirib bo‘lmaydi",
     },
     "subscription.cancel_via_action": {
-        "ru": "Отмените подписку кнопкой на карточке, не через статус",
-        "en": "Cancel from the subscription card, not by changing status",
+        "ru": "Отмените подписку кнопкой на карточке",
+        "en": "Cancel the subscription with the button on its card",
         "uz": "Obunani kartochkadagi tugma bilan bekor qiling",
     },
     "subscription.status_locked_hint": {
-        "ru": "Статус меняется кнопками паузы и отмены, не из этой формы",
-        "en": "Change status with pause or cancel, not from this form",
-        "uz": "Holatni pauza yoki bekor qilish tugmalari bilan o‘zgartiring",
+        "ru": "Чтобы сменить статус, нажмите «Пауза» или «Отменить» на карточке подписки",
+        "en": "To change status, use Pause or Cancel on the subscription card",
+        "uz": "Holatni o‘zgartirish uchun kartochkadagi Pauza yoki Bekor qilishdan foydalaning",
     },
     "subscription.template.netflix": {
         "ru": "Netflix",
@@ -4076,11 +4225,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "By subscription",
         "uz": "Obunalar bo‘yicha",
     },
-    "analytics.subscriptions_trend": {
-        "ru": "Динамика списаний",
-        "en": "Charge trend",
-        "uz": "To‘lov dinamikasi",
-    },
     "tags.hint": {
         "ru": "еда, такси",
         "en": "food, taxi",
@@ -4160,6 +4304,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Сумму и счета перевода менять нельзя — только комментарий. Удаление уберёт обе стороны перевода",
         "en": "You can’t change the amount or accounts — only the comment. Deleting removes both sides of the transfer",
         "uz": "O‘tkazma summasini va hisoblarni o‘zgartirib bo‘lmaydi — faqat izoh. O‘chirish ikkala tomonni ham olib tashlaydi",
+    },
+    "transfer.edit_blocked": {
+        "ru": "У перевода можно изменить только комментарий",
+        "en": "You can only edit the comment on a transfer",
+        "uz": "O‘tkazmada faqat izohni o‘zgartirish mumkin",
     },
     "transfer.delete_pair": {
         "ru": "Будут удалены обе стороны перевода",

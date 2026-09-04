@@ -105,14 +105,61 @@ def test_update_account_currency_converts(container) -> None:
     run_async(_run())
 
 
-def test_update_account_currency_refuses_without_rate(container) -> None:
+def test_update_account_currency_preserves_goal_credit(container) -> None:
+    """goal_credit_amount is in goal currency — must not follow account FX."""
+
+    async def _run() -> None:
+        from tests.factories import make_goal
+
+        await container.currency_repository.upsert_rates(
+            [
+                ExchangeRate(base="USD", quote="UZS", rate=Decimal("10000")),
+                ExchangeRate(base="USD", quote="RUB", rate=Decimal("90")),
+            ]
+        )
+        acc = await container.create_account.execute(
+            make_account(name="USD cash", currency="USD", balance="100")
+        )
+        goal = await container.create_goal.execute(
+            make_goal(target="1000", currency="RUB")
+        )
+        await container.contribute_to_goal.execute(
+            goal_id=goal.id,
+            account_id=acc.id,
+            amount=Decimal("10"),
+        )
+        before = await container.list_transactions.execute(account_id=acc.id)
+        contrib = next(tx for tx in before if tx.goal_id == goal.id)
+        # $10 → 900 RUB at USD/RUB=90
+        assert contrib.goal_credit_amount == Decimal("900.00")
+        credit_before = contrib.goal_credit_amount
+
+        await container.update_account.execute(
+            acc.model_copy(update={"currency": "UZS"})
+        )
+        after = await container.list_transactions.execute(account_id=acc.id)
+        contrib2 = next(tx for tx in after if tx.goal_id == goal.id)
+        assert contrib2.currency == "UZS"
+        assert contrib2.amount == Decimal("100000.00")
+        assert contrib2.goal_credit_amount == credit_before
+
+        # Reverse still restores goal correctly.
+        await container.delete_transaction.execute(contrib2.id)
+        refreshed = await container.goal_repository.get_by_id(goal.id)
+        assert refreshed is not None
+        assert refreshed.current_amount == Decimal("0.00")
+
+    run_async(_run())
+
+
+def test_update_account_currency_requires_rate(container) -> None:
     async def _run() -> None:
         acc = await container.create_account.execute(
-            make_account(name="Exotic", currency="USD", balance="10")
+            make_account(name="Exotic", currency="GBP", balance="10")
         )
         try:
             await container.update_account.execute(
-                acc.model_copy(update={"currency": "UZS"})
+                acc.model_copy(update={"currency": "KZT"})
             )
             raise AssertionError("expected ValueError")
         except ValueError as exc:

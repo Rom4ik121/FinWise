@@ -258,11 +258,13 @@ def reverse_goal_contribution_credit(
             )
             return quantize_money(take)
 
+        debit_left = credit
         if allocations:
+            # Exact reverse from tags; any shortfall falls through to LIFO.
             for iid, amount in allocations.items():
-                _debit_item(iid, quantize_money(amount))
-        else:
-            debit_left = credit
+                taken = _debit_item(iid, quantize_money(amount))
+                debit_left = quantize_money(debit_left - taken)
+        if debit_left > 0:
             # 1) Undo overflow parked on the primary above its target.
             primary = updated[item_id]
             excess = quantize_money(
@@ -281,8 +283,7 @@ def reverse_goal_contribution_credit(
 
             # 3) Undo the primary fill itself.
             if debit_left > 0:
-                taken = _debit_item(item_id, debit_left)
-                debit_left = quantize_money(debit_left - taken)
+                _debit_item(item_id, debit_left)
 
         ordered = [updated[item.id] for item in goal.items]
         payload = goal.model_copy(update={"items": ordered})
@@ -796,7 +797,7 @@ class CloseGoalItemUseCase:
         if goal.status != GoalStatus.ACTIVE:
             raise ValueError("Goal is not active")
         if not goal.items:
-            raise ValueError("Goal has no items")
+            raise ValueError("Goal has no items to withdraw from")
         now = _utc_now()
         updated_items: list[GoalItem] = []
         found = False

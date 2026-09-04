@@ -58,7 +58,7 @@ class LockScreen(ft.Container):
         self._pin = ft.TextField(
             label=tr("settings.pin", language),
             password=True,
-            can_reveal_password=True,
+            can_reveal_password=False,
             max_length=8,
             keyboard_type=ft.KeyboardType.NUMBER,
             width=280,

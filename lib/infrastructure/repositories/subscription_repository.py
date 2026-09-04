@@ -17,7 +17,12 @@ from lib.domain.entities.subscription import (
 )
 from lib.domain.repositories.subscription_repository import SubscriptionRepository
 from lib.infrastructure.db_models import SubscriptionModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.subscription")
 
@@ -117,15 +122,23 @@ class SqlAlchemySubscriptionRepository(SubscriptionRepository):
         self._session_factory = session_factory
 
     async def create(self, subscription: Subscription) -> Subscription:
+        if in_unit_of_work():
+            return self._create_sync(subscription)
         return await asyncio.to_thread(self._create_sync, subscription)
 
     async def update(self, subscription: Subscription) -> Subscription:
+        if in_unit_of_work():
+            return self._update_sync(subscription)
         return await asyncio.to_thread(self._update_sync, subscription)
 
     async def delete(self, subscription_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(subscription_id)
         return await asyncio.to_thread(self._delete_sync, subscription_id)
 
     async def get_by_id(self, subscription_id: str) -> Optional[Subscription]:
+        if in_unit_of_work():
+            return self._get_by_id_sync(subscription_id)
         return await asyncio.to_thread(self._get_by_id_sync, subscription_id)
 
     async def list(
@@ -135,14 +148,16 @@ class SqlAlchemySubscriptionRepository(SubscriptionRepository):
         account_id: Optional[str] = None,
         status: Optional[SubscriptionStatus] = None,
     ) -> list[Subscription]:
-        return await asyncio.to_thread(
-            self._list_sync, active_only, account_id, None, status
-        )
+        args = (active_only, account_id, None, status)
+        if in_unit_of_work():
+            return self._list_sync(*args)
+        return await asyncio.to_thread(self._list_sync, *args)
 
     async def list_due(self, as_of: datetime) -> list[Subscription]:
-        return await asyncio.to_thread(
-            self._list_sync, True, None, as_of, SubscriptionStatus.ACTIVE
-        )
+        args = (True, None, as_of, SubscriptionStatus.ACTIVE)
+        if in_unit_of_work():
+            return self._list_sync(*args)
+        return await asyncio.to_thread(self._list_sync, *args)
 
     def _create_sync(self, entity: Subscription) -> Subscription:
         with session_scope(self._session_factory) as session:

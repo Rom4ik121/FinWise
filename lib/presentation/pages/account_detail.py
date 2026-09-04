@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -22,7 +21,9 @@ from lib.presentation.analytics_period import (
     format_chart_period_label,
     resolve_analytics_period,
 )
-from lib.presentation.count_up import mark_money_text, play_count_ups
+from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
+from lib.presentation.reload_gate import ReloadGate
+from lib.presentation.ui_motion import replace_controls
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
@@ -43,6 +44,7 @@ from lib.presentation.utils import (
     snack,
     snack_exception,
     tr,
+    user_facing_error,
 )
 from lib.presentation.widgets.charts import (
     build_line_chart_image,
@@ -57,8 +59,6 @@ from lib.presentation.widgets.transaction_tile import TransactionTile
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
-
-logger = logging.getLogger("finanse.presentation.pages.account_detail")
 
 
 class AccountDetailPage(ft.Column):
@@ -97,7 +97,7 @@ class AccountDetailPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload, True),
+                            on_click=lambda _e: self._reload_gate.request(True),
                         ),
                     ],
                 ),
@@ -114,12 +114,17 @@ class AccountDetailPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request()
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         token = state.accounts_token + state.transactions_token
         if token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     def _chip(self, label: str, *, selected: bool, on_click) -> ft.Container:
         skin = get_active_skin()
@@ -199,7 +204,7 @@ class AccountDetailPage(ft.Column):
             return
         self._period = key
         self._tint_period_chips()
-        run_async(self._page, self.reload)
+        self._reload_gate.request()
 
     async def _sync_now(self) -> None:
         if self._syncing:
@@ -216,8 +221,7 @@ class AccountDetailPage(ft.Column):
         try:
             result = await sync.execute(self._account_id)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Account sync failed: %s", exc, exc_info=True)
-            snack(self._page, tr("error.sync_failed", lang), error=True)
+            snack_exception(self._page, exc, lang=lang)
             return
         finally:
             self._syncing = False
@@ -252,7 +256,7 @@ class AccountDetailPage(ft.Column):
         if link.last_error:
             rows.append(
                 ft.Text(
-                    link.last_error,
+                    user_facing_error(link.last_error, lang),
                     size=11,
                     color=ft.Colors.ERROR,
                     max_lines=3,
@@ -387,7 +391,10 @@ class AccountDetailPage(ft.Column):
                 ]
                 safe_update(self._body)
                 return
-            txs = await c.list_transactions.execute(
+            from lib.presentation.tx_query import fetch_transactions_paged
+
+            txs = await fetch_transactions_paged(
+                c.list_transactions,
                 account_id=account.id,
                 date_from=period_cfg.date_from,
                 date_to=period_cfg.date_to,
@@ -589,10 +596,12 @@ class AccountDetailPage(ft.Column):
                     icon=ft.Icons.ANALYTICS_OUTLINED,
                 )
             )
-            self._body.controls = controls
-            safe_update(self._body)
-            if animate:
-                await play_count_ups(self._body, self._page)
+            replace_controls(self._body, controls, self._page)
+            try:
+                if animate:
+                    await play_count_ups(self._body, self._page)
+            finally:
+                await flush_chart_draws()
             return
 
         pie_cats = stats.by_category[:6]
@@ -606,6 +615,7 @@ class AccountDetailPage(ft.Column):
             language=lang,
             show_legend=False,
             page=self._page,
+            animate=bool(animate),
         )
         series = fill_time_series(
             stats.by_period,
@@ -625,7 +635,7 @@ class AccountDetailPage(ft.Column):
             dark=dark,
             language=lang,
             page=self._page,
-            animate=False,
+            animate=bool(animate),
         )
 
         palette = list(get_active_skin().chart_colors) or [
@@ -716,7 +726,9 @@ class AccountDetailPage(ft.Column):
         )
         for tx in txs[:10]:
             controls.append(TransactionTile(tx, language=lang))
-        self._body.controls = controls
-        safe_update(self._body)
-        if animate:
-            await play_count_ups(self._body, self._page)
+        replace_controls(self._body, controls, self._page)
+        try:
+            if animate:
+                await play_count_ups(self._body, self._page)
+        finally:
+            await flush_chart_draws()

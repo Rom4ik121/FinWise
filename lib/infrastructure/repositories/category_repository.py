@@ -13,7 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from lib.domain.entities.category import Category, CategoryKind
 from lib.domain.repositories.category_repository import CategoryRepository
 from lib.infrastructure.db_models import CategoryModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.category")
 
@@ -56,21 +61,33 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
         self._session_factory = session_factory
 
     async def create(self, category: Category) -> Category:
+        if in_unit_of_work():
+            return self._create_sync(category)
         return await asyncio.to_thread(self._create_sync, category)
 
     async def update(self, category: Category) -> Category:
+        if in_unit_of_work():
+            return self._update_sync(category)
         return await asyncio.to_thread(self._update_sync, category)
 
     async def delete(self, category_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(category_id)
         return await asyncio.to_thread(self._delete_sync, category_id)
 
     async def get_by_id(self, category_id: str) -> Optional[Category]:
+        if in_unit_of_work():
+            return self._get_by_id_sync(category_id)
         return await asyncio.to_thread(self._get_by_id_sync, category_id)
 
     async def get_by_name(self, name: str) -> Optional[Category]:
+        if in_unit_of_work():
+            return self._get_by_name_sync(name)
         return await asyncio.to_thread(self._get_by_name_sync, name)
 
     async def find_or_create(self, category: Category) -> Category:
+        if in_unit_of_work():
+            return self._find_or_create_sync(category)
         return await asyncio.to_thread(self._find_or_create_sync, category)
 
     async def list(
@@ -79,6 +96,8 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
         kind: Optional[CategoryKind] = None,
         active_only: bool = True,
     ) -> list[Category]:
+        if in_unit_of_work():
+            return self._list_sync(kind, active_only)
         return await asyncio.to_thread(self._list_sync, kind, active_only)
 
     def _create_sync(self, entity: Category) -> Category:

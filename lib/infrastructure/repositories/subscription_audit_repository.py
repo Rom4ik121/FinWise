@@ -8,7 +8,12 @@ from sqlalchemy import select
 
 from lib.domain.entities.subscription_audit import SubscriptionAuditEntry
 from lib.infrastructure.db_models import SubscriptionAuditLogModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 
 class SqlAlchemySubscriptionAuditRepository:
@@ -18,11 +23,15 @@ class SqlAlchemySubscriptionAuditRepository:
         self._session_factory = session_factory
 
     async def append(self, entry: SubscriptionAuditEntry) -> SubscriptionAuditEntry:
+        if in_unit_of_work():
+            return self._append_sync(entry)
         return await asyncio.to_thread(self._append_sync, entry)
 
     async def list_for_subscription(
         self, subscription_id: str, *, limit: int = 50
     ) -> list[SubscriptionAuditEntry]:
+        if in_unit_of_work():
+            return self._list_sync(subscription_id, limit)
         return await asyncio.to_thread(self._list_sync, subscription_id, limit)
 
     def _append_sync(self, entry: SubscriptionAuditEntry) -> SubscriptionAuditEntry:

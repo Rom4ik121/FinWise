@@ -132,7 +132,7 @@ class CurrenciesPage(ft.Column):
         self._state = state
         self._currencies: list[Currency] = []
         self._rate_map: dict[str, object] = {}
-        self._converting = False
+        self._convert_gen = 0
 
         lang = state.language
         base = state.base_currency
@@ -373,15 +373,15 @@ class CurrenciesPage(ft.Column):
         await self._recalculate()
 
     async def _recalculate(self) -> None:
-        if self._converting:
-            return
-        self._converting = True
+        self._convert_gen += 1
+        gen = self._convert_gen
         lang = self._state.language
         try:
             amount = self._parse_amount()
             src, dst = self._selected_pair()
             if amount is None:
-                self._set_result(error=tr("invalid_amount", lang))
+                if gen == self._convert_gen:
+                    self._set_result(error=tr("invalid_amount", lang))
                 return
 
             converted = await safe_convert(
@@ -393,6 +393,8 @@ class CurrenciesPage(ft.Column):
             one_reverse = await safe_convert(
                 self._state.container, Decimal("1"), dst, src, quantize=False
             )
+            if gen != self._convert_gen:
+                return
 
             if converted is None or one_forward is None or one_reverse is None:
                 self._set_result(error=tr("currencies.no_rate", lang))
@@ -416,8 +418,9 @@ class CurrenciesPage(ft.Column):
                         dst=src,
                     ),
                 )
-        finally:
-            self._converting = False
+        except Exception:  # noqa: BLE001
+            if gen == self._convert_gen:
+                self._set_result(error=tr("error.generic", lang))
 
     def _update_result(self) -> None:
         for control in (
@@ -599,6 +602,9 @@ class CurrenciesPage(ft.Column):
             from lib.presentation.utils import invalidate_rate_book_cache
 
             invalidate_rate_book_cache()
+            self._state.bump_refresh(
+                "dashboard", "accounts", "analytics", "transactions"
+            )
             snack(self._page, tr("action.saved", lang))
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)

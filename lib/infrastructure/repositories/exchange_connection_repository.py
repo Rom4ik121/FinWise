@@ -14,7 +14,12 @@ from lib.domain.repositories.exchange_connection_repository import (
     ExchangeConnectionRepository,
 )
 from lib.infrastructure.db_models import ExchangeConnectionModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.exchange_connection")
 
@@ -51,15 +56,23 @@ class SqlAlchemyExchangeConnectionRepository(ExchangeConnectionRepository):
         self._session_factory = session_factory
 
     async def upsert(self, connection: ExchangeConnection) -> ExchangeConnection:
+        if in_unit_of_work():
+            return self._upsert_sync(connection)
         return await asyncio.to_thread(self._upsert_sync, connection)
 
     async def get_by_account_id(self, account_id: str) -> Optional[ExchangeConnection]:
+        if in_unit_of_work():
+            return self._get_by_account_sync(account_id)
         return await asyncio.to_thread(self._get_by_account_sync, account_id)
 
     async def list(self) -> list[ExchangeConnection]:
+        if in_unit_of_work():
+            return self._list_sync()
         return await asyncio.to_thread(self._list_sync)
 
     async def delete_by_account_id(self, account_id: str) -> bool:
+        if in_unit_of_work():
+            return self._delete_sync(account_id)
         return await asyncio.to_thread(self._delete_sync, account_id)
 
     def _upsert_sync(self, entity: ExchangeConnection) -> ExchangeConnection:

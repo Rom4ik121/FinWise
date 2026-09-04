@@ -35,7 +35,7 @@ class Budget(BaseModel):
     def _strip_category(cls, value: str) -> str:
         text = (value or "").strip()
         if not text:
-            raise ValueError("Budget category_id is required")
+            raise ValueError("Category is required")
         return text
 
     @field_validator("month")
@@ -63,7 +63,7 @@ class Budget(BaseModel):
     @classmethod
     def _positive_limit(cls, value: Decimal) -> Decimal:
         if value <= 0:
-            raise ValueError("Budget amount_limit must be positive")
+            raise ValueError("Budget limit must be positive")
         return value
 
     @field_validator("spent")

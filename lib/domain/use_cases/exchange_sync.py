@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Protocol
 from uuid import uuid4
 
 from lib.core.config import AppConfig
@@ -21,13 +21,6 @@ from lib.domain.repositories.exchange_connection_repository import (
     ExchangeConnectionRepository,
 )
 from lib.domain.repositories.transaction_repository import TransactionRepository
-from lib.infrastructure.api.ccxt_exchange_client import (
-    ExchangeClientError,
-    Snapshot,
-    fetch_snapshot,
-    test_credentials,
-)
-from lib.infrastructure.services.secret_box import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger("finanse.domain.use_cases.exchange_sync")
 
@@ -37,6 +30,37 @@ _CAT = {
     "deposit": "Депозит",
     "withdrawal": "Вывод",
 }
+
+
+class ExchangeSyncError(RuntimeError):
+    """Raised when exchange credentials or API calls fail."""
+
+
+class ExchangeGateway(Protocol):
+    """Port for venue API access (implemented in infrastructure)."""
+
+    def test_credentials(
+        self,
+        *,
+        provider: str,
+        api_key: str,
+        secret: str,
+        passphrase: str = "",
+    ) -> None: ...
+
+    def fetch_snapshot(
+        self,
+        *,
+        provider: str,
+        api_key: str,
+        secret: str,
+        passphrase: str = "",
+        quote: str = "AUTO",
+    ) -> Any: ...
+
+
+EncryptSecretFn = Callable[..., str]
+DecryptSecretFn = Callable[..., dict[str, Any]]
 
 
 @dataclass
@@ -63,10 +87,14 @@ class ConnectExchangeAccountUseCase:
         connections: ExchangeConnectionRepository,
         *,
         config: Optional[AppConfig] = None,
+        gateway: Optional[ExchangeGateway] = None,
+        encrypt_secret: Optional[EncryptSecretFn] = None,
     ) -> None:
         self._accounts = accounts
         self._connections = connections
         self._config = config
+        self._gateway = gateway
+        self._encrypt = encrypt_secret
 
     async def execute(
         self,
@@ -79,6 +107,8 @@ class ConnectExchangeAccountUseCase:
         existing: Optional[Account] = None,
         verify: bool = True,
     ) -> Account:
+        if self._gateway is None or self._encrypt is None:
+            raise RuntimeError("Exchange connect is not configured")
         spec = get_exchange(provider)
         if spec is None:
             raise ValueError(f"Unknown exchange: {provider}")
@@ -87,18 +117,21 @@ class ConnectExchangeAccountUseCase:
         if existing is None:
             account.name = spec.title
         if verify:
-            await asyncio.to_thread(
-                test_credentials,
-                provider=provider,
-                api_key=api_key,
-                secret=secret,
-                passphrase=passphrase,
-            )
+            try:
+                await asyncio.to_thread(
+                    self._gateway.test_credentials,
+                    provider=provider,
+                    api_key=api_key,
+                    secret=secret,
+                    passphrase=passphrase,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise ExchangeSyncError(str(exc) or "exchange_unavailable") from exc
         if existing is None:
             saved = await self._accounts.create(account)
         else:
             saved = await self._accounts.update(account)
-        blob = encrypt_secret(
+        blob = self._encrypt(
             {
                 "api_key": api_key.strip(),
                 "secret": secret.strip(),
@@ -132,12 +165,16 @@ class SyncExchangeAccountUseCase:
         *,
         config: Optional[AppConfig] = None,
         add_transaction: Any = None,
+        gateway: Optional[ExchangeGateway] = None,
+        decrypt_secret: Optional[DecryptSecretFn] = None,
     ) -> None:
         self._accounts = accounts
         self._transactions = transactions
         self._connections = connections
         self._config = config
         self._add = add_transaction
+        self._gateway = gateway
+        self._decrypt = decrypt_secret
 
     async def _create_tx(self, tx: Transaction) -> Transaction:
         if self._add is not None:
@@ -145,6 +182,8 @@ class SyncExchangeAccountUseCase:
         return await self._transactions.create(tx)
 
     async def execute(self, account_id: str) -> SyncResult:
+        if self._gateway is None or self._decrypt is None:
+            raise RuntimeError("Exchange sync is not configured")
         account = await self._accounts.get_by_id(account_id)
         if account is None:
             raise ValueError(f"Account not found: {account_id}")
@@ -152,34 +191,42 @@ class SyncExchangeAccountUseCase:
         if link is None:
             raise ValueError("This account is not linked to an exchange")
         try:
-            creds = decrypt_secret(link.credentials_encrypted, config=self._config)
+            creds = self._decrypt(link.credentials_encrypted, config=self._config)
         except Exception as exc:  # noqa: BLE001
             await self._fail(link, str(exc))
-            raise ExchangeClientError("Could not read stored API keys") from exc
+            raise ExchangeSyncError("Could not read stored API keys") from exc
         is_first = link.last_sync_at is None
         quote = "AUTO" if is_first else (account.currency or "AUTO")
         try:
-            snapshot: Snapshot = await asyncio.to_thread(
-                fetch_snapshot,
+            snapshot = await asyncio.to_thread(
+                self._gateway.fetch_snapshot,
                 provider=link.provider,
                 api_key=str(creds.get("api_key") or ""),
                 secret=str(creds.get("secret") or ""),
                 passphrase=str(creds.get("passphrase") or ""),
                 quote=quote,
             )
-        except ExchangeClientError as exc:
-            await self._fail(link, str(exc))
+        except ExchangeSyncError:
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Exchange sync failed for %s", account_id)
-            await self._fail(link, str(exc))
-            raise ExchangeClientError(str(exc)) from exc
+            message = str(exc) or "exchange_unavailable"
+            # Credential failures are expected user fixes — no traceback spam.
+            if message == "Invalid exchange API credentials":
+                logger.warning(
+                    "Exchange sync auth failed for %s", account_id
+                )
+            else:
+                logger.exception("Exchange sync failed for %s", account_id)
+            await self._fail(link, message)
+            raise ExchangeSyncError(message) from exc
 
         if is_first or not (account.currency or "").strip():
             account.currency = snapshot.currency
 
         existing = await self._transactions.list_by_account(account_id)
-        known = {tag for tx in existing for tag in (tx.tags or []) if tag.startswith("ext:")}
+        known = {
+            tag for tx in existing for tag in (tx.tags or []) if tag.startswith("ext:")
+        }
         imported = 0
         for trade in snapshot.trades:
             tag = ext_tag(link.provider, trade.kind, trade.external_id)
@@ -251,7 +298,9 @@ class SyncExchangeAccountUseCase:
         link.last_error = ""
         link.holdings_json = holdings_payload
         await self._connections.upsert(link)
-        return SyncResult(account=saved, imported=imported, holdings=len(holdings_payload))
+        return SyncResult(
+            account=saved, imported=imported, holdings=len(holdings_payload)
+        )
 
     async def _fail(self, link: ExchangeConnection, message: str) -> None:
         link.last_error = (message or "sync failed")[:500]

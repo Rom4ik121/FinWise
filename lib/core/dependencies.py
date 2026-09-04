@@ -127,8 +127,12 @@ class Container:
     update_exchange_rates: Any = None
     convert_currency: Any = None
     list_currencies: Any = None
+    seed_currencies: Any = None
     get_settings: Any = None
     update_settings: Any = None
+    get_pin_credentials: Any = None
+    set_pin_credentials: Any = None
+    clear_pin_credentials: Any = None
     export_data: Any = None
     list_categories: Any = None
     create_category: Any = None
@@ -432,7 +436,13 @@ def build_container(
         ListCategoriesUseCase,
         UpdateCategoryUseCase,
     )
-    from lib.domain.use_cases.settings import GetSettingsUseCase, UpdateSettingsUseCase
+    from lib.domain.use_cases.settings import (
+        ClearPinCredentialsUseCase,
+        GetPinCredentialsUseCase,
+        GetSettingsUseCase,
+        SetPinCredentialsUseCase,
+        UpdateSettingsUseCase,
+    )
     from lib.domain.use_cases.subscriptions import (
         AppendSubscriptionAuditUseCase,
         CancelSubscriptionUseCase,
@@ -505,7 +515,12 @@ def build_container(
                     currencies=container.currency_repository,
                     **(
                         {"session_factory": session_factory}
-                        if attr == "update_transaction"
+                        if attr
+                        in {
+                            "add_transaction",
+                            "update_transaction",
+                            "delete_transaction",
+                        }
                         else {}
                     ),
                 ),
@@ -546,16 +561,31 @@ def build_container(
         container.account_repository is not None
         and container.exchange_connection_repository is not None
     ):
-        from lib.domain.use_cases.exchange_sync import (
-            ConnectExchangeAccountUseCase,
-            SyncExchangeAccountUseCase,
-        )
-
         try:
+            from lib.domain.use_cases.exchange_sync import (
+                ConnectExchangeAccountUseCase,
+                SyncExchangeAccountUseCase,
+            )
+            from lib.infrastructure.api.ccxt_exchange_client import (
+                fetch_snapshot as _fetch_snapshot,
+                test_credentials as _test_credentials,
+            )
+            from lib.infrastructure.services.secret_box import (
+                decrypt_secret,
+                encrypt_secret,
+            )
+            from types import SimpleNamespace
+
+            gateway = SimpleNamespace(
+                test_credentials=_test_credentials,
+                fetch_snapshot=_fetch_snapshot,
+            )
             container.connect_exchange_account = ConnectExchangeAccountUseCase(
                 container.account_repository,
                 container.exchange_connection_repository,
                 config=cfg,
+                gateway=gateway,
+                encrypt_secret=encrypt_secret,
             )
             if container.transaction_repository is not None:
                 container.sync_exchange_account = SyncExchangeAccountUseCase(
@@ -564,6 +594,8 @@ def build_container(
                     container.exchange_connection_repository,
                     config=cfg,
                     add_transaction=container.add_transaction,
+                    gateway=gateway,
+                    decrypt_secret=decrypt_secret,
                 )
         except Exception as exc:  # pragma: no cover
             container.missing.append("connect_exchange_account")
@@ -705,13 +737,27 @@ def build_container(
         "subscription_repository",
         "category_repository",
     )
+    if container.create_subscription is not None:
+        # Optional audit — do not fail the use case if audit repo is missing.
+        try:
+            container.create_subscription._audit = (  # type: ignore[attr-defined]
+                container.subscription_audit_repository
+            )
+        except Exception:  # noqa: BLE001
+            pass
     _wire(
         "update_subscription",
         UpdateSubscriptionUseCase,
         "subscription_repository",
         "category_repository",
-        "subscription_audit_repository",
     )
+    if container.update_subscription is not None:
+        try:
+            container.update_subscription._audit = (  # type: ignore[attr-defined]
+                container.subscription_audit_repository
+            )
+        except Exception:  # noqa: BLE001
+            pass
     _wire("delete_subscription", DeleteSubscriptionUseCase, "subscription_repository")
     _wire("list_subscriptions", ListSubscriptionsUseCase, "subscription_repository")
     _wire("get_subscription", GetSubscriptionUseCase, "subscription_repository")
@@ -727,6 +773,11 @@ def build_container(
         "currency_repository",
         "category_repository",
     )
+    if container.process_due_subscriptions is not None:
+        try:
+            container.process_due_subscriptions._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire(
         "charge_subscription_now",
         ChargeSubscriptionNowUseCase,
@@ -737,14 +788,28 @@ def build_container(
         "settings_repository",
         "category_repository",
     )
+    if container.charge_subscription_now is not None:
+        try:
+            container.charge_subscription_now._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire(
         "delete_subscription_charge",
         DeleteSubscriptionChargeUseCase,
         "transaction_repository",
         "subscription_repository",
         "delete_transaction",
-        "subscription_audit_repository",
     )
+    if container.delete_subscription_charge is not None:
+        try:
+            container.delete_subscription_charge._audit = (  # type: ignore[attr-defined]
+                container.subscription_audit_repository
+            )
+            container.delete_subscription_charge._session_factory = (  # type: ignore[attr-defined]
+                session_factory
+            )
+        except Exception:  # noqa: BLE001
+            pass
     _wire(
         "get_subscription_analytics",
         GetSubscriptionAnalyticsUseCase,
@@ -792,13 +857,26 @@ def build_container(
         container.list_currencies = ListCurrenciesUseCase(
             container.currency_repository
         )
+        from lib.domain.use_cases.currencies import SeedCurrenciesUseCase
+
+        container.seed_currencies = SeedCurrenciesUseCase(
+            container.currency_repository
+        )
     else:
-        for name in ("update_exchange_rates", "convert_currency", "list_currencies"):
+        for name in (
+            "update_exchange_rates",
+            "convert_currency",
+            "list_currencies",
+            "seed_currencies",
+        ):
             container.missing.append(name)
             container.errors[name] = "missing dependency: currency_repository"
 
     _wire("get_settings", GetSettingsUseCase, "settings_repository")
     _wire("update_settings", UpdateSettingsUseCase, "settings_repository")
+    _wire("get_pin_credentials", GetPinCredentialsUseCase, "settings_repository")
+    _wire("set_pin_credentials", SetPinCredentialsUseCase, "settings_repository")
+    _wire("clear_pin_credentials", ClearPinCredentialsUseCase, "settings_repository")
 
     _wire("list_categories", ListCategoriesUseCase, "category_repository")
     _wire("create_category", CreateCategoryUseCase, "category_repository")

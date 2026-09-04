@@ -148,6 +148,14 @@ class BackupService:
         source = Path(backup_path)
         if not source.exists():
             raise BackupServiceError(f"Backup file not found: {source}")
+        try:
+            header = source.read_bytes()[:16]
+        except OSError as exc:
+            raise BackupServiceError(f"Cannot read backup: {exc}") from exc
+        if not header.startswith(b"SQLite format 3"):
+            raise BackupServiceError(
+                f"Not a SQLite database backup: {source.name}"
+            )
 
         target = self.db_path
         try:

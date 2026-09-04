@@ -15,9 +15,9 @@ logger = logging.getLogger("finanse.domain.use_cases.align_currencies")
 async def align_sole_account_currency(container: Any) -> bool:
     """If there is exactly one account and it differs from settings base, convert it.
 
-    Converts ``initial_balance``, ``balance``, and each transaction amount via
-    ``RateBook``. Refuses (returns ``False``) when any rate is missing — never
-    silently relabels currency codes without converting money.
+    Converts ``initial_balance``, ``balance``, each transaction amount, and line
+    ``items`` via ``RateBook``. Refuses (returns ``False``) when any rate is
+    missing — never silently relabels currency codes without converting money.
     """
     if (
         container.get_settings is None
@@ -54,7 +54,12 @@ async def align_sole_account_currency(container: Any) -> bool:
 
     txs = []
     if container.list_transactions is not None:
-        txs = await container.list_transactions.execute(account_id=account.id)
+        from lib.domain.transaction_paging import list_transactions_paged
+
+        txs = await list_transactions_paged(
+            container.list_transactions.execute,
+            account_id=account.id,
+        )
 
     converted_rows: list[tuple[Any, object]] = []
     for tx in txs:
@@ -71,17 +76,30 @@ async def align_sole_account_currency(container: Any) -> bool:
                 base,
             )
             return False
-        converted_rows.append(
-            (
-                tx,
-                tx.model_copy(
-                    update={
-                        "currency": base,
-                        "amount": quantize_money(converted),
-                    }
-                ),
-            )
-        )
+        patch: dict = {
+            "currency": base,
+            "amount": quantize_money(converted),
+        }
+        if tx.items:
+            new_items = []
+            for item in tx.items:
+                item_conv = book.convert(item.amount, src, base)
+                if item_conv is None:
+                    logger.warning(
+                        "Cannot align sole account %s: missing rate for "
+                        "tx %s item (%s→%s)",
+                        account.name,
+                        tx.id,
+                        src,
+                        base,
+                    )
+                    return False
+                new_items.append(
+                    item.model_copy(update={"amount": quantize_money(item_conv)})
+                )
+            patch["items"] = new_items
+        # Credits stay in goal/debt currency — do not convert.
+        converted_rows.append((tx, tx.model_copy(update=patch)))
 
     for _old, updated_tx in converted_rows:
         await container.transaction_repository.update(updated_tx)

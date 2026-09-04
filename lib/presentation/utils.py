@@ -34,30 +34,72 @@ _DOMAIN_ERROR_KEYS: dict[str, str] = {
     "Transaction items must sum to a positive amount": "invalid_amount",
     "Category is required": "budgets.category_required",
     "Budget amount_limit must be positive": "budgets.limit_required",
+    "Budget limit must be positive": "budgets.limit_required",
+    "Budget month must be between 1 and 12": "budgets.month_invalid",
+    "Budget year is out of range": "budgets.year_invalid",
     "Invalid encrypted export": "settings.restore_bad_file",
-    "Transfer legs cannot be edited independently": "transfer.edit_hint",
+    "Transfer legs cannot be edited independently": "transfer.edit_blocked",
     "error.exchange_unavailable": "error.exchange_unavailable",
+    "Invalid exchange API credentials": "error.exchange_bad_credentials",
+    "Could not read stored API keys": "error.exchange_bad_credentials",
+    "API key and secret are required": "account.exchange.keys_required",
+    "This account is not linked to an exchange": "account.exchange.not_linked",
+    "error.exchange_bad_credentials": "error.exchange_bad_credentials",
     "error.generic": "error.generic",
     "error.insufficient_funds": "error.insufficient_funds",
     "error.network": "error.network",
     "error.no_accounts": "error.no_accounts",
     "Withdrawal exceeds item balance": "goal.withdraw_exceeds_item",
+    "Withdrawal exceeds goal balance": "goal.withdraw_exceeds",
+    "Withdrawal amount must be positive": "invalid_amount",
+    "Contribution amount must be positive": "invalid_amount",
+    "Converted contribution amount must be positive": "invalid_amount",
+    "Goal item is required": "goal.items_required",
+    "Goal item amount must be positive": "invalid_amount",
+    "Goal amount must be positive": "invalid_amount",
+    "Goal item target_amount must be positive": "invalid_amount",
+    "Goal target_amount must be positive": "invalid_amount",
+    "Account is required to fund a goal": "goal.account_required",
+    "Transaction is not linked to this goal": "goal.tx_not_linked",
     "Goal item is already closed": "goal.item_closed",
     "Goal item not found": "error.generic",
-    "Goal has no items": "error.generic",
+    "Goal has no items": "goal.no_items",
+    "Goal has no items to withdraw from": "goal.no_items",
     "Goal is not active": "goal.completed_block",
+    "Budget lookup is incomplete": "error.generic",
+    "Reminder days must be between 0 and 365": "settings.reminder_days_invalid",
+    "reminder_days must be between 0 and 365": "settings.reminder_days_invalid",
+    "Reminder time is invalid": "settings.reminder_time_invalid",
+    "reminder_time must be HH:MM": "settings.reminder_time_invalid",
+    "reminder_time out of range": "settings.reminder_time_invalid",
     "Goal is archived": "goal.archived_block",
     "Goal is already completed": "goal.completed_block",
     "Debt is archived": "debt.archived_block",
     "Debt is already paid": "debt.paid_block",
     "Debt has repayments; delete payments first or forgive the debt": "debt.delete_has_payments",
     "Debt must be fully paid before archiving": "debt.archive_unpaid",
+    "Only paid debts can be archived": "debt.archive_unpaid",
+    "Payment amount must be positive": "invalid_amount",
+    "Account is required for a debt payment": "debt.account_required",
+    "Interest amount cannot be negative": "invalid_amount",
+    "Interest cannot exceed payment amount": "debt.interest_too_high",
+    "Transaction is not linked to this debt": "debt.tx_not_linked",
+    "This debt has no interest rate": "debt.no_interest_rate",
+    "No repayments to undo": "debt.nothing_to_undo",
+    "System categories cannot be deleted": "category.system_locked",
+    "Category name is required": "category.name_required",
     "Subscription has ended": "subscription.ended_block",
     "Subscription is cancelled": "subscription.cancelled_block",
     "Subscription cannot be charged": "subscription.cannot_charge",
     "Subscription payment limit reached": "subscription.limit_reached",
     "Cancelled subscription cannot be resumed": "subscription.resume_cancelled",
     "Cancel a subscription from the detail screen": "subscription.cancel_via_action",
+    "Transaction is not linked to this subscription": "subscription.tx_not_linked",
+    "Custom interval days is required": "subscription.custom_interval_required",
+    "custom_interval_days is required for custom periodicity": "subscription.custom_interval_required",
+    "Value must be non-negative": "invalid_amount",
+    "PIN credentials are required": "settings.biometric_need_pin",
+    "PIN is required": "settings.biometric_need_pin",
     "No budgets in the previous month": "budgets.no_previous",
 }
 
@@ -73,8 +115,11 @@ _DOMAIN_ERROR_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Subscription cannot be charged", "error.generic"),
     ("Subscription charging is not configured", "error.generic"),
     ("budget_id or category_id", "error.generic"),
+    ("Budget lookup is incomplete", "error.generic"),
     ("Budget category must be", "budgets.category_required"),
     ("Exchange rate must be positive", "invalid_amount"),
+    ("Category already exists", "category.duplicate"),
+    ("Unknown exchange", "account.exchange.unknown"),
     ("reminder_", "error.generic"),
 )
 
@@ -195,6 +240,82 @@ def format_money_compact(
     return f"{figure} {code}"
 
 
+def is_money_abbreviated(
+    amount: Decimal | float | int | str,
+    currency: str = "RUB",
+    *,
+    signed: bool = False,
+) -> bool:
+    """True when compact form differs from the full formatted amount."""
+    compact = format_money_compact(amount, currency, signed=signed)
+    full = format_money(amount, currency, signed=signed)
+    return compact != full
+
+
+def tappable_compact_money(
+    page: ft.Page | None,
+    amount: Decimal | float | int | str,
+    currency: str = "RUB",
+    *,
+    signed: bool = False,
+    language: str = "ru",
+    size: int = 13,
+    weight: ft.FontWeight = ft.FontWeight.W_700,
+    color: str | None = None,
+    text_align: ft.TextAlign = ft.TextAlign.START,
+    max_lines: int = 1,
+) -> ft.Control:
+    """Compact money label; tap shows the full amount when abbreviated."""
+    display = format_money_compact(amount, currency, signed=signed)
+    full = format_money(amount, currency, signed=signed)
+    abbreviated = display != full
+    label = ft.Text(
+        display,
+        size=size,
+        weight=weight,
+        color=color,
+        text_align=text_align,
+        max_lines=max_lines,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        no_wrap=True,
+    )
+    from lib.presentation.count_up import mark_money_text
+
+    mark_money_text(
+        label,
+        amount,
+        currency=currency,
+        compact=True,
+        signed=signed,
+    )
+
+    def _on_tap(e: ft.ControlEvent | None = None) -> None:
+        if not abbreviated:
+            return
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("selection")
+        except Exception:  # noqa: BLE001
+            pass
+        target = page
+        if target is None and e is not None:
+            target = getattr(e, "page", None) or control_page(getattr(e, "control", None))
+        if target is None:
+            return
+        snack(target, full)
+
+    tip = tr("money.tap_full", language) if abbreviated else full
+    return ft.Container(
+        ink=abbreviated,
+        on_click=_on_tap if abbreviated else None,
+        tooltip=tip,
+        border_radius=6,
+        padding=ft.Padding.symmetric(horizontal=1, vertical=1),
+        content=label,
+    )
+
+
 def format_date(dt: datetime | None, *, with_time: bool = False) -> str:
     """Format a datetime in the user's local timezone."""
     if dt is None:
@@ -304,6 +425,9 @@ def user_facing_error(
             "invalid_",
             "debt.",
             "action.",
+            "category.",
+            "account.",
+            "subscription.",
         )
     ):
         return tr(raw, lang)
@@ -358,11 +482,14 @@ def snack_exception(
 ) -> None:
     """Log the real exception and show a safe user-facing SnackBar."""
     if log and isinstance(exc, BaseException):
-        # Domain ValueError is expected (user-facing); skip noisy traceback.
+        # Domain ValueError / exchange credential failures are expected.
+        from lib.domain.use_cases.exchange_sync import ExchangeSyncError
+
+        quiet = isinstance(exc, (ValueError, ExchangeSyncError))
         logger.warning(
             "UI error suppressed for user: %s",
             exc,
-            exc_info=not isinstance(exc, ValueError),
+            exc_info=not quiet,
         )
     elif log and exc is not None:
         logger.warning("UI error suppressed for user: %s", exc)

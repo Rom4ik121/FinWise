@@ -123,7 +123,7 @@ class SetBudgetUseCase:
             raise ValueError("Category is required")
         limit = quantize_money(amount_limit)
         if limit <= 0:
-            raise ValueError("Budget amount_limit must be positive")
+            raise ValueError("Budget limit must be positive")
 
         category = await self._categories.get_by_name(name)
         if category is None:
@@ -197,7 +197,7 @@ class GetBudgetProgressUseCase:
                 category_id, month, year
             )
         else:
-            raise ValueError("budget_id or category_id+month+year is required")
+            raise ValueError("Budget lookup is incomplete")
         if budget is None:
             raise ValueError("Budget not found")
         return BudgetProgress.from_budget(budget)
@@ -516,8 +516,11 @@ async def _month_category_spent(
     settings: Optional[SettingsRepository | AppSettings] = None,
 ) -> dict[str, Decimal]:
     """One month expense scan → spent totals per category (base currency)."""
+    from lib.domain.transaction_paging import list_transactions_paged
+
     start, end = month_bounds(year, month)
-    rows = await transactions.list(
+    rows = await list_transactions_paged(
+        transactions.list,
         transaction_type=TransactionType.EXPENSE,
         date_from=start,
         date_to=end,

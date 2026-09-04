@@ -524,3 +524,36 @@ def test_delete_charge_restores_pause_via_editor_update(container) -> None:
         assert restored.is_active is False
 
     run_async(_run())
+
+
+def test_delete_charge_restores_active_when_never_paused(container) -> None:
+    """ACTIVE expire without pause evidence must not stick as PAUSED."""
+
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="500"))
+        due = datetime.now(timezone.utc)
+        sub = await container.create_subscription.execute(
+            make_subscription(
+                acc.id,
+                amount="25",
+                next_billing=due,
+                max_payments=1,
+            )
+        )
+        tx = await container.charge_subscription_now.execute(
+            sub.id, check_balance=False
+        )
+        expired = await container.subscription_repository.get_by_id(sub.id)
+        assert expired is not None
+        assert expired.status == SubscriptionStatus.EXPIRED
+
+        assert await container.delete_subscription_charge.execute(
+            tx.id, subscription_id=sub.id
+        )
+        restored = await container.subscription_repository.get_by_id(sub.id)
+        assert restored is not None
+        assert restored.status == SubscriptionStatus.ACTIVE
+        assert restored.is_active is True
+        assert restored.payments_made == 0
+
+    run_async(_run())

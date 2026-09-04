@@ -52,7 +52,7 @@ class AppSettings(BaseModel):
     def _validate_reminder_days(cls, value: int) -> int:
         days = int(value)
         if days < 0 or days > 365:
-            raise ValueError("reminder_days must be between 0 and 365")
+            raise ValueError("Reminder days must be between 0 and 365")
         return days
 
     @field_validator("reminder_time")
@@ -61,10 +61,10 @@ class AppSettings(BaseModel):
         text = (value or "09:00").strip()
         parts = text.split(":")
         if len(parts) != 2:
-            raise ValueError("reminder_time must be HH:MM")
+            raise ValueError("Reminder time is invalid")
         hour, minute = int(parts[0]), int(parts[1])
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            raise ValueError("reminder_time out of range")
+            raise ValueError("Reminder time is invalid")
         return f"{hour:02d}:{minute:02d}"
 
     @field_validator("default_currency")

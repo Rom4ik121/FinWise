@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -18,7 +19,6 @@ from lib.domain.use_cases.debts import (
 from lib.domain.use_cases.debt_insights import bucket_payments_by_month
 from lib.presentation.notification_badges import (
     DEBT_ALERT_KINDS,
-    mark_related_read,
     pending_related_ids,
 )
 from lib.presentation.dropdown_options import (
@@ -63,6 +63,8 @@ from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.reload_gate import ReloadGate
+from lib.presentation.ui_motion import replace_controls
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.debt_card import DebtCard
 from lib.presentation.widgets.debt_progress import debt_projection_card
@@ -103,6 +105,7 @@ class DebtsPage(ft.Column):
         self._sort_by = "due_date"
         self._interest_only = False
         self._search_query = ""
+        self._search_gen = 0
         self._alert_ids: set[str] = set()
         self._token = -1
         self._debt_state_synced = False
@@ -150,15 +153,29 @@ class DebtsPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request()
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         if state.debts_token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     def _on_search_change(self, e: ft.ControlEvent) -> None:
         self._search_query = str(getattr(e.control, "value", "") or "")
-        run_async(self._page, self.reload)
+        run_async(self._page, self._debounced_search)
+
+    async def _debounced_search(self) -> None:
+        """Wait briefly so typing does not reload on every keystroke."""
+        self._search_gen += 1
+        gen = self._search_gen
+        await asyncio.sleep(0.35)
+        if gen != self._search_gen:
+            return
+        self._reload_gate.request()
 
     def _filter_debts(self, debts: list[Debt]) -> list[Debt]:
         q = self._search_query.strip().lower()
@@ -273,12 +290,7 @@ class DebtsPage(ft.Column):
             self._state.settings,
             DEBT_ALERT_KINDS,
         )
-        for related_id in list(self._alert_ids):
-            mark_related_read(
-                self._state.container, related_id, DEBT_ALERT_KINDS
-            )
-        if self._alert_ids:
-            self._state.bump_refresh("dashboard")
+        # Do not auto-mark alerts read on every reload (badge display only).
 
         await self._sync_debt_state()
 
@@ -314,8 +326,9 @@ class DebtsPage(ft.Column):
             debts = self._filter_debts(debts)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
-            self._list.controls = [EmptyState(tr("error.generic", lang))]
-            safe_update(self._list)
+            replace_controls(
+                self._list, [EmptyState(tr("error.generic", lang))], self._page
+            )
             return
 
         if not debts:
@@ -330,14 +343,17 @@ class DebtsPage(ft.Column):
                 empty_key = "empty.debts_filtered"
             else:
                 empty_key = "empty.debts"
-            self._list.controls = [
-                EmptyState(
-                    tr(empty_key, lang),
-                    action_label=tr("action.add", lang),
-                    on_action=lambda _e: self._open_editor(),
-                )
-            ]
-            safe_update(self._list)
+            replace_controls(
+                self._list,
+                [
+                    EmptyState(
+                        tr(empty_key, lang),
+                        action_label=tr("action.add", lang),
+                        on_action=lambda _e: self._open_editor(),
+                    )
+                ],
+                self._page,
+            )
             return
 
         cards: list[ft.Control] = []
@@ -384,8 +400,12 @@ class DebtsPage(ft.Column):
         now = datetime.now(timezone.utc)
         lookback = now - timedelta(days=6 * 31)
         try:
-            recent_txs = await self._state.container.list_transactions.execute(
-                date_from=lookback
+            from lib.presentation.tx_query import fetch_transactions_paged
+
+            recent_txs = await fetch_transactions_paged(
+                self._state.container.list_transactions,
+                date_from=lookback,
+                has_debt=True,
             )
         except Exception:  # noqa: BLE001
             recent_txs = []
@@ -437,8 +457,7 @@ class DebtsPage(ft.Column):
                     on_edit=lambda d=debt: self._open_editor(d),
                 )
             )
-        self._list.controls = cards
-        safe_update(self._list)
+        replace_controls(self._list, cards, self._page)
 
     def _confirm_delete(self, debt: Debt) -> None:
         lang = self._state.language
@@ -842,7 +861,7 @@ class DebtsPage(ft.Column):
                 safe_update(load_more_btn)
 
             load_more_btn = ft.TextButton(
-                tr("action.load_more", lang, default="Load more"),
+                tr("action.load_more", lang),
                 visible=has_more,
                 on_click=lambda e: run_async(self._page, _more, e),
             )
@@ -1143,7 +1162,7 @@ class DebtsPage(ft.Column):
         closer = close_holder.get("close")
         if callable(closer):
             closer()
-        self._state.bump_refresh("dashboard")
+        self._state.bump_refresh("dashboard", "debts", "analytics")
         await self.reload()
         snack(self._page, tr("action.saved", self._state.language))
 

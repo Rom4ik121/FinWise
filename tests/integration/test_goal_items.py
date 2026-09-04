@@ -59,6 +59,72 @@ def test_goal_items_contribute_close_and_early(container) -> None:
     run_async(_run())
 
 
+def test_contribution_persists_goal_alloc_tags_and_exact_delete(container) -> None:
+    """Interleaved item credits reverse exactly via stored goal_alloc tags."""
+
+    async def _run() -> None:
+        from lib.domain.entities.goal import GoalItem
+        from lib.domain.use_cases.goals import (
+            GOAL_ALLOC_TAG_PREFIX,
+            parse_goal_allocation_tags,
+        )
+        from uuid import uuid4
+
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        phone = GoalItem(
+            id=str(uuid4()),
+            name="Phone",
+            target_amount=Decimal("600"),
+            sort_order=0,
+        )
+        case = GoalItem(
+            id=str(uuid4()),
+            name="Case",
+            target_amount=Decimal("100"),
+            sort_order=1,
+        )
+        goal = await container.create_goal.execute(
+            make_goal(name="Gadgets", target="700").model_copy(
+                update={"items": [phone, case]}
+            )
+        )
+        await container.contribute_to_goal.execute(
+            goal.id,
+            Decimal("50"),
+            account_id=acc.id,
+            item_id=case.id,
+        )
+        await container.contribute_to_goal.execute(
+            goal.id,
+            Decimal("650"),
+            account_id=acc.id,
+            item_id=phone.id,
+        )
+        txs = await container.list_transactions.execute(account_id=acc.id)
+        phone_tx = next(
+            t
+            for t in txs
+            if t.goal_id == goal.id and t.goal_item_id == phone.id
+        )
+        assert any(
+            str(tag).startswith(GOAL_ALLOC_TAG_PREFIX) for tag in (phone_tx.tags or [])
+        )
+        alloc = parse_goal_allocation_tags(phone_tx.tags)
+        assert alloc is not None
+        assert alloc[phone.id] == Decimal("600.00")
+        assert alloc[case.id] == Decimal("50.00")
+
+        assert await container.delete_transaction.execute(phone_tx.id) is True
+        after = await container.goal_repository.get_by_id(goal.id)
+        assert after is not None
+        phone_item = next(i for i in after.items if i.id == phone.id)
+        case_item = next(i for i in after.items if i.id == case.id)
+        assert phone_item.current_amount == Decimal("0.00")
+        assert case_item.current_amount == Decimal("50.00")
+
+    run_async(_run())
+
+
 def test_contribute_to_goal_with_items_requires_item_id(container) -> None:
     async def _run() -> None:
         from lib.domain.entities.goal import GoalItem

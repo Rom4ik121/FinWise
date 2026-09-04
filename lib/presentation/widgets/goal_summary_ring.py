@@ -12,7 +12,9 @@ from lib.presentation.account_icons import account_icon_badge
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface
 from lib.presentation.widgets.goal_progress import circular_progress_badge
-from lib.presentation.utils import format_money_compact, tr
+from lib.presentation.utils import format_money_compact, tappable_compact_money, tr
+from lib.presentation.count_up import mark_money_text
+from lib.presentation.widgets.period_scale import period_progress_scale
 
 if TYPE_CHECKING:
     from lib.domain.entities.goal import Goal
@@ -126,10 +128,15 @@ def analytics_goals_summary(
                                     weight=ft.FontWeight.W_700,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
-                                ft.Text(
-                                    format_money_compact(saved, currency),
-                                    size=26,
-                                    weight=ft.FontWeight.W_800,
+                                mark_money_text(
+                                    ft.Text(
+                                        format_money_compact(saved, currency),
+                                        size=26,
+                                        weight=ft.FontWeight.W_800,
+                                    ),
+                                    saved,
+                                    currency=currency,
+                                    compact=True,
                                 ),
                                 ft.Text(
                                     tr(
@@ -189,79 +196,99 @@ def analytics_goal_tile(
             ),
         )
 
-    return card_surface(
-        ft.Column(
-            spacing=10,
-            tight=True,
+    body: list[ft.Control] = [
+        ft.Row(
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Row(
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                circular_progress_badge(
+                    ratio_clamped,
+                    ring_label,
+                    size=52,
+                    color=ring_color,
+                ),
+                ft.Column(
+                    spacing=4,
+                    tight=True,
+                    expand=True,
                     controls=[
-                        circular_progress_badge(
-                            ratio_clamped,
-                            ring_label,
-                            size=52,
-                            color=ring_color,
-                        ),
-                        ft.Column(
-                            spacing=4,
-                            tight=True,
-                            expand=True,
+                        ft.Row(
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
-                                ft.Row(
-                                    spacing=8,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    controls=[
-                                        account_icon_badge(
-                                            icon_key,
-                                            color=icon_color,
-                                            size=28,
-                                            glyph_size=14,
-                                        ),
-                                        ft.Text(
-                                            goal.name,
-                                            expand=True,
-                                            weight=ft.FontWeight.W_700,
-                                            size=15,
-                                            max_lines=2,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                        ),
-                                    ],
+                                account_icon_badge(
+                                    icon_key,
+                                    color=icon_color,
+                                    size=28,
+                                    glyph_size=14,
                                 ),
                                 ft.Text(
-                                    f"{format_money_compact(goal.current_amount, currency)}"
-                                    f" / {format_money_compact(goal.target_amount, currency)}",
+                                    goal.name,
+                                    expand=True,
+                                    weight=ft.FontWeight.W_700,
+                                    size=15,
+                                    max_lines=2,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                            ],
+                        ),
+                        ft.Row(
+                            spacing=4,
+                            tight=True,
+                            controls=[
+                                tappable_compact_money(
+                                    None,
+                                    goal.current_amount,
+                                    currency,
+                                    language=language,
+                                    size=12,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                                ft.Text(
+                                    "/",
+                                    size=12,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                                tappable_compact_money(
+                                    None,
+                                    goal.target_amount,
+                                    currency,
+                                    language=language,
                                     size=12,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                             ],
                         ),
-                        ft.Column(
-                            horizontal_alignment=ft.CrossAxisAlignment.END,
-                            spacing=4,
-                            tight=True,
-                            controls=[
-                                ft.Text(
-                                    f"{pct}%",
-                                    size=17,
-                                    weight=ft.FontWeight.W_800,
-                                    color=primary if not completed else ft.Colors.OUTLINE,
-                                ),
-                                badge if badge is not None else ft.Container(height=0),
-                            ],
-                        ),
                     ],
                 ),
-                ft.ProgressBar(
-                    value=ratio_clamped,
-                    color=primary if not completed else ft.Colors.OUTLINE,
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                    bar_height=6,
-                    border_radius=999,
+                ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.END,
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        ft.Text(
+                            f"{pct}%",
+                            size=17,
+                            weight=ft.FontWeight.W_800,
+                            color=primary if not completed else ft.Colors.OUTLINE,
+                        ),
+                        badge if badge is not None else ft.Container(height=0),
+                    ],
                 ),
             ],
         ),
+    ]
+    # Period line only when the goal has a deadline.
+    scale = period_progress_scale(
+        color=primary if not completed else ft.Colors.OUTLINE,
+        start=getattr(goal, "created_at", None),
+        end=getattr(goal, "deadline", None),
+    )
+    if scale is not None:
+        body.append(scale)
+
+    return card_surface(
+        ft.Column(spacing=10, tight=True, controls=body),
         padding=14,
     )
 

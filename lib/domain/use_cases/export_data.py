@@ -101,8 +101,10 @@ class ExportDataUseCase:
                 else f"finanse_export_{stamp}.json"
             )
 
+        from lib.domain.transaction_paging import list_transactions_paged
+
         accounts = await self._accounts.list(active_only=False)
-        transactions = await self._transactions.list()
+        transactions = await list_transactions_paged(self._transactions.list)
         goals = await self._goals.list(include_completed=True)
         debts = await self._debts.list()
         subscriptions = await self._subscriptions.list(active_only=False)

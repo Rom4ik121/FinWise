@@ -58,6 +58,7 @@ class TransactionRepository(ABC):
         debt_id: Optional[str] = None,
         subscription_id: Optional[str] = None,
         has_subscription: Optional[bool] = None,
+        has_debt: Optional[bool] = None,
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         limit: Optional[int] = None,

@@ -39,6 +39,10 @@ class CurrencyRepository(ABC):
     async def upsert_rates(self, rates: Sequence[ExchangeRate]) -> list[ExchangeRate]:
         """Bulk insert or update exchange rates."""
 
+    async def seed_from_json(self, path: object) -> int:
+        """Load currency definitions from JSON. Default: not supported."""
+        raise NotImplementedError("Currency seed is not available")
+
     async def list_all(self, *, crypto_only: Optional[bool] = None) -> list[Currency]:
         """Compatibility helper mapping to :meth:`list_currencies`."""
         if crypto_only is True:

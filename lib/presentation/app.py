@@ -169,6 +169,7 @@ class FinanseApp:
         self._secondary_cache: dict[str, ft.Control] = {}
         self._pin_hash: Optional[str] = None
         self._pin_salt: Optional[str] = None
+        self._pin_gate_failed: bool = False
         self._backgrounded_at: float | None = None
 
     async def start(self) -> None:
@@ -275,16 +276,21 @@ class FinanseApp:
 
     async def _load_pin_gate(self) -> None:
         """Decide whether the session starts locked."""
-        repo = self.state.container.settings_repository
-        if repo is None or not hasattr(repo, "get_pin_credentials"):
+        get_pin = getattr(self.state.container, "get_pin_credentials", None)
+        if get_pin is None:
             self.state.set_unlocked(True, notify=False)
             return
         try:
-            pin_hash, pin_salt, biometric = await repo.get_pin_credentials()
+            pin_hash, pin_salt, biometric = await get_pin.execute()
         except Exception:  # noqa: BLE001
             logger.exception("Failed to load PIN credentials")
-            self.state.set_unlocked(True, notify=False)
+            # Fail closed: unknown security state must not unlock the ledger.
+            self._pin_gate_failed = True
+            self._pin_hash = None
+            self._pin_salt = None
+            self.state.set_unlocked(False, notify=False)
             return
+        self._pin_gate_failed = False
         self._pin_hash = pin_hash
         self._pin_salt = pin_salt
         if pin_hash and pin_salt:
@@ -526,6 +532,31 @@ class FinanseApp:
 
     def _render(self, *, force: bool = False) -> None:
         """Swap primary / secondary content based on AppState."""
+        if not self.state.is_unlocked and self._pin_gate_failed:
+            from lib.presentation.utils import tr
+
+            self._nav_host.visible = False
+            lang = self.state.language
+            self._content.content = ft.Container(
+                expand=True,
+                key="lock-failed",
+                alignment=ft.Alignment.CENTER,
+                content=ft.Column(
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(ft.Icons.LOCK, size=40, color=ft.Colors.ERROR),
+                        ft.Text(
+                            tr("lock.pin_load_failed", lang),
+                            text_align=ft.TextAlign.CENTER,
+                            width=280,
+                        ),
+                    ],
+                ),
+            )
+            self._rendered_unlocked = False
+            self.page.update()
+            return
         if not self.state.is_unlocked and self._pin_hash and self._pin_salt:
             self._nav_host.visible = False
             self._content.content = ft.Container(

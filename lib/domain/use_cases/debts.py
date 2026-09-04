@@ -143,8 +143,12 @@ def reverse_debt_payment_credit(
         else Decimal("0.00")
     )
     accrued = debt.accrued_interest
-    if debt.accrue_interest and interest > 0:
-        accrued = quantize_money(accrued + interest)
+    if debt.accrue_interest:
+        if interest > 0:
+            accrued = quantize_money(accrued + interest)
+        else:
+            # Mirror apply's untagged branch: accrued -= min(accrued, credit).
+            accrued = quantize_money(accrued + credit)
     remaining = quantize_money(debt.remaining_amount + credit)
     next_pay = debt.next_payment_date
     if (
@@ -807,7 +811,7 @@ def compute_debt_interest(
     Payoff projections use the same annual rate as monthly = rate/12.
     """
     if debt.interest_rate is None:
-        raise ValueError(f"Debt {debt.id} has no interest_rate")
+        raise ValueError("This debt has no interest rate")
 
     moment = as_of or _utc_now()
     if moment.tzinfo is None:

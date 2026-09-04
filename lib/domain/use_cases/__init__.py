@@ -17,6 +17,7 @@ from lib.domain.use_cases.budgets import (
 from lib.domain.use_cases.currencies import (
     ConvertCurrencyUseCase,
     ListCurrenciesUseCase,
+    SeedCurrenciesUseCase,
     UpdateExchangeRatesUseCase,
 )
 from lib.domain.use_cases.debts import (
@@ -35,7 +36,13 @@ from lib.domain.use_cases.goals import (
     ListGoalsUseCase,
     UpdateGoalUseCase,
 )
-from lib.domain.use_cases.settings import GetSettingsUseCase, UpdateSettingsUseCase
+from lib.domain.use_cases.settings import (
+    ClearPinCredentialsUseCase,
+    GetPinCredentialsUseCase,
+    GetSettingsUseCase,
+    SetPinCredentialsUseCase,
+    UpdateSettingsUseCase,
+)
 from lib.domain.use_cases.subscriptions import (
     ChargeSubscriptionNowUseCase,
     CreateSubscriptionUseCase,
@@ -98,7 +105,11 @@ __all__ = [
     "UpdateExchangeRatesUseCase",
     "ConvertCurrencyUseCase",
     "ListCurrenciesUseCase",
+    "SeedCurrenciesUseCase",
     "GetSettingsUseCase",
     "UpdateSettingsUseCase",
+    "GetPinCredentialsUseCase",
+    "SetPinCredentialsUseCase",
+    "ClearPinCredentialsUseCase",
     "ExportDataUseCase",
 ]

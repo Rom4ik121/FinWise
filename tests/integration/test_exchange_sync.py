@@ -80,11 +80,13 @@ def test_connect_rejects_unknown_provider(container) -> None:
 
 def test_connect_and_sync_imports_trades(container, monkeypatch) -> None:
     monkeypatch.setattr(
-        "lib.domain.use_cases.exchange_sync.test_credentials",
+        container.connect_exchange_account._gateway,
+        "test_credentials",
         lambda **_kwargs: None,
     )
     monkeypatch.setattr(
-        "lib.domain.use_cases.exchange_sync.fetch_snapshot",
+        container.sync_exchange_account._gateway,
+        "fetch_snapshot",
         lambda **_kwargs: _snapshot(),
     )
 
@@ -144,7 +146,8 @@ def test_connect_skips_probe_when_verify_false(container, monkeypatch) -> None:
         raise AssertionError("probe skipped")
 
     monkeypatch.setattr(
-        "lib.domain.use_cases.exchange_sync.test_credentials",
+        container.connect_exchange_account._gateway,
+        "test_credentials",
         _boom,
     )
 

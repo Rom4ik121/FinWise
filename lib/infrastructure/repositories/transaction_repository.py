@@ -157,13 +157,13 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         debt_id: Optional[str] = None,
         subscription_id: Optional[str] = None,
         has_subscription: Optional[bool] = None,
+        has_debt: Optional[bool] = None,
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
-        return await asyncio.to_thread(
-            self._list_sync,
+        args = (
             account_id,
             category,
             transaction_type,
@@ -174,11 +174,15 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             debt_id,
             subscription_id,
             has_subscription,
+            has_debt,
             transfer_id,
             has_transfer,
             limit,
             offset,
         )
+        if in_unit_of_work():
+            return self._list_sync(*args)
+        return await asyncio.to_thread(self._list_sync, *args)
 
     def _create_sync(self, entity: Transaction) -> Transaction:
         with session_scope(self._session_factory) as session:
@@ -239,6 +243,7 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         debt_id: Optional[str],
         subscription_id: Optional[str],
         has_subscription: Optional[bool],
+        has_debt: Optional[bool],
         transfer_id: Optional[str],
         has_transfer: Optional[bool],
         limit: Optional[int],
@@ -271,6 +276,10 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 stmt = stmt.where(TransactionModel.subscription_id.is_not(None))
             elif has_subscription is False:
                 stmt = stmt.where(TransactionModel.subscription_id.is_(None))
+            if has_debt is True:
+                stmt = stmt.where(TransactionModel.debt_id.is_not(None))
+            elif has_debt is False:
+                stmt = stmt.where(TransactionModel.debt_id.is_(None))
             if transfer_id is not None:
                 stmt = stmt.where(TransactionModel.transfer_id == transfer_id)
             if has_transfer is True:

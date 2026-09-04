@@ -167,3 +167,43 @@ def test_clear_goal_links_bulk(container) -> None:
         assert refreshed.goal_credit_amount is not None
 
     run_async(_run())
+
+
+def test_fetch_transactions_paged_covers_all_rows(container) -> None:
+    async def _run() -> None:
+        from lib.presentation.tx_query import fetch_transactions_paged
+
+        acc = await container.create_account.execute(make_account(balance="10000"))
+        base = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        for i in range(12):
+            tx = make_transaction(acc.id, amount="1", category="Food")
+            tx = tx.model_copy(update={"date": base.replace(day=min(i + 1, 28))})
+            await container.add_transaction.execute(tx)
+        rows = await fetch_transactions_paged(
+            container.list_transactions,
+            account_id=acc.id,
+            page_size=5,
+        )
+        assert len(rows) == 12
+
+    run_async(_run())
+
+
+def test_list_has_debt_filter(container) -> None:
+    async def _run() -> None:
+        from tests.factories import make_debt
+
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        debt = await container.create_debt.execute(make_debt(amount="100"))
+        plain = await container.add_transaction.execute(
+            make_transaction(acc.id, amount="10", category="Food")
+        )
+        linked = make_transaction(acc.id, amount="20", category="Долг")
+        linked = linked.model_copy(update={"debt_id": debt.id})
+        linked = await container.add_transaction.execute(linked)
+        debt_rows = await container.list_transactions.execute(has_debt=True)
+        ids = {tx.id for tx in debt_rows}
+        assert linked.id in ids
+        assert plain.id not in ids
+
+    run_async(_run())

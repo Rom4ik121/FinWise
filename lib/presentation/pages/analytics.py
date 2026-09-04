@@ -14,7 +14,7 @@ from lib.domain.entities.debt import DebtDirection, DebtStatus
 from lib.domain.entities.goal import GoalStatus
 from lib.domain.entities.transaction import TransactionType
 from lib.domain.services.rate_book import RateBook
-from lib.domain.use_cases.transactions import GetTransactionStatsUseCase, StatsPeriod
+from lib.domain.use_cases.transactions import GetTransactionStatsUseCase
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.analytics_period import (
     ANALYTICS_PERIOD_KEYS,
@@ -32,7 +32,9 @@ from lib.presentation.styles import (
     page_header,
     section_title,
 )
-from lib.presentation.count_up import mark_money_text, play_count_ups
+from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
+from lib.presentation.reload_gate import ReloadGate
+from lib.presentation.ui_motion import restore_scroll, reset_ui_animating, set_ui_animating, snapshot_scroll
 from lib.presentation.skins import get_active_skin
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
@@ -123,6 +125,10 @@ class AnalyticsPage(ft.Column):
         self._section_chips = h_chip_row()
         self._period_chip_map: dict[str, ft.Container] = {}
         self._section_chip_map: dict[str, ft.Container] = {}
+        self._animate_charts = False
+        self._section_hosts: dict[str, ft.Container] = {}
+        self._section_lists: dict[str, ft.ListView] = {}
+        self._section_offsets: dict[str, float] = {}
         self._pager = ft.PageView(
             expand=True,
             horizontal=True,
@@ -147,7 +153,7 @@ class AnalyticsPage(ft.Column):
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
-                            on_click=lambda _e: run_async(page, self.reload, True),
+                            on_click=lambda _e: self._reload_gate.request(True),
                         ),
                     ],
                 ),
@@ -168,7 +174,12 @@ class AnalyticsPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request(True)
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _data_token(self, state: "AppState") -> int:
         return (
@@ -183,7 +194,7 @@ class AnalyticsPage(ft.Column):
     def _on_state(self, state: "AppState") -> None:
         token = self._data_token(state)
         if token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     def _show_full_amount(
         self,
@@ -411,7 +422,7 @@ class AnalyticsPage(ft.Column):
             return
         self._analytics_period = key
         self._tint_period_chips()
-        run_async(self._page, self.reload)
+        self._reload_gate.request()
 
     def _rebuild_period_row(self, lang: str) -> None:
         if self._period_chip_map:
@@ -608,18 +619,24 @@ class AnalyticsPage(ft.Column):
             ],
         )
 
-    def _scroll_page(self, controls: Sequence[ft.Control]) -> ft.Control:
-        return ft.Container(
-            expand=True,
-            padding=ft.Padding.only(right=2),
-            content=ft.ListView(
+    def _scroll_page(self, key: str, controls: Sequence[ft.Control]) -> ft.Control:
+        from lib.presentation.layout import make_v_scroll
+
+        lv = self._section_lists.get(key)
+        if lv is None:
+            lv = make_v_scroll(spacing=8, eager=True)
+            host = ft.Container(
                 expand=True,
-                spacing=8,
-                padding=ft.Padding.only(bottom=40),
-                auto_scroll=False,
-                controls=list(controls),
-            ),
-        )
+                padding=ft.Padding.only(right=2),
+                content=lv,
+            )
+            self._section_lists[key] = lv
+            self._section_hosts[key] = host
+            lv.controls = list(controls)
+            return host
+        self._section_offsets[key] = snapshot_scroll(lv)
+        lv.controls = list(controls)
+        return self._section_hosts[key]
 
     def _category_card(
         self,
@@ -647,6 +664,7 @@ class AnalyticsPage(ft.Column):
             show_legend=False,
             empty_message=empty_chart,
             page=self._page,
+            animate=bool(self._animate_charts),
         )
         rows: list[ft.Control] = []
         denom = total if total > 0 else Decimal("0")
@@ -707,6 +725,7 @@ class AnalyticsPage(ft.Column):
     async def reload(self, animate: bool = False) -> None:
         """Reload analytics KPIs and section pages."""
         self._token = self._data_token(self._state)
+        self._animate_charts = bool(animate)
         lang = self._state.language
         self._rebuild_period_row(lang)
         self._rebuild_section_chips()
@@ -717,10 +736,30 @@ class AnalyticsPage(ft.Column):
         dark = is_dark_mode(self._page, self._state.theme_mode)
         chart_w, chart_h = chart_layout(self._page)
 
+        if animate:
+            try:
+                from lib.presentation.utils import invalidate_rate_book_cache
+
+                invalidate_rate_book_cache()
+            except Exception:  # noqa: BLE001
+                pass
+        # Refresh stored budget spend so rings/bars match the ledger.
+        # Full scan only on explicit refresh — passive opens use incremental spent.
+        if animate:
+            recalc = getattr(c, "recalculate_budget_spent", None)
+            if recalc is not None:
+                try:
+                    await recalc.execute(month=now.month, year=now.year)
+                except Exception:  # noqa: BLE001
+                    pass
+
         try:
             accounts = await c.list_accounts.execute(active_only=True)
             period_cfg = resolve_analytics_period(self._analytics_period, now)
-            period_txs = await c.list_transactions.execute(
+            from lib.presentation.tx_query import fetch_transactions_paged
+
+            period_txs = await fetch_transactions_paged(
+                c.list_transactions,
                 date_from=period_cfg.date_from,
                 date_to=period_cfg.date_to,
             )
@@ -733,7 +772,7 @@ class AnalyticsPage(ft.Column):
             return
 
         base = normalize_currency_code(self._state.base_currency)
-        book = await load_rate_book(c)
+        book = await load_rate_book(c, force=bool(animate))
         (
             total_balance,
             period_income,
@@ -846,61 +885,64 @@ class AnalyticsPage(ft.Column):
             else "—"
         )
 
-        self._kpi_host.controls = [
-            self._metrics_card(
-                [
-                    self._metric_cell(
-                        tr("analytics.income", lang),
-                        period_income,
-                        base,
-                        color=amount_color(True, dark=dark),
-                    ),
-                    self._metric_cell(
-                        tr("analytics.expense", lang),
-                        period_expense,
-                        base,
-                        color=amount_color(False, dark=dark),
-                    ),
-                    self._metric_cell(
-                        tr("analytics.net", lang),
-                        net,
-                        base,
-                        color=net_color,
-                        signed=True,
-                    ),
-                ]
-            ),
-            self._metrics_card(
-                [
-                    self._metric_cell(
-                        tr("analytics.balance", lang),
-                        total_balance,
-                        base,
-                    ),
-                    self._metric_cell(
-                        tr("analytics.savings", lang),
-                        0,
-                        base,
-                        plain=savings,
-                    ),
-                ]
-            ),
-        ]
-        safe_update(self._kpi_host)
+        anim_token = set_ui_animating(animate)
+        try:
+            self._kpi_host.controls = [
+                self._metrics_card(
+                    [
+                        self._metric_cell(
+                            tr("analytics.income", lang),
+                            period_income,
+                            base,
+                            color=amount_color(True, dark=dark),
+                        ),
+                        self._metric_cell(
+                            tr("analytics.expense", lang),
+                            period_expense,
+                            base,
+                            color=amount_color(False, dark=dark),
+                        ),
+                        self._metric_cell(
+                            tr("analytics.net", lang),
+                            net,
+                            base,
+                            color=net_color,
+                            signed=True,
+                        ),
+                    ]
+                ),
+                self._metrics_card(
+                    [
+                        self._metric_cell(
+                            tr("analytics.balance", lang),
+                            total_balance,
+                            base,
+                        ),
+                        self._metric_cell(
+                            tr("analytics.savings", lang),
+                            0,
+                            base,
+                            plain=savings,
+                        ),
+                    ]
+                ),
+            ]
+            safe_update(self._kpi_host)
 
-        series = fill_time_series(
-            by_period,
-            enumerate_period_keys(period_cfg, existing=[p[0] for p in by_period]),
-        )
-        if period_cfg.max_chart_points and len(series) > period_cfg.max_chart_points:
-            series = series[-period_cfg.max_chart_points :]
-        period_labels = [
-            format_chart_period_label(p[0], period_cfg.group_by) for p in series
-        ]
-        series_income = [p[1] for p in series]
-        series_expense = [p[2] for p in series]
+            series = fill_time_series(
+                by_period,
+                enumerate_period_keys(period_cfg, existing=[p[0] for p in by_period]),
+            )
+            if period_cfg.max_chart_points and len(series) > period_cfg.max_chart_points:
+                series = series[-period_cfg.max_chart_points :]
+            period_labels = [
+                format_chart_period_label(p[0], period_cfg.group_by) for p in series
+            ]
+            series_income = [p[1] for p in series]
+            series_expense = [p[2] for p in series]
 
-        flow_page = self._scroll_page(
+            flow_page = self._scroll_page(
+            "flow",
             [
                 self._metrics_card(
                     [
@@ -966,7 +1008,7 @@ class AnalyticsPage(ft.Column):
                                 show_income=True,
                                 show_expense=True,
                                 page=self._page,
-                                animate=False,
+                                animate=bool(self._animate_charts),
                             ),
                         ],
                     ),
@@ -975,42 +1017,53 @@ class AnalyticsPage(ft.Column):
             ]
         )
 
-        self._pager.controls = [
-            flow_page,
-            self._scroll_page(self._goals_controls(goals, book, base, lang)),
-            self._scroll_page(self._debts_controls(debts, book, base, lang)),
-            self._scroll_page(
-                self._subscription_analytics_controls(
-                    sub_analytics,
-                    lang,
-                    base,
-                    dark=dark,
-                    chart_w=chart_w,
-                    chart_h=chart_h,
-                )
-            ),
-            self._scroll_page(
-                self._budget_controls(
-                    budgets,
-                    lang,
-                    base,
-                    now.month,
-                    now.year,
-                    analytics=budget_analytics,
-                    categories=budget_cats,
-                    dark=dark,
-                    chart_w=chart_w,
-                    chart_h=chart_h,
-                )
-            ),
-        ]
-        if self._section not in _SECTIONS:
-            self._section = "flow"
-        self._pager.selected_index = _SECTIONS.index(self._section)
-        self._rebuild_section_chips()
-        safe_update(self._pager)
-        if animate:
-            await play_count_ups(self, self._page)
+            pages = [
+                flow_page,
+                self._scroll_page("goals", self._goals_controls(goals, book, base, lang)),
+                self._scroll_page("debts", self._debts_controls(debts, book, base, lang)),
+                self._scroll_page(
+                    "subscriptions",
+                    self._subscription_analytics_controls(
+                        sub_analytics,
+                        lang,
+                        base,
+                    ),
+                ),
+                self._scroll_page(
+                    "budget",
+                    self._budget_controls(
+                        budgets,
+                        lang,
+                        base,
+                        now.month,
+                        now.year,
+                        analytics=budget_analytics,
+                        categories=budget_cats,
+                    ),
+                ),
+            ]
+            if not self._pager.controls:
+                self._pager.controls = pages
+            if self._section not in _SECTIONS:
+                self._section = "flow"
+            self._pager.selected_index = _SECTIONS.index(self._section)
+            self._rebuild_section_chips()
+            safe_update(self._kpi_host)
+            safe_update(self._pager)
+        finally:
+            reset_ui_animating(anim_token)
+            from lib.presentation.utils import run_async
+
+            for key, lv in self._section_lists.items():
+                off = float(self._section_offsets.get(key, 0) or 0)
+                if off > 8:
+                    run_async(self._page, restore_scroll, lv, off)
+            try:
+                if animate:
+                    await play_count_ups(self, self._page)
+            finally:
+                await flush_chart_draws()
+                self._animate_charts = False
 
     def _dark(self) -> bool:
         return is_dark_mode(self._page, self._state.theme_mode)
@@ -1169,9 +1222,6 @@ class AnalyticsPage(ft.Column):
         *,
         analytics=None,
         categories: dict | None = None,
-        dark: bool = True,
-        chart_w: int = 360,
-        chart_h: int = 200,
     ) -> list[ft.Control]:
         period = f"{tr(f'budgets.month.{month}', lang)} {year}"
         cat_map = categories or {}
@@ -1226,42 +1276,8 @@ class AnalyticsPage(ft.Column):
                 warning_count=warning_count,
                 count=len(budgets),
             ),
+            section_title(tr("analytics.budgets_breakdown", lang)),
         ]
-        trend = list(getattr(analytics, "monthly_trend", None) or [])
-        if any((item.get("spent") or 0) > 0 or (item.get("limit") or 0) > 0 for item in trend):
-            labels = [
-                format_chart_period_label(str(item.get("month") or ""), StatsPeriod.MONTH)
-                for item in trend
-            ]
-            spend = [item.get("spent") or Decimal("0") for item in trend]
-            limits = [item.get("limit") or Decimal("0") for item in trend]
-            rows.append(
-                card_surface(
-                    ft.Column(
-                        spacing=8,
-                        tight=True,
-                        controls=[
-                            section_title(tr("analytics.budgets_trend", lang)),
-                            build_line_chart_image(
-                                labels,
-                                limits,
-                                spend,
-                                title="",
-                                width=chart_w,
-                                height=max(chart_h, 180),
-                                dark=dark,
-                                language=lang,
-                                show_income=True,
-                                show_expense=True,
-                                page=self._page,
-                                animate=False,
-                            ),
-                        ],
-                    ),
-                    padding=10,
-                )
-            )
-        rows.append(section_title(tr("analytics.budgets_breakdown", lang)))
         for progress in budgets:
             cat = cat_map.get(progress.category_id)
             rows.append(
@@ -1281,10 +1297,6 @@ class AnalyticsPage(ft.Column):
         analytics,
         lang: str,
         base: str,
-        *,
-        dark: bool,
-        chart_w: int,
-        chart_h: int,
     ) -> list[ft.Control]:
         empty = analytics is None or (
             getattr(analytics, "total_active", 0) == 0
@@ -1313,42 +1325,6 @@ class AnalyticsPage(ft.Column):
                 active_count=analytics.total_active,
             )
         ]
-        trend = list(getattr(analytics, "monthly_trend", None) or [])
-        trend_vals = [item.get("sum") or Decimal("0") for item in trend]
-        if any(v > 0 for v in trend_vals):
-            shown = trend[-6:]
-            labels = [
-                format_chart_period_label(str(item.get("month") or ""), StatsPeriod.MONTH)
-                for item in shown
-            ]
-            spend = [item.get("sum") or Decimal("0") for item in shown]
-            zeros = [Decimal("0")] * len(shown)
-            rows.append(
-                card_surface(
-                    ft.Column(
-                        spacing=8,
-                        tight=True,
-                        controls=[
-                            section_title(tr("analytics.subscriptions_trend", lang)),
-                            build_line_chart_image(
-                                labels,
-                                zeros,
-                                spend,
-                                title="",
-                                width=chart_w,
-                                height=max(chart_h, 180),
-                                dark=dark,
-                                language=lang,
-                                show_income=False,
-                                show_expense=True,
-                                page=self._page,
-                                animate=False,
-                            ),
-                        ],
-                    ),
-                    padding=10,
-                )
-            )
         items = list(getattr(analytics, "top_subscriptions", None) or [])
         if items:
             rows.append(section_title(tr("analytics.subscriptions_breakdown", lang)))
@@ -1366,6 +1342,8 @@ class AnalyticsPage(ft.Column):
                         currency=base,
                         language=lang,
                         share=share,
+                        period_start=item.get("start_date"),
+                        period_end=item.get("end_date"),
                     )
                 )
         return rows

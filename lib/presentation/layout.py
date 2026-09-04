@@ -99,14 +99,23 @@ def h_chip_row(*chips: ft.Control, height: int = 40) -> ft.ListView:
     return row
 
 
-def make_v_scroll(*, spacing: int = 12) -> ft.ListView:
-    """Vertical list that keeps offset better than a scrolling Column."""
-    return ft.ListView(
-        expand=True,
-        spacing=spacing,
-        padding=ft.Padding.only(bottom=40),
-        auto_scroll=False,
-        scroll=_hidden_scrollbar(),
+def make_v_scroll(*, spacing: int = 12, eager: bool = False) -> ft.ListView:
+    """Vertical list that keeps offset better than a scrolling Column.
+
+    ``eager=True`` builds all children up front (needed so off-screen charts
+    can mount). Default on-demand build keeps long transaction lists light.
+    """
+    from lib.presentation.ui_motion import remember_scroll
+
+    return remember_scroll(
+        ft.ListView(
+            expand=True,
+            spacing=spacing,
+            padding=ft.Padding.only(bottom=40),
+            auto_scroll=False,
+            build_controls_on_demand=not eager,
+            scroll=_hidden_scrollbar(),
+        )
     )
 
 

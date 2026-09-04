@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import flet as ft
 
 from lib.presentation.utils import format_money, format_money_compact, format_money_parts, safe_update
 
 _META_KEY = "count_up"
+_PROGRESS_KEY = "progress_anim"
 _STEPS = 18
 _DURATION_S = 0.55
 
@@ -43,6 +44,21 @@ def mark_money_text(
     return text
 
 
+def mark_progress(control: ft.Control, target: float) -> ft.Control:
+    """Tag a ProgressBar / ProgressRing so :func:`play_count_ups` can fill it."""
+    meta = {
+        _PROGRESS_KEY: True,
+        "target": max(0.0, min(float(target), 1.0)),
+    }
+    existing = getattr(control, "data", None)
+    if isinstance(existing, dict):
+        existing.update(meta)
+        control.data = existing
+    else:
+        control.data = meta
+    return control
+
+
 def _format(meta: dict[str, Any], amount: Decimal) -> str:
     currency = str(meta.get("currency") or "RUB")
     signed = bool(meta.get("signed"))
@@ -66,6 +82,18 @@ def _collect(control: Any, out: list[ft.Text]) -> None:
     _collect(getattr(control, "content", None), out)
 
 
+def _collect_progress(control: Any, out: list[Any]) -> None:
+    if control is None:
+        return
+    data = getattr(control, "data", None)
+    if isinstance(data, dict) and data.get(_PROGRESS_KEY):
+        if isinstance(control, (ft.ProgressBar, ft.ProgressRing)):
+            out.append(control)
+    for child in getattr(control, "controls", None) or []:
+        _collect_progress(child, out)
+    _collect_progress(getattr(control, "content", None), out)
+
+
 def _ease_out(t: float) -> float:
     u = 1.0 - t
     return 1.0 - u * u * u
@@ -78,52 +106,70 @@ async def play_count_ups(
     duration_s: float = _DURATION_S,
     steps: int = _STEPS,
 ) -> None:
-    """Animate all marked money texts under ``root`` from 0 → target."""
-    targets: list[ft.Text] = []
-    _collect(root, targets)
-    if not targets:
-        return
-
-    specs: list[tuple[ft.Text, Decimal, dict[str, Any]]] = []
-    for text in targets:
-        meta = text.data if isinstance(text.data, dict) else {}
-        try:
-            amount = Decimal(str(meta.get("amount") or "0"))
-        except Exception:  # noqa: BLE001
-            continue
-        specs.append((text, amount, meta))
-        text.value = _format(meta, Decimal("0"))
-
+    """Animate marked money texts and progress bars; flush queued charts."""
+    chart_task = asyncio.create_task(_play_queued_charts())
     try:
-        safe_update(page)
-    except Exception:  # noqa: BLE001
-        pass
+        targets: list[ft.Text] = []
+        bars: list[Any] = []
+        _collect(root, targets)
+        _collect_progress(root, bars)
+        if not targets and not bars:
+            return
 
-    if steps < 2:
-        steps = 2
-    delay = max(duration_s / steps, 0.012)
-    for i in range(1, steps + 1):
-        progress = _ease_out(i / steps)
-        for text, amount, meta in specs:
-            current = (amount * Decimal(str(progress))).quantize(Decimal("0.01"))
-            if i == steps:
-                current = amount
-            text.value = _format(meta, current)
+        specs: list[tuple[ft.Text, Decimal, dict[str, Any]]] = []
+        for text in targets:
+            meta = text.data if isinstance(text.data, dict) else {}
+            try:
+                amount = Decimal(str(meta.get("amount") or "0"))
+            except Exception:  # noqa: BLE001
+                continue
+            specs.append((text, amount, meta))
+            text.value = _format(meta, Decimal("0"))
+        bar_specs: list[tuple[Any, float]] = []
+        for bar in bars:
+            meta = bar.data if isinstance(bar.data, dict) else {}
+            try:
+                goal = max(0.0, min(float(meta.get("target") or 0), 1.0))
+            except (TypeError, ValueError):
+                continue
+            bar_specs.append((bar, goal))
+            bar.value = 0.0
+
         try:
             safe_update(page)
         except Exception:  # noqa: BLE001
             pass
-        await asyncio.sleep(delay)
+
+        if steps < 2:
+            steps = 2
+        delay = max(duration_s / steps, 0.012)
+        for i in range(1, steps + 1):
+            progress = _ease_out(i / steps)
+            for text, amount, meta in specs:
+                current = (amount * Decimal(str(progress))).quantize(Decimal("0.01"))
+                if i == steps:
+                    current = amount
+                text.value = _format(meta, current)
+            for bar, goal in bar_specs:
+                bar.value = goal if i == steps else goal * progress
+            try:
+                safe_update(page)
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(delay)
+    finally:
+        await chart_task
 
 
-def refresh_handler(page: ft.Page, reload_fn) -> Any:
-    """Build an ``on_click`` that reloads with count-up animation."""
+async def _play_queued_charts() -> None:
+    try:
+        from lib.presentation.widgets.charts import play_queued_charts
 
-    async def _run(_e: Optional[ft.ControlEvent] = None) -> None:
-        result = reload_fn(animate=True)
-        if hasattr(result, "__await__"):
-            await result  # type: ignore[misc]
+        await play_queued_charts()
+    except Exception:  # noqa: BLE001
+        return
 
-    from lib.presentation.utils import run_async
 
-    return lambda e: run_async(page, _run, e)
+async def flush_chart_draws() -> None:
+    """Drain any leftover chart animations (safe after a failed reload)."""
+    await _play_queued_charts()

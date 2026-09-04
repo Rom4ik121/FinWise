@@ -154,6 +154,57 @@ def test_align_sole_account_currency(container) -> None:
     run_async(_run())
 
 
+def test_align_sole_account_converts_line_items(container) -> None:
+    """Line items must convert with the parent amount (#116)."""
+
+    async def _run() -> None:
+        from datetime import datetime, timezone
+        from decimal import Decimal
+
+        from lib.domain.entities.currency import ExchangeRate
+        from lib.domain.entities.transaction import TransactionItem
+
+        await container.currency_repository.upsert_rate(
+            ExchangeRate(
+                base="RUB",
+                quote="UZS",
+                rate=Decimal("100"),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        acc = await container.create_account.execute(
+            make_account(currency="RUB", balance="100")
+        )
+        await container.add_transaction.execute(
+            make_transaction(acc.id, amount="10", currency="RUB").model_copy(
+                update={
+                    "items": [
+                        TransactionItem(
+                            name="A", amount=Decimal("4"), category="Еда"
+                        ),
+                        TransactionItem(
+                            name="B", amount=Decimal("6"), category="Еда"
+                        ),
+                    ]
+                }
+            )
+        )
+        settings = await container.get_settings.execute()
+        settings.default_currency = "UZS"
+        await container.update_settings.execute(settings)
+
+        assert await align_sole_account_currency(container) is True
+        txs = await container.list_transactions.execute(account_id=acc.id)
+        assert len(txs) == 1
+        assert txs[0].amount == Decimal("1000.00")
+        assert [i.amount for i in txs[0].items] == [
+            Decimal("400.00"),
+            Decimal("600.00"),
+        ]
+
+    run_async(_run())
+
+
 def test_align_sole_account_refuses_without_rate(container) -> None:
     async def _run() -> None:
         await container.create_account.execute(

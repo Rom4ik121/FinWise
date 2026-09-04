@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Optional
@@ -25,6 +26,8 @@ from lib.presentation.budgets_templates import (
     budget_template_chip,
 )
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.reload_gate import ReloadGate
+from lib.presentation.ui_motion import replace_controls
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
@@ -75,6 +78,7 @@ class BudgetsPage(ft.Column):
         self._categories_by_name: dict[str, object] = {}
         self._filter = "all"
         self._search_query = ""
+        self._search_gen = 0
         self._alert_ids: set[str] = set()
         self._search_tf = ft.TextField(
             hint_text=tr("budgets.search_hint", state.language),
@@ -122,15 +126,29 @@ class BudgetsPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request()
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         if state.budgets_token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     def _on_search_change(self, e: ft.ControlEvent) -> None:
         self._search_query = str(getattr(e.control, "value", "") or "")
-        run_async(self._page, self.reload)
+        run_async(self._page, self._debounced_search)
+
+    async def _debounced_search(self) -> None:
+        """Wait briefly so typing does not reload on every keystroke."""
+        self._search_gen += 1
+        gen = self._search_gen
+        await asyncio.sleep(0.35)
+        if gen != self._search_gen:
+            return
+        self._reload_gate.request()
 
     def _is_current_month(self) -> bool:
         now = datetime.now(timezone.utc)
@@ -141,12 +159,12 @@ class BudgetsPage(ft.Column):
 
     def _shift_month(self, delta: int) -> None:
         self._year, self._month = shift_month(self._year, self._month, delta)
-        run_async(self._page, self.reload)
+        self._reload_gate.request()
 
     def _go_this_month(self) -> None:
         now = datetime.now(timezone.utc)
         self._month, self._year = now.month, now.year
-        run_async(self._page, self.reload)
+        self._reload_gate.request()
 
     async def _copy_previous(self) -> None:
         uc = getattr(self._state.container, "copy_budgets_from_previous", None)
@@ -215,10 +233,21 @@ class BudgetsPage(ft.Column):
                 active_only=False
             )
             self._categories_by_name = {c.name: c for c in categories}
+            # Keep spent accurate when opening the page (home no longer full-scans).
+            recalc = getattr(self._state.container, "recalculate_budget_spent", None)
+            if recalc is not None:
+                try:
+                    await recalc.execute(month=self._month, year=self._year)
+                    items = await self._state.container.get_budgets_for_month.execute(
+                        self._month, self._year
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=lang)
-            self._list.controls = [EmptyState(tr("error.generic", lang))]
-            safe_update(self._list)
+            replace_controls(
+                self._list, [EmptyState(tr("error.generic", lang))], self._page
+            )
             return
 
         currency = self._state.base_currency
@@ -234,7 +263,10 @@ class BudgetsPage(ft.Column):
         date_from = month_bounds(lookback_y, lookback_m)[0]
         date_to = month_bounds(self._year, self._month)[1]
         try:
-            recent_txs = await self._state.container.list_transactions.execute(
+            from lib.presentation.tx_query import fetch_transactions_paged
+
+            recent_txs = await fetch_transactions_paged(
+                self._state.container.list_transactions,
                 transaction_type=TransactionType.EXPENSE,
                 date_from=date_from,
                 date_to=date_to,
@@ -320,12 +352,11 @@ class BudgetsPage(ft.Column):
                         on_delete=lambda p=progress: self._confirm_delete(p.budget),
                     )
                 )
-        self._list.controls = controls
-        safe_update(self._list)
+        replace_controls(self._list, controls, self._page)
 
     def _on_filter(self, value: str) -> None:
         self._filter = value or "all"
-        run_async(self._page, self.reload)
+        self._reload_gate.request()
 
     def _apply_filters(
         self, items: list[BudgetProgress], lang: str

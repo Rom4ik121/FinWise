@@ -148,20 +148,13 @@ def register_local_auth_service(page: "ft.Page") -> bool:
 
 
 def platform_supports_biometrics() -> bool:
-    """True when this build can talk to an OS biometric API."""
+    """True when this build can talk to an OS face/iris biometric API."""
     if biometric_env_override_ok():
         return True
     if _local_auth_service is not None:
         return True
-    if mobile_runtime():
-        return False
-    if sys.platform != "win32":
-        return False
-    try:
-        import winrt.windows.security.credentials.ui  # noqa: F401
-    except Exception:  # noqa: BLE001
-        return False
-    return True
+    # Desktop: no face/iris bridge (Windows Hello may offer fingerprint).
+    return False
 
 
 def feature_voice_available() -> bool:
@@ -263,37 +256,13 @@ async def probe_biometric_status() -> BiometricStatus:
     if mobile_runtime():
         logger.warning("Mobile runtime detected but local_auth service is missing")
         return BiometricStatus.UNSUPPORTED
-    if sys.platform != "win32":
-        return BiometricStatus.UNSUPPORTED
-    try:
-        from winrt.windows.security.credentials.ui import (
-            UserConsentVerifier,
-            UserConsentVerifierAvailability,
-        )
-    except Exception:  # noqa: BLE001
-        logger.info("winrt biometric packages not installed")
-        return BiometricStatus.UNSUPPORTED
-
-    try:
-        raw = await UserConsentVerifier.check_availability_async()
-    except Exception:  # noqa: BLE001
-        logger.exception("Biometric availability check failed")
-        return BiometricStatus.UNSUPPORTED
-
-    mapping = {
-        UserConsentVerifierAvailability.AVAILABLE: BiometricStatus.AVAILABLE,
-        UserConsentVerifierAvailability.DEVICE_NOT_PRESENT: BiometricStatus.DEVICE_NOT_PRESENT,
-        UserConsentVerifierAvailability.NOT_CONFIGURED_FOR_USER: BiometricStatus.NOT_CONFIGURED,
-        UserConsentVerifierAvailability.DISABLED_BY_POLICY: BiometricStatus.DISABLED_BY_POLICY,
-        UserConsentVerifierAvailability.DEVICE_BUSY: BiometricStatus.DEVICE_BUSY,
-    }
-    status = mapping.get(raw, BiometricStatus.UNSUPPORTED)
-    logger.info("Biometric availability: %s", status.value)
-    return status
+    # Desktop (incl. Windows Hello): fingerprint can be offered by the OS.
+    # FinWise policy is face/iris only — PIN unlock on desktop.
+    return BiometricStatus.UNSUPPORTED
 
 
 async def request_biometric_verification(message: str) -> BiometricResult:
-    """Show the OS consent prompt (Windows Hello / fingerprint / face)."""
+    """Show the OS consent prompt (mobile Face ID / iris only)."""
     if biometric_env_override_ok():
         logger.info("Biometric accepted via FINANCE_BIOMETRIC_OK")
         return BiometricResult.VERIFIED
@@ -307,35 +276,7 @@ async def request_biometric_verification(message: str) -> BiometricResult:
         logger.warning("Mobile runtime detected but local_auth service is missing")
         return BiometricResult.UNSUPPORTED
 
-    if sys.platform != "win32":
-        return BiometricResult.UNSUPPORTED
-
-    try:
-        from winrt.windows.security.credentials.ui import (
-            UserConsentVerificationResult,
-            UserConsentVerifier,
-        )
-    except Exception:  # noqa: BLE001
-        return BiometricResult.UNSUPPORTED
-
-    try:
-        raw = await UserConsentVerifier.request_verification_async(message)
-    except Exception:  # noqa: BLE001
-        logger.exception("Biometric verification request failed")
-        return BiometricResult.FAILED
-
-    mapping = {
-        UserConsentVerificationResult.VERIFIED: BiometricResult.VERIFIED,
-        UserConsentVerificationResult.CANCELED: BiometricResult.CANCELED,
-        UserConsentVerificationResult.DEVICE_NOT_PRESENT: BiometricResult.DEVICE_NOT_PRESENT,
-        UserConsentVerificationResult.NOT_CONFIGURED_FOR_USER: BiometricResult.NOT_CONFIGURED,
-        UserConsentVerificationResult.DISABLED_BY_POLICY: BiometricResult.DISABLED_BY_POLICY,
-        UserConsentVerificationResult.DEVICE_BUSY: BiometricResult.DEVICE_BUSY,
-        UserConsentVerificationResult.RETRIES_EXHAUSTED: BiometricResult.RETRIES_EXHAUSTED,
-    }
-    result = mapping.get(raw, BiometricResult.FAILED)
-    logger.info("Biometric verification result: %s", result.value)
-    return result
+    return BiometricResult.UNSUPPORTED
 
 
 def status_is_usable(status: BiometricStatus) -> bool:

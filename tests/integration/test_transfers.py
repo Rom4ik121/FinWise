@@ -274,6 +274,37 @@ def test_transfer_skipped_in_stats_and_budgets(container) -> None:
     run_async(_run())
 
 
+def test_transfer_fee_skipped_in_budgets(container) -> None:
+    """xfer_fee expenses must not consume category budgets (#119)."""
+
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Комиссия", kind=CategoryKind.EXPENSE)
+        )
+        src = await container.create_account.execute(
+            make_account(name="Wallet", balance="1000")
+        )
+        dst = await container.create_account.execute(
+            make_account(name="Cash", balance="0")
+        )
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute(
+            "Комиссия", now.month, now.year, Decimal("500")
+        )
+        await container.transfer_between_accounts.execute(
+            from_account_id=src.id,
+            to_account_id=dst.id,
+            amount=Decimal("100"),
+            fee=Decimal("15"),
+        )
+        progress = await container.get_budget_progress.execute(
+            category_id="Комиссия", month=now.month, year=now.year
+        )
+        assert progress.spent == Decimal("0.00")
+
+    run_async(_run())
+
+
 def test_transfer_amount_cannot_be_edited(container) -> None:
     async def _run() -> None:
         src = await container.create_account.execute(

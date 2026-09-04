@@ -29,19 +29,26 @@ def circular_progress_badge(
     ring_color = color or skin.primary_hex(dark=True)
     track = track_color or ft.Colors.SURFACE_CONTAINER_HIGHEST
     font_size = 13 if len(label) <= 3 else 11
+    from lib.presentation.count_up import mark_progress
+    from lib.presentation.ui_motion import is_ui_animating
+
+    animate = is_ui_animating()
+    ring = ft.ProgressRing(
+        value=0.0 if animate else clamped,
+        width=size,
+        height=size,
+        stroke_width=max(4, size // 10),
+        color=ring_color,
+        bgcolor=track,
+    )
+    if animate:
+        mark_progress(ring, clamped)
     return ft.Container(
         width=size,
         height=size,
         content=ft.Stack(
             controls=[
-                ft.ProgressRing(
-                    value=clamped,
-                    width=size,
-                    height=size,
-                    stroke_width=max(4, size // 10),
-                    color=ring_color,
-                    bgcolor=track,
-                ),
+                ring,
                 ft.Container(
                     alignment=ft.Alignment.CENTER,
                     content=ft.Text(

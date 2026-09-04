@@ -13,7 +13,8 @@ from lib.infrastructure.services.backup_service import BackupService, BackupServ
 def test_backup_restore_roundtrip(tmp_path: Path) -> None:
     cfg = AppConfig(data_dir=tmp_path)
     cfg.ensure_directories()
-    cfg.db_path.write_text("sqlite-payload", encoding="utf-8")
+    # Real SQLite header so restore magic-check accepts the file.
+    cfg.db_path.write_bytes(b"SQLite format 3\x00payload")
     from lib.infrastructure.services.secret_box import encrypt_secret, master_key_path
 
     encrypt_secret({"api_key": "k"}, config=cfg)
@@ -25,12 +26,23 @@ def test_backup_restore_roundtrip(tmp_path: Path) -> None:
     assert backup.name.endswith("_test.db")
     assert Path(str(backup) + ".key").is_file()
 
-    cfg.db_path.write_text("changed", encoding="utf-8")
+    cfg.db_path.write_bytes(b"SQLite format 3\x00changed")
     master_key_path(cfg).unlink()
     restored = svc.restore(backup, make_safety_copy=True)
-    assert restored.read_text(encoding="utf-8") == "sqlite-payload"
+    assert restored.read_bytes() == b"SQLite format 3\x00payload"
     assert master_key_path(cfg).is_file()
     assert svc.list_backups()
+
+
+def test_restore_rejects_non_sqlite(tmp_path: Path) -> None:
+    cfg = AppConfig(data_dir=tmp_path)
+    cfg.ensure_directories()
+    cfg.db_path.write_bytes(b"SQLite format 3\x00ok")
+    fake = cfg.backup_dir / "finanse_bad.db"
+    fake.write_text("not-a-db", encoding="utf-8")
+    svc = BackupService(cfg)
+    with pytest.raises(BackupServiceError, match="Not a SQLite"):
+        svc.restore(fake, make_safety_copy=False)
 
 
 def test_daily_backup_overwrites_once_per_day(tmp_path: Path) -> None:

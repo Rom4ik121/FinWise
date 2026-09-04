@@ -8,7 +8,12 @@ from sqlalchemy import select
 
 from lib.domain.entities.debt_audit import DebtAuditEntry
 from lib.infrastructure.db_models import DebtAuditLogModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 
 class SqlAlchemyDebtAuditRepository:
@@ -18,11 +23,15 @@ class SqlAlchemyDebtAuditRepository:
         self._session_factory = session_factory
 
     async def append(self, entry: DebtAuditEntry) -> DebtAuditEntry:
+        if in_unit_of_work():
+            return self._append_sync(entry)
         return await asyncio.to_thread(self._append_sync, entry)
 
     async def list_for_debt(
         self, debt_id: str, *, limit: int = 50
     ) -> list[DebtAuditEntry]:
+        if in_unit_of_work():
+            return self._list_sync(debt_id, limit)
         return await asyncio.to_thread(self._list_sync, debt_id, limit)
 
     def _append_sync(self, entry: DebtAuditEntry) -> DebtAuditEntry:

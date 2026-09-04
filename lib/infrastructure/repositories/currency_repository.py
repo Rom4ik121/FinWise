@@ -16,7 +16,12 @@ from sqlalchemy import select
 from lib.domain.entities.currency import Currency, ExchangeRate
 from lib.domain.repositories.currency_repository import CurrencyRepository
 from lib.infrastructure.db_models import CurrencyModel, ExchangeRateModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.currency")
 
@@ -80,29 +85,47 @@ class SqlAlchemyCurrencyRepository(CurrencyRepository):
         self._default_lang = default_lang
 
     async def upsert_currency(self, currency: Currency) -> Currency:
+        if in_unit_of_work():
+            return self._upsert_currency_sync(currency)
         return await asyncio.to_thread(self._upsert_currency_sync, currency)
 
     async def get_currency(self, code: str) -> Optional[Currency]:
+        if in_unit_of_work():
+            return self._get_currency_sync(code)
         return await asyncio.to_thread(self._get_currency_sync, code)
 
     async def list_currencies(self, *, include_crypto: bool = True) -> list[Currency]:
+        if in_unit_of_work():
+            return self._list_currencies_sync(include_crypto)
         return await asyncio.to_thread(self._list_currencies_sync, include_crypto)
 
     async def upsert_rate(self, rate: ExchangeRate) -> ExchangeRate:
+        if in_unit_of_work():
+            return self._upsert_rate_sync(rate)
         return await asyncio.to_thread(self._upsert_rate_sync, rate)
 
     async def get_rate(self, base: str, quote: str) -> Optional[ExchangeRate]:
+        if in_unit_of_work():
+            return self._get_rate_sync(base, quote)
         return await asyncio.to_thread(self._get_rate_sync, base, quote)
 
     async def list_rates(self, *, base: Optional[str] = None) -> list[ExchangeRate]:
+        if in_unit_of_work():
+            return self._list_rates_sync(base)
         return await asyncio.to_thread(self._list_rates_sync, base)
 
     async def upsert_rates(self, rates: Sequence[ExchangeRate]) -> list[ExchangeRate]:
-        return await asyncio.to_thread(self._upsert_rates_sync, list(rates))
+        payload = list(rates)
+        if in_unit_of_work():
+            return self._upsert_rates_sync(payload)
+        return await asyncio.to_thread(self._upsert_rates_sync, payload)
 
     async def seed_from_json(self, path: Path | str) -> int:
         """Load currency definitions from a JSON file. Returns upserted count."""
-        return await asyncio.to_thread(self._seed_from_json_sync, Path(path))
+        path_obj = Path(path)
+        if in_unit_of_work():
+            return self._seed_from_json_sync(path_obj)
+        return await asyncio.to_thread(self._seed_from_json_sync, path_obj)
 
     def _upsert_currency_sync(self, entity: Currency) -> Currency:
         with session_scope(self._session_factory) as session:

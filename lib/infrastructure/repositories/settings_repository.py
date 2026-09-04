@@ -12,7 +12,12 @@ from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.settings import AppSettings
 from lib.domain.repositories.settings_repository import SettingsRepository
 from lib.infrastructure.db_models import SettingsModel
-from lib.infrastructure.repositories._base import SessionFactory, ensure_utc, session_scope
+from lib.infrastructure.repositories._base import (
+    SessionFactory,
+    ensure_utc,
+    in_unit_of_work,
+    session_scope,
+)
 
 logger = logging.getLogger("finanse.infrastructure.repositories.settings")
 
@@ -81,21 +86,30 @@ class SqlAlchemySettingsRepository(SettingsRepository):
         self._session_factory = session_factory
 
     async def get(self) -> AppSettings:
+        if in_unit_of_work():
+            return self._get_or_create_sync()
         return await asyncio.to_thread(self._get_or_create_sync)
 
     async def update(self, settings: AppSettings) -> AppSettings:
+        if in_unit_of_work():
+            return self._update_sync(settings)
         return await asyncio.to_thread(self._update_sync, settings)
 
     async def set_pin_credentials(
         self, pin_hash: str, pin_salt: str, *, biometric_enabled: bool | None = None
     ) -> None:
         """Store PIN hash/salt (and optional biometric flag) on the settings row."""
+        if in_unit_of_work():
+            self._set_pin_credentials_sync(pin_hash, pin_salt, biometric_enabled)
+            return
         await asyncio.to_thread(
             self._set_pin_credentials_sync, pin_hash, pin_salt, biometric_enabled
         )
 
     async def get_pin_credentials(self) -> tuple[Optional[str], Optional[str], bool]:
         """Return ``(pin_hash, pin_salt, biometric_enabled)``."""
+        if in_unit_of_work():
+            return self._get_pin_credentials_sync()
         return await asyncio.to_thread(self._get_pin_credentials_sync)
 
     def _get_or_create_sync(self) -> AppSettings:

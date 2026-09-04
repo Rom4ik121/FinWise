@@ -105,10 +105,32 @@ def test_apply_spills_when_primary_already_at_target() -> None:
     assert allocations[case_id] == Decimal("40.00")
 
 
+def test_reverse_partial_allocations_falls_back_to_lifo() -> None:
+    goal, phone_id, case_id = _goal_with_items()
+    credited, full_alloc = allocate_goal_contribution_credit(
+        goal, Decimal("650.00"), item_id=phone_id
+    )
+    assert full_alloc[phone_id] == Decimal("600.00")
+    assert full_alloc[case_id] == Decimal("50.00")
+
+    # Corrupt/partial tags only cover the sibling spill — remainder via LIFO.
+    partial = {case_id: Decimal("50.00")}
+    reversed_goal = reverse_goal_contribution_credit(
+        credited,
+        Decimal("650.00"),
+        item_id=phone_id,
+        allocations=partial,
+    )
+    phone2 = next(i for i in reversed_goal.items if i.id == phone_id)
+    case2 = next(i for i in reversed_goal.items if i.id == case_id)
+    assert phone2.current_amount == Decimal("0.00")
+    assert case2.current_amount == Decimal("0.00")
+
+
 def test_interleaved_reverse_uses_allocation_tags() -> None:
     goal, phone_id, case_id = _goal_with_items()
     # Case gets its own 50 first.
-    after_case, case_alloc = allocate_goal_contribution_credit(
+    after_case, _case_alloc = allocate_goal_contribution_credit(
         goal, Decimal("50.00"), item_id=case_id
     )
     case = next(i for i in after_case.items if i.id == case_id)

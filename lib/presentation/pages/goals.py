@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -68,6 +69,8 @@ from lib.presentation.widgets.goal_progress import GoalProgress, goal_item_progr
 from lib.presentation.widgets.goal_sparkline import goal_contribution_sparkline
 from lib.presentation.widgets.goal_summary_ring import goals_summary_ring
 from lib.presentation.widgets.goal_swipe_card import swipe_goal_card
+from lib.presentation.ui_motion import replace_controls
+from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.layout import h_scroll, make_v_scroll
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 
@@ -92,6 +95,7 @@ class GoalsPage(ft.Column):
         self._sort_by = "priority"
         self._group_mode = "none"
         self._search_query = ""
+        self._search_gen = 0
         self._alert_ids: set[str] = set()
         self._token = -1
         self._search_tf = ft.TextField(
@@ -138,15 +142,29 @@ class GoalsPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request()
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         if state.goals_token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     def _on_search_change(self, e: ft.ControlEvent) -> None:
         self._search_query = str(getattr(e.control, "value", "") or "")
-        run_async(self._page, self.reload)
+        run_async(self._page, self._debounced_search)
+
+    async def _debounced_search(self) -> None:
+        """Wait briefly so typing does not reload on every keystroke."""
+        self._search_gen += 1
+        gen = self._search_gen
+        await asyncio.sleep(0.35)
+        if gen != self._search_gen:
+            return
+        self._reload_gate.request()
 
     def _filter_goals(self, goals: list[Goal]) -> list[Goal]:
         q = self._search_query.strip().lower()
@@ -255,8 +273,9 @@ class GoalsPage(ft.Column):
             goals = self._filter_goals(goals)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
-            self._list.controls = [EmptyState(tr("error.generic", lang))]
-            safe_update(self._list)
+            replace_controls(
+                self._list, [EmptyState(tr("error.generic", lang))], self._page
+            )
             return
         if not goals:
             search_active = bool(self._search_query.strip())
@@ -269,14 +288,17 @@ class GoalsPage(ft.Column):
             else:
                 empty_key = "empty.goals"
                 show_add = True
-            self._list.controls = [
-                EmptyState(
-                    tr(empty_key, lang),
-                    action_label=tr("action.add", lang) if show_add else None,
-                    on_action=lambda _e: self._open_editor() if show_add else None,
-                )
-            ]
-            safe_update(self._list)
+            replace_controls(
+                self._list,
+                [
+                    EmptyState(
+                        tr(empty_key, lang),
+                        action_label=tr("action.add", lang) if show_add else None,
+                        on_action=lambda _e: self._open_editor() if show_add else None,
+                    )
+                ],
+                self._page,
+            )
             return
 
         base = self._state.base_currency
@@ -328,8 +350,7 @@ class GoalsPage(ft.Column):
         else:
             cards.extend(self._goal_card(g) for g in goals)
 
-        self._list.controls = cards
-        safe_update(self._list)
+        replace_controls(self._list, cards, self._page)
 
     def _goal_card(self, goal: Goal) -> ft.Control:
         cache = goal.cached_projection or {}
@@ -829,7 +850,7 @@ class GoalsPage(ft.Column):
                 safe_update(load_more_btn)
 
             load_more_btn = ft.TextButton(
-                tr("action.load_more", lang, default="Load more"),
+                tr("action.load_more", lang),
                 visible=has_more,
                 on_click=lambda e: run_async(self._page, _more, e),
             )
@@ -1171,7 +1192,7 @@ class GoalsPage(ft.Column):
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
                 return
-            self._state.bump_refresh("dashboard", "goals")
+            self._state.bump_refresh("dashboard", "goals", "analytics")
             closer = close_holder.get("close")
             if callable(closer):
                 closer()
@@ -1210,7 +1231,7 @@ class GoalsPage(ft.Column):
             closer = close_holder.get("close")
             if callable(closer):
                 closer()
-            self._state.bump_refresh("dashboard", "goals")
+            self._state.bump_refresh("dashboard", "goals", "analytics")
             await self.reload()
             snack(self._page, tr("action.saved", lang))
 
@@ -1232,7 +1253,7 @@ class GoalsPage(ft.Column):
         closer = close_holder.get("close")
         if callable(closer):
             closer()
-        self._state.bump_refresh("dashboard")
+        self._state.bump_refresh("dashboard", "goals", "analytics")
         await self.reload()
         snack(self._page, tr("action.saved", self._state.language))
 
@@ -1249,7 +1270,7 @@ class GoalsPage(ft.Column):
         closer = close_holder.get("close")
         if callable(closer):
             closer()
-        self._state.bump_refresh("dashboard")
+        self._state.bump_refresh("dashboard", "goals", "analytics")
         await self.reload()
         snack(self._page, tr("action.saved", lang))
 
@@ -1618,7 +1639,7 @@ class GoalsPage(ft.Column):
                 except Exception:  # noqa: BLE001
                     pass
             close()
-            self._state.bump_refresh("dashboard")
+            self._state.bump_refresh("dashboard", "goals", "analytics")
             await self.reload()
             snack(self._page, tr("action.saved", lang))
 
@@ -1633,7 +1654,7 @@ class GoalsPage(ft.Column):
                     snack_exception(self._page, exc, lang=self._state.language)
                     return
                 close()
-                self._state.bump_refresh("dashboard")
+                self._state.bump_refresh("dashboard", "goals", "analytics")
                 await self.reload()
 
             confirm_dialog(

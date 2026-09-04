@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -27,10 +28,11 @@ from lib.presentation.dropdown_options import (
 )
 from lib.presentation.form_keyboard import configure_field, wire_field_chain
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.reload_gate import ReloadGate
+from lib.presentation.ui_motion import replace_controls
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.notification_badges import (
     SUBSCRIPTION_ALERT_KINDS,
-    mark_related_read,
     pending_related_ids,
 )
 from lib.presentation.styles import (
@@ -109,6 +111,7 @@ class SubscriptionsPage(ft.Column):
         self._auto_only = False
         self._due_soon = False
         self._search_query = ""
+        self._search_gen = 0
         self._search_tf = ft.TextField(
             hint_text=tr("subscription.search_hint", state.language),
             prefix_icon=ft.Icons.SEARCH,
@@ -153,15 +156,29 @@ class SubscriptionsPage(ft.Column):
             ],
         )
         state.subscribe(self._on_state)
-        run_async(page, self.reload)
+        self._reload_gate = ReloadGate(page, self, self.reload)
+        self._reload_gate.request()
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
         if state.subscriptions_token != self._token:
-            run_async(self._page, self.reload)
+            self._reload_gate.request()
 
     def _on_search_change(self, e: ft.ControlEvent) -> None:
         self._search_query = str(getattr(e.control, "value", "") or "")
-        run_async(self._page, self.reload)
+        run_async(self._page, self._debounced_search)
+
+    async def _debounced_search(self) -> None:
+        """Wait briefly so typing does not reload on every keystroke."""
+        self._search_gen += 1
+        gen = self._search_gen
+        await asyncio.sleep(0.35)
+        if gen != self._search_gen:
+            return
+        self._reload_gate.request()
 
     def _open_filters(self) -> None:
         lang = self._state.language
@@ -317,12 +334,7 @@ class SubscriptionsPage(ft.Column):
             self._state.settings,
             SUBSCRIPTION_ALERT_KINDS,
         )
-        for related_id in list(self._alert_ids):
-            mark_related_read(
-                self._state.container, related_id, SUBSCRIPTION_ALERT_KINDS
-            )
-        if self._alert_ids:
-            self._state.bump_refresh("dashboard")
+        # Do not auto-mark alerts read on every reload (badge display only).
         try:
             self._accounts = await self._state.container.list_accounts.execute(
                 active_only=True
@@ -331,8 +343,9 @@ class SubscriptionsPage(ft.Column):
             items = self._apply_list_filters(items_all)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
-            self._list.controls = [EmptyState(tr("error.generic", lang))]
-            safe_update(self._list)
+            replace_controls(
+                self._list, [EmptyState(tr("error.generic", lang))], self._page
+            )
             return
 
         if not items:
@@ -342,14 +355,17 @@ class SubscriptionsPage(ft.Column):
                 empty_key = "empty.subscriptions_filtered"
             else:
                 empty_key = "empty.subscriptions"
-            self._list.controls = [
-                EmptyState(
-                    tr(empty_key, lang),
-                    action_label=tr("action.add", lang),
-                    on_action=lambda _e: self._open_editor(),
-                )
-            ]
-            safe_update(self._list)
+            replace_controls(
+                self._list,
+                [
+                    EmptyState(
+                        tr(empty_key, lang),
+                        action_label=tr("action.add", lang),
+                        on_action=lambda _e: self._open_editor(),
+                    )
+                ],
+                self._page,
+            )
             return
 
         base = self._state.base_currency
@@ -385,17 +401,23 @@ class SubscriptionsPage(ft.Column):
                 billed = billed.replace(tzinfo=timezone.utc)
             if billed <= soon:
                 due_converted = book.convert(sub.amount, sub.currency, base)
-                if due_converted is None and sub.currency.upper() == base.upper():
-                    due_converted = sub.amount
-                if due_converted is not None:
-                    due_week_amount += due_converted
-                    due_week_count += 1
+                if due_converted is None:
+                    if sub.currency.upper() == base.upper():
+                        due_converted = sub.amount
+                    else:
+                        fx_ok = False
+                        continue
+                due_week_amount += due_converted
+                due_week_count += 1
         if not fx_ok:
             snack(self._page, tr("fx.missing_rates", lang), error=True)
 
         lookback = now - timedelta(days=6 * 31)
         try:
-            recent_txs = await self._state.container.list_transactions.execute(
+            from lib.presentation.tx_query import fetch_transactions_paged
+
+            recent_txs = await fetch_transactions_paged(
+                self._state.container.list_transactions,
                 has_subscription=True,
                 date_from=lookback,
             )
@@ -494,8 +516,7 @@ class SubscriptionsPage(ft.Column):
                     )
                 )
         cards.extend(_card(s) for s in rest_items)
-        self._list.controls = cards
-        safe_update(self._list)
+        replace_controls(self._list, cards, self._page)
 
     async def _pause(self, sub: Subscription) -> None:
         try:
@@ -506,7 +527,7 @@ class SubscriptionsPage(ft.Column):
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             return
-        self._state.bump_refresh("subscriptions")
+        self._state.bump_refresh("dashboard", "subscriptions", "analytics")
         await self.reload()
 
     async def _resume(self, sub: Subscription) -> None:
@@ -518,14 +539,18 @@ class SubscriptionsPage(ft.Column):
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             return
-        self._state.bump_refresh("subscriptions")
+        self._state.bump_refresh("dashboard", "subscriptions", "analytics")
         await self.reload()
 
     def _confirm_delete(self, sub: Subscription) -> None:
         lang = self._state.language
 
         async def _do() -> None:
-            await self._state.container.delete_subscription.execute(sub.id)
+            try:
+                await self._state.container.delete_subscription.execute(sub.id)
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
             self._state.bump_refresh(
                 "dashboard", "accounts", "transactions", "subscriptions"
             )
@@ -592,7 +617,7 @@ class SubscriptionsPage(ft.Column):
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
                 return
-            self._state.bump_refresh("subscriptions")
+            self._state.bump_refresh("dashboard", "subscriptions", "analytics")
             snack(self._page, tr("action.saved", lang))
             await self.reload()
 
@@ -774,7 +799,7 @@ class SubscriptionsPage(ft.Column):
                 except Exception as exc:  # noqa: BLE001
                     snack_exception(self._page, exc, lang=lang)
                     return
-                self._state.bump_refresh("subscriptions")
+                self._state.bump_refresh("dashboard", "subscriptions", "analytics")
                 snack(self._page, tr("action.saved", lang))
                 await _load()
                 await self.reload()
@@ -798,7 +823,7 @@ class SubscriptionsPage(ft.Column):
                 except Exception as exc:  # noqa: BLE001
                     snack_exception(self._page, exc, lang=lang)
                     return
-                self._state.bump_refresh("subscriptions")
+                self._state.bump_refresh("dashboard", "subscriptions", "analytics")
                 _close_detail()
                 await self.reload()
                 snack(self._page, tr("action.saved", lang))
@@ -817,7 +842,7 @@ class SubscriptionsPage(ft.Column):
                 except Exception as exc:  # noqa: BLE001
                     snack_exception(self._page, exc, lang=lang)
                     return
-                self._state.bump_refresh("dashboard", "subscriptions")
+                self._state.bump_refresh("dashboard", "subscriptions", "analytics")
                 _close_detail()
                 await self.reload()
                 snack(self._page, tr("action.saved", lang))
@@ -851,11 +876,15 @@ class SubscriptionsPage(ft.Column):
 
             async def _toggle_auto(_e: ft.ControlEvent | None = None) -> None:
                 current = sub_holder["sub"]
-                updated = await self._state.container.update_subscription.execute(
-                    current.model_copy(update={"auto_charge": bool(auto_sw.value)})
-                )
+                try:
+                    updated = await self._state.container.update_subscription.execute(
+                        current.model_copy(update={"auto_charge": bool(auto_sw.value)})
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
+                    return
                 sub_holder["sub"] = updated
-                self._state.bump_refresh("subscriptions")
+                self._state.bump_refresh("dashboard", "subscriptions", "analytics")
                 snack(self._page, tr("action.saved", lang))
 
             auto_sw.on_change = lambda e: run_async(self._page, _toggle_auto, e)
@@ -998,9 +1027,13 @@ class SubscriptionsPage(ft.Column):
             )
 
         async def _do_delete() -> None:
-            await self._state.container.delete_subscription_charge.execute(
-                tx.id, subscription_id=sub.id
-            )
+            try:
+                await self._state.container.delete_subscription_charge.execute(
+                    tx.id, subscription_id=sub.id
+                )
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
             self._state.bump_refresh(
                 "dashboard", "accounts", "transactions", "subscriptions"
             )
@@ -1406,20 +1439,17 @@ class SubscriptionsPage(ft.Column):
             try:
                 if sub:
                     await self._state.container.update_subscription.execute(entity)
-                    audit = getattr(
-                        self._state.container, "append_subscription_audit", None
-                    )
-                    if audit is not None:
-                        await audit.execute(sub.id, "update")
+                    # Pause/resume are audited inside UpdateSubscriptionUseCase;
+                    # only record a plain field update when status did not change.
+                    if entity.status == sub.status:
+                        audit = getattr(
+                            self._state.container, "append_subscription_audit", None
+                        )
+                        if audit is not None:
+                            await audit.execute(sub.id, "update")
                 else:
-                    created = await self._state.container.create_subscription.execute(
-                        entity
-                    )
-                    audit = getattr(
-                        self._state.container, "append_subscription_audit", None
-                    )
-                    if audit is not None:
-                        await audit.execute(created.id, "create")
+                    await self._state.container.create_subscription.execute(entity)
+                    # Create is audited inside CreateSubscriptionUseCase.
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
                 return

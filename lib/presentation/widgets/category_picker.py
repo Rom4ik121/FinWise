@@ -586,6 +586,9 @@ class CategoryPicker(ft.Column):
                 snack_exception(self._page, exc, lang=self._state.language)
                 return
             close()
+            self._state.bump_refresh(
+                "transactions", "budgets", "analytics", "dashboard"
+            )
             await self.reload()
             if self._on_changed:
                 self._on_changed()
