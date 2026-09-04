@@ -12,9 +12,13 @@ UI **не** пишет в ledger напрямую через репозитор�
 | `AddTransactionUseCase` | Создать операцию, обновить баланс, применить цель/долг/бюджет |
 | `UpdateTransactionUseCase` | Изменить; откатить старые side-effects и наложить новые |
 | `DeleteTransactionUseCase` | Удалить; для перевода — обе ноги + связанную комиссию по тегу |
-| `ListTransactionsUseCase` | Фильтры: счёт, даты, тип, теги, transfer, limit/offset |
+| `ListTransactionsUseCase` | Фильтры: счёт, даты, тип, теги, transfer, **`has_debt`**, limit/offset |
 | `GetTransactionStatsUseCase` | Агрегаты для графиков |
 | `TransferAccountsUseCase` | Перевод между счетами + опциональная комиссия |
+
+Атомарные multi-step сценарии (add/update/delete, transfer, charge подписки и т.п.) оборачиваются в `lib/domain/unit_of_work.unit_of_work(session_factory)`.
+
+Тяжёлые агрегаты и экспорт читают ledger через `transaction_paging` (страницы по 500, потолок 25 000), а не unbounded `list()`.
 
 ### Правила перевода
 
@@ -53,7 +57,11 @@ UI **не** пишет в ledger напрямую через репозитор�
 | `ConnectExchangeAccountUseCase` | Создать/обновить счёт + `ExchangeConnection`, зашифровать ключи |
 | `SyncExchangeAccountUseCase` | Стянуть holdings/сделки через CCXT, импортировать операции, выставить баланс по снимку биржи |
 
-Импортированные строки помечаются тегами синка; ошибки синка пишутся в `last_error`, UI показывает дружелюбное «Не удалось синхронизировать» без сырого traceback.
+Импортированные строки помечаются тегами синка; `last_error` хранит стабильное доменное сообщение.
+
+- Неверный API-ключ → `Invalid exchange API credentials` → UI `error.exchange_bad_credentials` (без сырого JSON CCXT).
+- Прочий сбой синка → `error.sync_failed` / дружелюбный snack.
+- Auth-ошибки логируются warning **без** traceback spam.
 
 ---
 
@@ -122,8 +130,15 @@ List / Create / Update / Delete / FindOrCreate — для пикера и фор
 
 `GetSettingsUseCase` / `UpdateSettingsUseCase` — тема, язык, базовая валюта, интервал курсов, уведомления, график дашборда и т.д.
 
-PIN/биометрия хранятся через `settings_repository.set_pin_credentials` / clear (не отдельный use case файл).
+PIN:
 
+| Use case | Роль |
+|----------|------|
+| `GetPinCredentialsUseCase` | Прочитать hash/salt/biometric flag |
+| `SetPinCredentialsUseCase` | Сохранить PIN (+ biometric) |
+| `ClearPinCredentialsUseCase` | Сбросить PIN и biometric |
+
+UI не пишет PIN напрямую в репозиторий.
 ---
 
 ## Экспорт — `export_data.py`
@@ -141,8 +156,11 @@ PIN/биометрия хранятся через `settings_repository.set_pin_
 
 ## Ошибки домена → UI
 
-Английские `ValueError("Insufficient funds")`, `No exchange rate…`, `Account not found…` и т.п. в presentation превращаются в ключи i18n через `user_facing_error` / `snack_exception`. Пользователь не видит traceback.
+Английские `ValueError(...)` / `ExchangeSyncError(...)` в presentation превращаются в ключи i18n через `user_facing_error` / `snack_exception` (`_DOMAIN_ERROR_KEYS` + prefixes).
 
+- Известные тексты → понятные ru/en/uz.
+- Неизвестный technical English / traceback-подобные строки → `error.generic`.
+- Пользователь не видит сырой exception / SQL / пути.
 ---
 
 ## Связанные документы

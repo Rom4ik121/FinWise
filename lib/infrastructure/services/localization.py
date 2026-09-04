@@ -1,15 +1,13 @@
-"""RU/EN/UZ/UK/BE/KK UI string dictionaries and translation helper."""
+"""RU/EN/UZ UI string dictionaries and translation helper."""
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 from typing import Mapping
 
 logger = logging.getLogger("finanse.infrastructure.services.localization")
 
-SUPPORTED_LANGS = ("ru", "en", "uz", "uk", "be", "kk")
+SUPPORTED_LANGS = ("ru", "en", "uz")
 DEFAULT_LANG = "ru"
 
 STRINGS: dict[str, dict[str, str]] = {

@@ -111,7 +111,8 @@
 интервал курсов, флаги уведомлений, `reminder_time` / `reminder_days`,  
 `check_balance_before_subscription`, `budget_alerts`,  
 `pin_hash` / `pin_salt`, `biometric_enabled`,  
-**`dashboard_hide_chart`**, **`dashboard_chart_days`** (миграция **0017**),  
+**`dashboard_hide_chart`**, **`dashboard_chart_days`** (миграция **0017**),
+иконки/цвета целей·долгов·подписок и goal items (миграции **0018–0021**).
 порог низкого баланса и др.
 
 ### `budgets`
@@ -127,16 +128,16 @@
 
 ## 6. Alembic (`migrations/versions/`)
 
-Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0017**:
+Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0021**:
 
-| Ревизия | Суть |
-|---------|------|
-| 0001 | Базовая схема |
-| 0002 | `settings.reminder_time` |
+| Rev | Суть |
+|-----|------|
+| 0001 | Initial schema |
+| 0002 | `reminder_time` |
 | 0003 | `categories` |
-| 0004 | Goals currency/status/projection; `goal_credit_amount` |
-| 0005 | `debt_credit_amount`, индексы долгов |
-| 0006 | Гибкие подписки, `subscription_id`, `reminder_days` |
+| 0004 | Goals currency / status / projection |
+| 0005 | Debt credit + indexes |
+| 0006 | Flexible subscriptions |
 | 0007 | `auto_charge` |
 | 0008 | `budgets`, `budget_alerts` |
 | 0009 | `transfer_id`, `transfer_peer_account_id` |
@@ -148,8 +149,12 @@
 | 0015 | Debt schedule / accrual |
 | 0016 | Composite perf indexes |
 | 0017 | `dashboard_hide_chart`, `dashboard_chart_days` |
+| 0018 | Goal line items |
+| 0019 | Goal enhancements (icon/color/audit) |
+| 0020 | Debt enhancements (icon/color/audit) |
+| 0021 | Subscription enhancements (icon/color/audit) |
 
-Head: **0017**.
+Head: **0021**. Fresh install: `init_db()` + column patches; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
 
 ---
 

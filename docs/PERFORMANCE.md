@@ -1,6 +1,6 @@
 # Производительность FinWise
 
-Цель: быстрый отклик UI на Android / iOS и Windows **без урезания функций**.
+Цель: быстрый отклик UI на Android / iOS и Windows **без урезания функций**, в том числе при тысячах операций в ledger.
 
 ---
 
@@ -9,8 +9,8 @@
 | Слой | Что ускоряем |
 |------|----------------|
 | SQLite | WAL + составные индексы; границы `date_from` / `date_to`; батч UPDATE |
-| Domain | Один scan месяца для всех бюджетов; TTL RateBook; без N× `list_rates` |
-| Presentation | Без многокадровой анимации графика на каждый reload; один `list_pending` для бейджей; count-up только по marked money-текстам |
+| Domain | Один scan месяца для всех бюджетов; TTL RateBook; paging ledger; без N× `list_rates` |
+| Presentation | Без многокадровой анимации графика на каждый reload; один `list_pending` для бейджей; count-up только по marked money-текстам; `reload_gate` coalesce |
 
 Индексы и границы периода — [DATABASE.md](DATABASE.md).
 
@@ -20,7 +20,7 @@
 
 - Модуль: `lib/domain/services/rate_cache.py`
 - TTL ≈ **90 с**; ключ связан с экземпляром currency repository
-- **Инвалидация:** после `update_exchange_rates`, restore / wipe, явный `invalidate_rate_book_cache()`
+- **Инвалидация:** после `update_exchange_rates` / upsert rates, restore / wipe, явный `invalidate_rate_book_cache()`
 - **UI:** `load_rate_book` / `safe_convert` в `presentation/utils.py`
 - **Domain:** бюджеты, stats, transfer FX, goal / debt credit
 
@@ -35,9 +35,24 @@
 | Home compact chart | `animate=False` → мгновенная отрисовка; downsample ≤ ~40 точек |
 | Analytics / account detail reload | `animate=False` (без десятков `safe_update` кадров) |
 | Analytics период `all` | ≤ 36 месяцев в окне 5 лет |
-| Home cashflow | Всегда с верхней границей даты (`date_to`) |
+| Home cashflow | Верхняя граница даты + **paged** load |
 
-Лента операций: фильтры + пагинация; теги фильтруются в Python до LIMIT.
+### Пагинация ledger
+
+Тяжёлые выборки **не** делают unbounded `list()`:
+
+| Модуль | Роль |
+|--------|------|
+| `lib/domain/transaction_paging.py` | `list_transactions_paged` / `fold_transaction_pages` |
+| `lib/presentation/tx_query.py` | Обёртка над use case `execute` |
+
+Параметры по умолчанию: **`page_size=500`**, **`max_rows=25_000`**.
+
+Используется на: cashflow dashboard, analytics, account detail, sparkline debts/subs/budgets lookback, export JSON/CSV/PDF paths, currency migrate/align, month budget scan, `GetTransactionStatsUseCase`.
+
+Фильтр репозитория **`has_debt`** — sparklines долгов не сканируют весь ledger.
+
+Лента операций (UI): день/диапазон + пагинация страницы; теги фильтруются в Python **до** LIMIT; поиск ограничен scan limit.
 
 ---
 
@@ -51,11 +66,17 @@
 
 `RecalculateBudgetSpentUseCase`:
 
-1. Один `transactions.list(EXPENSE, month)`  
+1. Один paged `transactions.list(EXPENSE, month)`  
 2. Агрегация `category → spent` (с RateBook)  
 3. Save всех бюджетов месяца  
 
-Инкрементальные дельты при add/update/delete expense — `apply_expense_delta` (без полного пересчёта, где возможно).
+**Когда полный пересчёт:**
+
+| Экран | Поведение |
+|-------|-----------|
+| Budgets page | При открытии / reload |
+| Dashboard / Analytics | Только explicit refresh (`animate=True`) |
+| Add/update/delete expense | Инкремент `apply_expense_delta` (без полного scan) |
 
 ---
 
@@ -76,16 +97,22 @@
 
 Тот же Python/SQLite/UI. Критично:
 
-- Не грузить unbounded историю (`all` = 5 лет).
+- Не грузить unbounded историю (`all` = 5 лет; ledger pages capped).
 - Индексы создаются при `init_db` на любом устройстве.
 - Нативные сервисы только через `page.services`, не `page.add`.
 - Web-preview (`flet run --android`) без Dart-плагинов — ожидаемо быстрее по плагинам, но это не «настоящий» APK.
 
 ---
 
-## 8. Анимации UI (не БД)
+## 8. Анимации и UI-хелперы (не БД)
 
-**Count-up** денег при Refresh (`count_up.py`, ~0.55 с) — визуальный эффект; не умножает SQL. Скрытый баланс и простые % KPI пропускаются.
+| Модуль | Роль |
+|--------|------|
+| `count_up.py` | Count-up денег при Refresh (~0.55 с); скрытый баланс / простые % KPI пропускаются |
+| `ui_motion.py` | `replace_controls`, scroll memory, animate flag |
+| `reload_gate.py` | Слияние частых `reload()` (поиск, фильтры) |
+| `widgets/period_scale.py` | Шкала периода на summary rings |
+| `layout.make_v_scroll` | Общий ListView + scroll memory (Goals/Debts/…) |
 
 ---
 
@@ -99,6 +126,9 @@
 - budget recalc batch  
 - clear_goal_links  
 - analytics `all` bound  
+- paged fetch + `has_debt`  
+
+Дополнительно: `test_reload_gate.py`, `test_period_scale.py`.
 
 Полный прогон: `python -m pytest -q`.
 
@@ -106,9 +136,13 @@
 
 ## 10. Известные улучшения (не блокер релиза)
 
-Закрыто (2026-09-04): full budget recalc только на explicit refresh; paged `list_transactions` (`tx_query.py`, page=500, cap=25k); `has_debt` filter для sparkline debts.
+Закрыто (2026-09-04):
 
-Остаётся backlog: dashboard in-place mutate, off-screen reload fine-tuning, ListView storms, SQL full-text search.
+- full budget recalc только на explicit refresh (home/analytics); Budgets page — при открытии;
+- paged `list_transactions` (`tx_query` / `transaction_paging`, page=500, cap=25k);
+- `has_debt` filter для sparkline debts.
+
+Остаётся backlog: dashboard in-place mutate, off-screen reload fine-tuning, ListView storms, SQL full-text search, batch ConvertCurrency.
 
 ---
 

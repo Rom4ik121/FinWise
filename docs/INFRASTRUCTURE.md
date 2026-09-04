@@ -16,13 +16,14 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 Все `SqlAlchemy*Repository`:
 
 1. Реализуют ABC из `lib/domain/repositories/`.
-2. Выполняют синхронный SQLAlchemy в **`asyncio.to_thread`** + `session_scope`.
-3. Маппят ORM ↔ Pydantic-сущности.
+2. Выполняют синхронный SQLAlchemy в **`asyncio.to_thread`** + `session_scope` (вне UoW).
+3. Внутри `unit_of_work` — тот же поток, без лишнего `to_thread` на nested calls (`in_unit_of_work`).
+4. Маппят ORM ↔ Pydantic-сущности.
 
 | Класс | Таблица / таблицы | Заметки |
 |-------|------------------|---------|
 | `SqlAlchemyAccountRepository` | `accounts` | CRUD, `active_only`, `include_in_total` |
-| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям; **теги** дофильтровываются в Python **до** LIMIT/OFFSET |
+| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`; **теги** дофильтровываются в Python **до** LIMIT/OFFSET |
 | `SqlAlchemyGoalRepository` | `goals` | status / priority / сортировки |
 | `SqlAlchemyDebtRepository` | `debts` | status / direction |
 | `SqlAlchemySubscriptionRepository` | `subscriptions` | `list_due(as_of)` |
@@ -32,7 +33,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | `SqlAlchemyBudgetRepository` | `budgets` | spent, delete/reassign категории |
 | `SqlAlchemyExchangeConnectionRepository` | `exchange_connections` | credentials blob, holdings, last_error |
 
-Базовый хелпер сессий: `lib/infrastructure/repositories/_base.py`.
+Базовый хелпер сессий: `lib/infrastructure/repositories/_base.py` (re-export UoW из `lib/domain/unit_of_work.py`).
 
 ---
 
@@ -43,7 +44,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | `ExchangeRateClient` | `api/exchange_rate_client.py` | open.er-api.com — фиат от base |
 | `CryptoRateClient` | `api/crypto_rate_client.py` | CoinGecko |
 | `BinanceRateClient` | `api/binance_rate_client.py` | Binance ticker; USDT ≈ USD |
-| `CcxtExchangeClient` | `api/ccxt_exchange_client.py` | Балансы / сделки через CCXT; в APK/IPA — mobile-safe wheel `vendor/wheels/` (без aiodns/pycares) |
+| `CcxtExchangeClient` | `api/ccxt_exchange_client.py` | Балансы / сделки через CCXT; в APK/IPA — mobile-safe wheel `vendor/wheels/` (без aiodns/pycares). Auth fail → `Invalid exchange API credentials` (quiet warning, без traceback spam) |
 
 Общие свойства: таймауты, опциональный свой `httpx.AsyncClient` (удобно в тестах), `aclose()`.
 
@@ -63,9 +64,8 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 ### Face ID (`biometric.py`)
 
 - Мобильный путь: `FinanseLocalAuth` (расширение `flet_local_auth`).
-- Windows: Windows Hello через `winrt` (если доступно).
-- **Политика продукта:** разблокировка Face ID / face / iris; **отпечаток пальца не предлагается** (`has_face_unlock` / `_is_face_biometric`).
-- Без face-биометрии остаётся только PIN.
+- **Политика продукта:** разблокировка только **face / iris**. Отпечаток пальца и Windows Hello fingerprint **не** предлагаются.
+- Desktop без face-моста → только PIN.
 - Env для тестов: `FINANCE_BIOMETRIC_OK=1`.
 
 ### Ключи бирж
@@ -87,7 +87,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 |-------|-----------|
 | Ручной backup | Timestamped копия `.db` (+ `-wal` / `-shm` при наличии) в `backups/` |
 | `ensure_daily_backup()` | Перезаписывает **`finanse_daily.db`** не чаще **одного раза в локальные сутки** (+ штамп `finanse_daily.day`) |
-| Restore | Восстановление с safety-копией текущего файла |
+| Restore | Проверка заголовка SQLite (`b"SQLite format 3\0"`); иначе ошибка; safety-копия текущего файла |
 | list / delete | Управление файлами бэкапов |
 
 Вызов daily: старт приложения + hourly loop в `lib/main.py`.
@@ -148,7 +148,9 @@ Deep link / ярлык: `finwise://voice` → `presentation/voice_shortcut.py`.
 
 `localization.py` — словарь `STRINGS` + `tr(key, lang, **kwargs)`.
 
-Языки: **ru**, **en**, **uz**. Каждый ключ обязан иметь все три перевода (тест `test_every_key_has_all_langs`).
+UI-языки: **ru**, **en**, **uz**. Каждый ключ обязан иметь все три перевода (тест `test_every_key_has_all_langs`).
+
+Черновик `assets/i18n/uk_be_kk.json` (украинский / белорусский / казахский) **пока не wired** в picker и `normalize_lang`.
 
 ---
 

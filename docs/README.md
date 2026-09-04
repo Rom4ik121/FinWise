@@ -17,7 +17,7 @@
 | [USE_CASES.md](USE_CASES.md) | Бизнес-сценарии и правила денег / FX / переводов |
 | [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, курсы, CCXT, бэкап, PIN/Face ID, push, речь |
 | [PRESENTATION.md](PRESENTATION.md) | UI, вкладки, маршруты, формы, UX (splash, lock, count-up) |
-| [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0017** |
+| [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0021** |
 | [PERFORMANCE.md](PERFORMANCE.md) | Скорость БД, FX, UI на телефонах и десктопе |
 | [TESTING.md](TESTING.md) | pytest, фикстуры, как гонять тесты |
 | [CODEMAGIC.md](CODEMAGIC.md) | Подписанный IPA (iOS) через Codemagic |
@@ -83,7 +83,7 @@ python -m pytest -q
 |------|------------|
 | UI | Flet (Flutter) |
 | Домен | Pydantic v2, чистые use cases |
-| Данные | SQLAlchemy 2.0 + SQLite (WAL), Alembic 0001–0017 |
+| Данные | SQLAlchemy 2.0 + SQLite (WAL), Alembic 0001–0021 |
 | Сеть | httpx (open.er-api, CoinGecko, Binance), CCXT |
 | Отчёты | matplotlib, reportlab |
 | Безопасность | PIN (PBKDF), Face ID, AES-GCM secret box для ключей бирж |
@@ -103,11 +103,13 @@ FinWise/
 │   └── presentation/       # экраны и виджеты Flet
 ├── extensions/             # Flutter-мосты
 ├── assets/                 # icon, splash, icons/crypto|exchanges, currencies.json
-├── migrations/versions/    # Alembic 0001 … 0017
+├── migrations/versions/    # Alembic 0001 … 0021
 ├── scripts/                # migrate, seed, APK, брендинг
 ├── tests/                  # unit + integration
 └── docs/                   # эта документация
 ```
+
+Черновик локалей uk/be/kk: `assets/i18n/` (пока не в UI).
 
 ---
 

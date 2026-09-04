@@ -12,4 +12,6 @@ Product: local-first personal finance (Flet 0.83–0.86, SQLite). Desktop: `pyth
 
 Do not break unrelated features. Prefer version-safe Flet APIs. Update CHANGELOG after each task.
 
-**Post-change rule:** After EVERY code change, run `finwise-verify` skill — tests, architecture audit, invariant checks, UI↔logic integration, regression suite, and docs update. Never report "done" without verification.
+**Post-change rule:** After EVERY code change, run `finwise-verify` skill — tests, architecture audit, invariant checks, UI↔logic integration, regression suite, and docs update (`docs/*`, README when user-facing). Never report "done" without verification.
+
+Keep public docs in sync with Alembic head (**0021**), paging/UoW modules, and live UI languages (**ru/en/uz** only until uk/be/kk are wired).

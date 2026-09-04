@@ -49,15 +49,16 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Бюджеты (логика) | `test_budget.py` |
 | Биометрия / PIN | `test_biometric.py`, `test_encryption.py`, `test_secret_box.py` |
 | Локализация | `test_localization.py` (все ключи ru/en/uz) |
-| Бэкап | `test_backup_service.py` (в т.ч. daily rolling) |
+| Бэкап | `test_backup_service.py` (в т.ч. daily rolling + SQLite magic) |
 | Курсы / RateBook | `test_rate_book.py`, currency helpers |
 | Проекции | `test_goal_projection.py`, `test_debt_projection.py` |
 | Подписки (биллинг) | `test_subscription_billing.py` |
 | Reminders / push | `test_reminder_scheduler.py`, `test_notification_service.py`, `test_push_notifier.py` |
 | AppState / скины | `test_app_state.py`, `test_skins.py` |
-| Иконки / каталог | `test_account_icons.py`, `test_icon_catalog.py`, `test_exchanges.py` |
+| Иконки / каталог | `test_account_icons.py`, `test_icon_catalog.py`, `test_exchanges.py` (в т.ч. auth → user_facing) |
 | Аналитика периодов | `test_analytics_period.py` |
-| Performance | `test_performance.py` |
+| UI helpers | `test_reload_gate.py`, `test_period_scale.py` |
+| Performance | `test_performance.py` (tags, RateBook, paging, `has_debt`, budget batch) |
 | UI smoke / utils | `test_ui_widgets_smoke.py`, `test_presentation_utils.py`, `test_charts.py` |
 | Файлы / Flet services | `test_file_transfer.py`, `test_flet_services.py` |
 | Голос | `test_voice_parse.py`, `test_voice_capture.py` |

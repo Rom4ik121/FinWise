@@ -90,15 +90,16 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 | Accounts | `pages/accounts.py` | Список счетов, биржи |
 | Account detail | `pages/account_detail.py` | История, статистика, графики счёта |
 | Analytics | `pages/analytics.py` | Категории дохода/расхода + линия за период (пустые дни — нули) |
-| Goals / Debts / Subscriptions / Budgets / Currencies | соответствующие `pages/` | CRUD и профили |
+| Goals / Debts / Subscriptions / Budgets / Currencies | соответствующие `pages/` | CRUD и профили; списки через `layout.make_v_scroll` |
 | Settings | `pages/settings.py` | Тема, скин, язык, валюта, пуши, PIN/Face ID, голос, экспорт, бэкап, сброс |
 
 ### UX-детали
 
 - **Count-up** денежных сумм при Refresh: `count_up.py` (`mark_money_text` / `play_count_ups`) на dashboard, accounts, transactions, analytics, account detail. Скрытый баланс и простые % KPI не анимируются.
 - **Частый счёт** для дохода/расхода: `frequent_account.py` — самый используемый не-transfer счёт; подпись «часто» в quick-add и редакторе операций.
-- Ошибки: `snack_exception` / `user_facing_error` — без traceback.
-
+- **Reload coalesce:** `reload_gate.py` — поиск/фильтры не штормят БД.
+- **Scroll / rebuild:** `ui_motion.replace_controls` сохраняет позицию списка.
+- Ошибки: `snack_exception` / `user_facing_error` — доменные тексты → i18n; technical English → `error.generic`; без traceback.
 ---
 
 ## 6. Виджеты (`widgets/`)
@@ -135,12 +136,16 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 | Модуль | Роль |
 |--------|------|
 | `utils.py` | `format_money`, `run_async`, `snack`, RateBook helpers, `user_facing_error`, `snack_exception` |
+| `tx_query.py` | Paged load транзакций (500 / 25k) через use case |
+| `reload_gate.py` | Coalesce частых reload |
+| `ui_motion.py` | `replace_controls`, scroll memory, animate flag |
 | `haptics.py` | Лёгкий haptic на успех (mobile) |
 | `icon_registry.py` / `account_icons.py` | Иконки и валютные глифы |
 | `analytics_period.py` | `enumerate_period_keys`, `fill_time_series` |
 | `notification_badges.py` | Бейджи pending |
 | `dropdown_options.py` / `currency_options.py` | Опции форм |
-| `layout.py` | Общие отступы / ширина |
+| `layout.py` | `make_v_scroll`, chip rows, отступы |
+| `widgets/period_scale.py` | Шкала периода на summary rings |
 
 ---
 

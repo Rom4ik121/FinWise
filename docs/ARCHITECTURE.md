@@ -47,6 +47,8 @@ Presentation и infrastructure зависят от domain, не наоборот
 - **repositories/** — ABC-порты.
 - **use_cases/** — сценарии с `async execute(...)` (см. [USE_CASES.md](USE_CASES.md)).
 - **services/** — `RateBook`, кэш курсов.
+- **unit_of_work.py** — `unit_of_work` / `in_unit_of_work` для атомарных multi-step сценариев (транзакции, списания подписок и т.п.); infra `_base.py` только re-export.
+- **transaction_paging.py** — постраничная загрузка ledger (`page_size=500`, `max_rows=25_000`).
 - **exchanges.py** — каталог поддерживаемых бирж и метаданные иконок.
 
 ### 2.3 `lib/infrastructure`
@@ -105,11 +107,11 @@ Dart/Flutter-мосты, подключаемые только в нативно
 
 | Механизм | Где |
 |----------|-----|
-| PIN | Хэш/соль в таблице `settings`; экран `LockScreen` |
-| Face ID | Только face/iris (отпечаток пальца **не** предлагается) |
+| PIN | Хэш/соль в `settings`; use cases `Get/Set/ClearPinCredentials`; экран `LockScreen` |
+| Face ID | Только face/iris на мобильных (отпечаток / Windows Hello fingerprint **не** предлагаются; desktop → PIN) |
 | Автоблокировка | После ≥ **15 с** в фоне на мобильных (`app.py`) |
 | Ключи бирж | AES-GCM (`secret_box`, файл `.secret_box_key`) |
-| Ошибки UI | `snack_exception` / `user_facing_error` — без traceback |
+| Ошибки UI | `user_facing_error` / `snack_exception`: доменные English → i18n; сырой technical → `error.generic`; без traceback |
 
 ---
 
@@ -126,8 +128,8 @@ Dart/Flutter-мосты, подключаемые только в нативно
 
 ## 7. Локализация и тема
 
-- Языки: **ru**, **en**, **uz** (`SUPPORTED_LANGS`).
-- Строки: словарь `STRINGS` + `tr(key, lang, **kwargs)`.
+- UI-языки: **ru**, **en**, **uz** (`SUPPORTED_LANGS`, picker в Settings).
+- Строки: словарь `STRINGS` + `tr(key, lang, **kwargs)`. Черновик `assets/i18n/uk_be_kk.json` (uk/be/kk) **не подключён**.
 - Тема: light / dark / system.
 - UI style: **classic** (по умолчанию в рантайме скинов) / **neon** (дефолт в `config` может отличаться — см. `DEFAULT_UI_STYLE` в `config.py`).
 
