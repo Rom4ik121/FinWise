@@ -69,7 +69,7 @@
 
 ### `accounts`
 
-`name`, `currency`, `balance`, `initial_balance`, `icon`, `color`, `is_active`, `include_in_total`, `created_at`.
+`name`, `currency`, `balance`, `initial_balance`, `icon`, `color`, `is_active`, `include_in_total`, `is_corporate`, `created_at`.
 
 ### `transactions`
 
@@ -77,7 +77,7 @@
 `goal_id` / `debt_id` / `subscription_id` (SET NULL),  
 `goal_credit_amount` / `debt_credit_amount`,  
 `transfer_id`, `transfer_peer_account_id`,  
-`items` (JSON позиций чека), timestamps.
+`items` (JSON позиций чека), `attachments` (JSON путей к фото в `media/`), timestamps.
 
 ### `goals`
 
@@ -118,7 +118,8 @@
 ### `budgets`
 
 `category_id` → `categories.name` (CASCADE), `month`, `year`, `amount_limit`, `spent`,  
-`last_alert_level`, timestamps, UNIQUE(category_id, month, year).
+`last_alert_level`, `account_id` (пустая строка = личный; UUID = корпоративный счёт), timestamps,  
+UNIQUE(category_id, month, year, account_id).
 
 ### `exchange_connections`
 
@@ -128,7 +129,7 @@
 
 ## 6. Alembic (`migrations/versions/`)
 
-Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0021**:
+Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0026**:
 
 | Rev | Суть |
 |-----|------|
@@ -153,8 +154,13 @@
 | 0019 | Goal enhancements (icon/color/audit) |
 | 0020 | Debt enhancements (icon/color/audit) |
 | 0021 | Subscription enhancements (icon/color/audit) |
+| 0022 | `transactions_fts` FTS5 (category/comment/tags) |
+| 0023 | Legacy unused onboarding flag columns on `settings` |
+| 0024 | `accounts.is_corporate` |
+| 0025 | `budgets.account_id` (corporate-scoped budgets) |
+| 0026 | `transactions.attachments` JSON (receipt photos) |
 
-Head: **0021**. Fresh install: `init_db()` + column patches; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
+Head: **0026**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
 
 ---
 

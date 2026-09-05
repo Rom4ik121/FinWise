@@ -44,6 +44,61 @@ def test_set_and_list_budget(container) -> None:
     run_async(_run())
 
 
+def test_corporate_budget_isolated_from_personal(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Office", kind=CategoryKind.EXPENSE)
+        )
+        personal = await container.create_account.execute(make_account(name="Cash"))
+        corporate = await container.create_account.execute(
+            make_account(name="LLC").model_copy(update={"is_corporate": True})
+        )
+        now = datetime.now(timezone.utc)
+        personal_b = await container.set_budget.execute(
+            "Office", now.month, now.year, Decimal("100")
+        )
+        corp_b = await container.set_budget.execute(
+            "Office",
+            now.month,
+            now.year,
+            Decimal("500"),
+            account_id=corporate.id,
+        )
+        assert personal_b.account_id is None
+        assert corp_b.account_id == corporate.id
+        assert personal_b.id != corp_b.id
+
+        await container.add_transaction.execute(
+            make_transaction(corporate.id, amount="50", category="Office")
+        )
+        await container.add_transaction.execute(
+            make_transaction(personal.id, amount="20", category="Office")
+        )
+
+        personal_p = await container.get_budget_progress.execute(
+            category_id="Office", month=now.month, year=now.year
+        )
+        corp_p = await container.get_budget_progress.execute(
+            category_id="Office",
+            month=now.month,
+            year=now.year,
+            account_id=corporate.id,
+        )
+        assert personal_p.spent == Decimal("20.00")
+        assert corp_p.spent == Decimal("50.00")
+
+        personal_list = await container.get_budgets_for_month.execute(
+            now.month, now.year
+        )
+        corp_list = await container.get_budgets_for_month.execute(
+            now.month, now.year, account_id=corporate.id
+        )
+        assert all(p.budget.account_id is None for p in personal_list)
+        assert all(p.budget.account_id == corporate.id for p in corp_list)
+
+    run_async(_run())
+
+
 def test_income_category_cannot_have_budget(container) -> None:
     async def _run() -> None:
         await container.create_category.execute(
@@ -192,6 +247,8 @@ def test_budget_spent_converts_to_base_currency(container) -> None:
         settings = await container.get_settings.execute()
         settings.default_currency = "RUB"
         await container.update_settings.execute(settings)
+        # Anchor RUB as first account so USD create does not steal default_currency.
+        await container.create_account.execute(make_account(name="Cash"))
 
         await container.create_category.execute(
             make_category(name="Travel", kind=CategoryKind.EXPENSE)
@@ -232,6 +289,35 @@ def test_copy_budgets_from_previous_month(container) -> None:
         assert again == 0
         with pytest.raises(ValueError, match="previous month"):
             await container.copy_budgets_from_previous.execute(1, 2026)
+
+    run_async(_run())
+
+
+def test_copy_corporate_budgets_from_previous_month(container) -> None:
+    async def _run() -> None:
+        corp = await container.create_account.execute(
+            make_account(name="Corp", is_corporate=True)
+        )
+        await container.create_category.execute(
+            make_category(name="Office", kind=CategoryKind.EXPENSE)
+        )
+        await container.set_budget.execute(
+            "Office", 7, 2026, Decimal("500"), account_id=corp.id
+        )
+        # Personal budget with same category must not be copied into corporate scope.
+        await container.set_budget.execute("Office", 7, 2026, Decimal("100"))
+        created = await container.copy_budgets_from_previous.execute(
+            8, 2026, account_id=corp.id
+        )
+        assert created == 1
+        listed = await container.get_budgets_for_month.execute(
+            8, 2026, account_id=corp.id
+        )
+        assert len(listed) == 1
+        assert listed[0].limit == Decimal("500.00")
+        assert listed[0].budget.account_id == corp.id
+        personal = await container.get_budgets_for_month.execute(8, 2026)
+        assert all(p.budget.account_id in (None, "") for p in personal)
 
     run_async(_run())
 
@@ -330,6 +416,8 @@ def test_recalculate_missing_fx_raises(container) -> None:
         await container.set_budget.execute(
             "Travel", now.month, now.year, Decimal("1000")
         )
+        # Keep display currency RUB so a USD expense needs a rate.
+        await container.create_account.execute(make_account(name="Cash"))
         usd = await container.create_account.execute(
             make_account(name="USD", currency="USD", balance="50")
         )

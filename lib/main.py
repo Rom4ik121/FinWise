@@ -23,8 +23,31 @@ _reminder_task: Optional[asyncio.Future[Any]] = None
 _daily_backup_task: Optional[asyncio.Future[Any]] = None
 
 
-async def _seed_if_needed(container: Container) -> None:
-    """Ensure currencies, settings, and cash account exist (idempotent)."""
+async def _maybe_refine_locale_from_page(
+    container: Container,
+    page: ft.Page | None,
+    settings: Any,
+) -> None:
+    """If language is still English fallback, prefer richer device/page locale."""
+    if page is None or container.update_settings is None:
+        return
+    from lib.domain.locale_prefs import FALLBACK_LANGUAGE
+    from lib.infrastructure.services.locale_prefs import detect_language_and_currency
+
+    if normalize_lang(settings.language) != FALLBACK_LANGUAGE:
+        return
+    lang, _currency = detect_language_and_currency(page=page)
+    if normalize_lang(lang) == FALLBACK_LANGUAGE:
+        return
+    if normalize_lang(settings.language) == normalize_lang(lang):
+        return
+    updated = settings.model_copy(update={"language": lang})
+    await container.update_settings.execute(updated)
+    logger.info("Refined first-run language → %s", lang)
+
+
+async def _seed_if_needed(container: Container, page: ft.Page | None = None) -> None:
+    """Ensure currencies and settings exist (idempotent). No default account."""
     try:
         from pathlib import Path
 
@@ -46,47 +69,11 @@ async def _seed_if_needed(container: Container) -> None:
 
     try:
         if container.get_settings is not None:
-            await container.get_settings.execute()
+            # Warm settings (language from device UI; currency until first account).
+            settings = await container.get_settings.execute()
+            await _maybe_refine_locale_from_page(container, page, settings)
     except Exception:  # noqa: BLE001
         logger.exception("Settings seed/load failed")
-
-    try:
-        if container.list_accounts is None or container.create_account is None:
-            return
-        accounts = await container.list_accounts.execute()
-        if accounts:
-            # One account still on RUB while settings are UZS (etc.) → retarget.
-            from lib.domain.use_cases.align_currencies import (
-                align_sole_account_currency,
-            )
-
-            if await align_sole_account_currency(container):
-                logger.info("Sole account currency aligned with settings")
-            return
-        from lib.domain.entities.account import Account
-        from lib.domain.entities.currency_codes import normalize_currency_code
-        from lib.infrastructure.services.localization import t
-
-        currency = container.config.default_currency
-        lang = container.config.language
-        if container.get_settings is not None:
-            settings = await container.get_settings.execute()
-            currency = normalize_currency_code(settings.default_currency)
-            lang = settings.language
-
-        await container.create_account.execute(
-            Account(
-                name=t("account.default_cash", lang),
-                currency=currency,
-                initial_balance=0,
-                balance=0,
-                icon="wallet",
-                color="#2E7D32",
-            )
-        )
-        logger.info("Created default cash account (%s)", currency)
-    except Exception:  # noqa: BLE001
-        logger.exception("Default account seed failed")
 
 
 async def _exchange_rate_loop(container: Container) -> None:
@@ -227,7 +214,7 @@ async def _flet_main(page: ft.Page) -> None:
     setup_logging(log_dir=config.log_dir)
     init_db(config)
     container = build_container(config, init_database=False)
-    await _seed_if_needed(container)
+    await _seed_if_needed(container, page)
 
     if _rate_task is None or _rate_task.done():
         _rate_task = page.run_task(_exchange_rate_loop, container)
@@ -240,12 +227,10 @@ async def _flet_main(page: ft.Page) -> None:
 
     from lib.infrastructure.services.biometric import register_local_auth_service
     from lib.infrastructure.services.push_notifier import register_android_notifications
-    from lib.infrastructure.services.speech import register_speech_service
 
     # Keep the splash visible — do not clear the page before the shell is ready.
     register_local_auth_service(page)
     register_android_notifications(page)
-    register_speech_service(page)
 
     await app.start()
 

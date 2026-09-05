@@ -9,7 +9,7 @@ from typing import Sequence
 
 from lib.domain.use_cases.transactions import GetTransactionStatsUseCase, StatsPeriod
 
-ANALYTICS_PERIOD_KEYS = ("7d", "30d", "90d", "180d", "365d", "all")
+ANALYTICS_PERIOD_KEYS = ("1d", "7d", "30d", "90d", "180d", "365d", "all")
 DEFAULT_ANALYTICS_PERIOD = "30d"
 
 
@@ -26,6 +26,14 @@ class AnalyticsPeriodConfig:
 
 def resolve_analytics_period(key: str, now: datetime) -> AnalyticsPeriodConfig:
     """Map a preset key to query bounds and chart granularity."""
+    if key == "1d":
+        return AnalyticsPeriodConfig(
+            key=key,
+            date_from=now - timedelta(days=1),
+            date_to=now,
+            group_by=StatsPeriod.DAY,
+            max_chart_points=None,
+        )
     if key == "7d":
         return AnalyticsPeriodConfig(
             key=key,

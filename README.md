@@ -85,7 +85,7 @@ FinWise/
 ├── lib/                    # приложение
 ├── extensions/             # Flutter-мосты (Face ID, push, речь)
 ├── assets/                 # иконки, splash, currencies.json (+ черновик i18n/)
-├── migrations/             # Alembic 0001…0021
+├── migrations/             # Alembic 0001…0023
 ├── scripts/                # migrate, seed, APK/IPA
 ├── tests/                  # unit + integration
 └── docs/                   # подробная документация
@@ -98,7 +98,7 @@ FinWise/
 
 ## Сборка на телефон
 
-Нативные функции (Face ID, пуши, микрофон, ярлык `finwise://voice`) работают в **собранном** APK/IPA.  
+Нативные функции (Face ID, пуши) работают в **собранном** APK/IPA.  
 `flet run --android` — web-клиент без Dart-плагинов.
 
 **Android (APK):**

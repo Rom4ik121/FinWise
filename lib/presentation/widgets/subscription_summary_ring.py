@@ -79,7 +79,6 @@ def subscriptions_summary_ring(
                                     weight=ft.FontWeight.W_800,
                                     color=primary,
                                 ),
-                                muted_text(tr("subscriptions.monthly_hint", language)),
                             ],
                         ),
                     ],

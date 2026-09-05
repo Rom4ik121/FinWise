@@ -42,6 +42,7 @@ from lib.presentation.utils import (
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.account_icons import account_icon_badge
 from lib.presentation.widgets.charts import build_line_chart_image
+from lib.presentation.responsive import compact_chart_size, scale_font, tap_button_style
 from lib.presentation.widgets.dual_add_button import dual_add_button
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.layout import make_v_scroll
@@ -88,6 +89,15 @@ class DashboardPage(ft.Column):
         self._sections_open = True
         self._balance_cache: dict = {}
         self._animate_charts = False
+        # Stable slots for in-place toggle mutate (avoid full ListView rebuild).
+        self._balance_label: ft.Text | None = None
+        self._eye_btn: ft.IconButton | None = None
+        self._chart_btn: ft.IconButton | None = None
+        self._today_row: ft.Row | None = None
+        self._chart_slot: ft.Container | None = None
+        self._sections_body: ft.Column | None = None
+        self._sections_chevron: ft.Icon | None = None
+        self._slots_ready = False
         super().__init__(
             expand=True,
             spacing=0,
@@ -118,6 +128,11 @@ class DashboardPage(ft.Column):
         super().did_mount()
         self._reload_gate.on_mounted()
 
+    def _open_first_account(self) -> None:
+        """Home empty CTA → Accounts tab + create form."""
+        self._state.pending_open_account_create = True
+        self._state.set_tab(self._state.TAB_ACCOUNTS)
+
     def _on_state(self, state: "AppState") -> None:
         if state.dashboard_token != self._token:
             self._reload_gate.request()
@@ -127,22 +142,10 @@ class DashboardPage(ft.Column):
 
         Skips accounts with ``include_in_total=False`` (home total only).
         """
-        base = normalize_currency_code(base)
+        from lib.domain.services.ledger_fx import sum_balances_in_base
+
         book = await load_rate_book(self._state.container)
-        total = Decimal("0.00")
-        ok = True
-        for account in accounts:
-            if not getattr(account, "include_in_total", True):
-                continue
-            src = normalize_currency_code(account.currency)
-            converted = book.convert(account.balance, src, base)
-            if converted is not None:
-                total += converted
-            elif src == base:
-                total += account.balance
-            else:
-                ok = False
-        return total, ok
+        return sum_balances_in_base(accounts, base=base, book=book)
 
     async def _cashflow_month(
         self, base: str, *, days: int = _CHART_DAYS
@@ -152,6 +155,8 @@ class DashboardPage(ft.Column):
         Day boundaries use the **local** calendar. Buckets stay ≤36 points.
         Returns ``fx_ok=False`` when any tx was skipped for a missing rate.
         """
+        from lib.domain.services.ledger_fx import amount_to_base
+
         base = normalize_currency_code(base)
         book = await load_rate_book(self._state.container)
         local_now = datetime.now().astimezone()
@@ -196,10 +201,17 @@ class DashboardPage(ft.Column):
                     date_to=period_end,
                     has_transfer=False,
                 )
+                corporate = await self._state.container.list_accounts.execute(
+                    corporate=True
+                )
+                corporate_ids = {a.id for a in corporate}
             except Exception:  # noqa: BLE001
                 txs = []
+                corporate_ids = set()
             for tx in txs:
                 if getattr(tx, "transfer_id", None):
+                    continue
+                if getattr(tx, "account_id", None) in corporate_ids:
                     continue
                 when = tx.date
                 if when.tzinfo is None:
@@ -207,14 +219,10 @@ class DashboardPage(ft.Column):
                 key = when.astimezone(tz).date().isoformat()
                 if key not in by_income_day:
                     continue
-                src = normalize_currency_code(tx.currency or base)
-                converted = book.convert(tx.amount, src, base)
+                converted = amount_to_base(book, tx.amount, tx.currency or base, base)
                 if converted is None:
-                    if src == base:
-                        converted = tx.amount
-                    else:
-                        fx_ok = False
-                        continue
+                    fx_ok = False
+                    continue
                 if tx.type == TransactionType.INCOME:
                     by_income_day[key] += converted
                     if key == today_key:
@@ -247,11 +255,11 @@ class DashboardPage(ft.Column):
 
     def _toggle_balance(self, _e: ft.ControlEvent | None = None) -> None:
         self._hide_balance = not self._hide_balance
-        self._render_from_cache()
+        self._apply_visibility()
 
     def _toggle_chart(self, _e: ft.ControlEvent | None = None) -> None:
         self._hide_chart = not self._hide_chart
-        self._render_from_cache()
+        self._apply_visibility()
         run_async(self._page, self._persist_chart_prefs)
 
     async def _persist_chart_prefs(self) -> None:
@@ -271,7 +279,7 @@ class DashboardPage(ft.Column):
 
     def _toggle_sections(self, _e: ft.ControlEvent | None = None) -> None:
         self._sections_open = not self._sections_open
-        self._render_from_cache()
+        self._apply_visibility()
 
     def _open_chart_period(self, _e: ft.ControlEvent | None = None) -> None:
         lang = self._state.language
@@ -315,7 +323,6 @@ class DashboardPage(ft.Column):
             lang=lang,
             overlay_key="dashboard_chart_period",
             body=[
-                muted_text(tr("dashboard.chart_period_hint", lang), size=12),
                 period_dd,
             ],
             on_save=_apply,
@@ -323,10 +330,109 @@ class DashboardPage(ft.Column):
         )
 
     def _render_from_cache(self) -> None:
+        """Full rebuild from last successful load (fallback if slots missing)."""
         cache = self._balance_cache
-        if not cache:
+        if not cache or "build" not in cache:
             return
         replace_controls(self._body, cache["build"](), self._page)
+
+    def _apply_visibility(self) -> None:
+        """Mutate balance/chart/sections slots without rebuilding the ListView."""
+        cache = self._balance_cache
+        if not self._slots_ready or not cache:
+            self._render_from_cache()
+            return
+        lang = str(cache.get("lang") or self._state.language)
+        total = cache.get("total", Decimal("0"))
+        base = str(cache.get("base") or self._state.base_currency)
+        today_income = cache.get("today_income", Decimal("0"))
+        today_expense = cache.get("today_expense", Decimal("0"))
+        periods = cache.get("periods") or []
+        incomes = cache.get("incomes") or []
+        expenses = cache.get("expenses") or []
+        hidden = self._hide_balance
+
+        if self._balance_label is not None:
+            if hidden:
+                self._balance_label.value = _HIDDEN_MONEY
+                data = getattr(self._balance_label, "data", None)
+                if isinstance(data, dict):
+                    data.pop("count_up", None)
+            else:
+                self._balance_label.value = format_money(total, base)
+                mark_money_text(self._balance_label, total, currency=base)
+            safe_update(self._balance_label)
+
+        if self._eye_btn is not None:
+            self._eye_btn.icon = (
+                ft.Icons.VISIBILITY_OFF if hidden else ft.Icons.VISIBILITY
+            )
+            self._eye_btn.tooltip = tr(
+                "dashboard.hide_balance" if not hidden else "dashboard.show_balance",
+                lang,
+            )
+            safe_update(self._eye_btn)
+
+        if self._today_row is not None:
+            self._today_row.controls = [
+                self._today_box(
+                    label=tr("dashboard.today_income", lang),
+                    amount=today_income,
+                    currency=base,
+                    color=ft.Colors.SECONDARY,
+                    hidden=hidden,
+                ),
+                self._today_box(
+                    label=tr("dashboard.today_expense", lang),
+                    amount=today_expense,
+                    currency=base,
+                    color=ft.Colors.ERROR,
+                    hidden=hidden,
+                ),
+            ]
+            safe_update(self._today_row)
+
+        if self._chart_btn is not None:
+            self._chart_btn.icon = (
+                ft.Icons.SHOW_CHART if self._hide_chart else ft.Icons.EXPAND_LESS
+            )
+            self._chart_btn.tooltip = tr(
+                "dashboard.show_chart" if self._hide_chart else "dashboard.hide_chart",
+                lang,
+            )
+            safe_update(self._chart_btn)
+
+        if self._chart_slot is not None:
+            self._chart_slot.visible = not self._hide_chart
+            if not self._hide_chart:
+                zeros = [Decimal("0")] * max(len(incomes), 1)
+                chart_w, chart_h = compact_chart_size(self._page)
+                self._chart_slot.content = build_line_chart_image(
+                    periods,
+                    incomes if not hidden else zeros,
+                    expenses if not hidden else zeros,
+                    width=chart_w,
+                    height=chart_h,
+                    language=lang,
+                    dark=True,
+                    show_income=True,
+                    show_expense=True,
+                    page=self._page,
+                    compact=True,
+                    animate=False,
+                )
+            safe_update(self._chart_slot)
+
+        if self._sections_body is not None:
+            self._sections_body.visible = self._sections_open
+            safe_update(self._sections_body)
+        if self._sections_chevron is not None:
+            self._sections_chevron.icon = (
+                ft.Icons.KEYBOARD_ARROW_DOWN
+                if self._sections_open
+                else ft.Icons.KEYBOARD_ARROW_UP
+            )
+            safe_update(self._sections_chevron)
 
     @staticmethod
     def _abbrev_today_amount(amount: Decimal, currency: str) -> tuple[str, str, bool]:
@@ -423,13 +529,68 @@ class DashboardPage(ft.Column):
         zeros = [Decimal("0")] * max(len(incomes), 1)
         balance_label = ft.Text(
             balance_txt,
-            size=20,
+            size=scale_font(20, self._page, minimum=17, maximum=24),
             weight=ft.FontWeight.W_700,
             color=skin.text_hex(dark=True),
             expand=True,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
         if not hidden:
             mark_money_text(balance_label, total, currency=base)
+        self._balance_label = balance_label
+        eye_btn = ft.IconButton(
+            icon=eye_icon,
+            icon_size=20,
+            icon_color=ft.Colors.ON_SURFACE_VARIANT,
+            tooltip=tr(
+                "dashboard.hide_balance"
+                if not hidden
+                else "dashboard.show_balance",
+                lang,
+            ),
+            on_click=self._toggle_balance,
+            style=tap_button_style(horizontal=10, vertical=10),
+        )
+        self._eye_btn = eye_btn
+        chart_btn = ft.IconButton(
+            icon=(
+                ft.Icons.SHOW_CHART
+                if self._hide_chart
+                else ft.Icons.EXPAND_LESS
+            ),
+            icon_size=20,
+            icon_color=ft.Colors.ON_SURFACE_VARIANT,
+            tooltip=tr(
+                "dashboard.show_chart"
+                if self._hide_chart
+                else "dashboard.hide_chart",
+                lang,
+            ),
+            on_click=self._toggle_chart,
+            style=tap_button_style(horizontal=10, vertical=10),
+        )
+        self._chart_btn = chart_btn
+        today_row = ft.Row(
+            spacing=8,
+            controls=[
+                self._today_box(
+                    label=tr("dashboard.today_income", lang),
+                    amount=today_income,
+                    currency=base,
+                    color=ft.Colors.SECONDARY,
+                    hidden=hidden,
+                ),
+                self._today_box(
+                    label=tr("dashboard.today_expense", lang),
+                    amount=today_expense,
+                    currency=base,
+                    color=ft.Colors.ERROR,
+                    hidden=hidden,
+                ),
+            ],
+        )
+        self._today_row = today_row
         panel_controls: list[ft.Control] = [
             ft.Row(
                 spacing=6,
@@ -454,19 +615,7 @@ class DashboardPage(ft.Column):
                         weight=ft.FontWeight.W_500,
                         expand=True,
                     ),
-                    ft.IconButton(
-                        icon=eye_icon,
-                        icon_size=20,
-                        icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                        tooltip=tr(
-                            "dashboard.hide_balance"
-                            if not hidden
-                            else "dashboard.show_balance",
-                            lang,
-                        ),
-                        on_click=self._toggle_balance,
-                        style=ft.ButtonStyle(padding=4),
-                    ),
+                    eye_btn,
                 ],
             ),
             ft.Row(
@@ -474,75 +623,37 @@ class DashboardPage(ft.Column):
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     balance_label,
-                    ft.IconButton(
-                        icon=(
-                            ft.Icons.SHOW_CHART
-                            if self._hide_chart
-                            else ft.Icons.EXPAND_LESS
-                        ),
-                        icon_size=18,
-                        icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                        tooltip=tr(
-                            "dashboard.show_chart"
-                            if self._hide_chart
-                            else "dashboard.hide_chart",
-                            lang,
-                        ),
-                        on_click=self._toggle_chart,
-                        style=ft.ButtonStyle(padding=2),
-                    ),
+                    chart_btn,
                 ],
             ),
-            ft.Row(
-                spacing=8,
-                controls=[
-                    self._today_box(
-                        label=tr("dashboard.today_income", lang),
-                        amount=today_income,
-                        currency=base,
-                        color=ft.Colors.SECONDARY,
-                        hidden=hidden,
-                    ),
-                    self._today_box(
-                        label=tr("dashboard.today_expense", lang),
-                        amount=today_expense,
-                        currency=base,
-                        color=ft.Colors.ERROR,
-                        hidden=hidden,
-                    ),
-                ],
-            ),
+            today_row,
         ]
-        if not self._hide_chart:
-            page_w = getattr(self._page, "width", None) or 360
-            try:
-                chart_w = max(280, int(page_w) - 48)
-            except (TypeError, ValueError):
-                chart_w = 320
-            chart = build_line_chart_image(
-                periods,
-                incomes if not hidden else zeros,
-                expenses if not hidden else zeros,
-                width=chart_w,
-                height=136,
-                language=lang,
-                dark=True,
-                show_income=True,
-                show_expense=True,
-                page=self._page,
-                compact=True,
-                animate=bool(self._animate_charts),
-            )
-            panel_controls.append(
-                ft.Container(
-                    ink=True,
-                    on_click=self._open_chart_period,
-                    border_radius=12,
-                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                    tooltip=tr("dashboard.chart_period_hint", lang),
-                    content=chart,
-                )
-            )
+        chart_w, chart_h = compact_chart_size(self._page)
+        chart = build_line_chart_image(
+            periods,
+            incomes if not hidden else zeros,
+            expenses if not hidden else zeros,
+            width=chart_w,
+            height=chart_h,
+            language=lang,
+            dark=True,
+            show_income=True,
+            show_expense=True,
+            page=self._page,
+            compact=True,
+            animate=bool(self._animate_charts),
+        )
+        chart_slot = ft.Container(
+            ink=True,
+            on_click=self._open_chart_period,
+            border_radius=12,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            tooltip=tr("dashboard.chart_period_hint", lang),
+            visible=not self._hide_chart,
+            content=chart,
+        )
+        self._chart_slot = chart_slot
+        panel_controls.append(chart_slot)
         return ft.Container(
             padding=12,
             border_radius=skin.hero_radius,
@@ -570,11 +681,16 @@ class DashboardPage(ft.Column):
         subs_badge: int,
         budgets_badge: int,
     ) -> ft.Control:
-        chevron = (
-            ft.Icons.KEYBOARD_ARROW_DOWN
-            if self._sections_open
-            else ft.Icons.KEYBOARD_ARROW_UP
+        chevron = ft.Icon(
+            (
+                ft.Icons.KEYBOARD_ARROW_DOWN
+                if self._sections_open
+                else ft.Icons.KEYBOARD_ARROW_UP
+            ),
+            size=22,
+            color=ft.Colors.ON_SURFACE_VARIANT,
         )
+        self._sections_chevron = chevron
         header = ft.Container(
             ink=True,
             on_click=self._toggle_sections,
@@ -590,7 +706,7 @@ class DashboardPage(ft.Column):
                         color=ft.Colors.ON_SURFACE,
                         expand=True,
                     ),
-                    ft.Icon(chevron, size=22, color=ft.Colors.ON_SURFACE_VARIANT),
+                    chevron,
                 ],
             ),
         )
@@ -650,6 +766,7 @@ class DashboardPage(ft.Column):
                 ),
             ],
         )
+        self._sections_body = body
         return ft.Column(spacing=8, tight=True, controls=[header, body])
 
     def _analytics_button(self, lang: str) -> ft.Container:
@@ -716,7 +833,10 @@ class DashboardPage(ft.Column):
         if days in _CHART_PERIODS:
             self._chart_days = days
         self._hide_chart = bool(getattr(prefs, "dashboard_hide_chart", False))
-        fill_loading(self._body, message=tr("action.refresh", lang))
+        # Soft reload: keep painted UI while data refreshes (no spinner flash).
+        soft = self._slots_ready and bool(self._body.controls) and not animate
+        if not soft:
+            fill_loading(self._body, message=tr("action.refresh", lang))
         c = self._state.container
         if animate:
             # Manual refresh: drop FX cache so totals/charts recompute cleanly.
@@ -727,7 +847,9 @@ class DashboardPage(ft.Column):
             except Exception:  # noqa: BLE001
                 pass
         try:
-            accounts = await c.list_accounts.execute(active_only=True)
+            accounts = await c.list_accounts.execute(
+                active_only=True, corporate=False
+            )
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=lang)
             replace_controls(
@@ -739,6 +861,7 @@ class DashboardPage(ft.Column):
                 ],
                 self._page,
             )
+            self._slots_ready = False
             safe_update(self._body)
             return
         if not accounts:
@@ -748,12 +871,13 @@ class DashboardPage(ft.Column):
                     EmptyState(
                         tr("empty.accounts", lang),
                         icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
-                        action_label=tr("nav.accounts", lang),
-                        on_action=lambda _e: self._state.set_tab(2),
+                        action_label=tr("empty.accounts_action", lang),
+                        on_action=lambda _e: self._open_first_account(),
                     )
                 ],
                 self._page,
             )
+            self._slots_ready = False
             safe_update(self._body)
             return
         base = normalize_currency_code(self._state.base_currency)
@@ -847,8 +971,19 @@ class DashboardPage(ft.Column):
                         ft.Container(height=10),
                     ]
 
-                self._balance_cache = {"build": _build}
+                self._balance_cache = {
+                    "build": _build,
+                    "lang": lang,
+                    "total": total,
+                    "base": base,
+                    "today_income": today_income,
+                    "today_expense": today_expense,
+                    "periods": periods,
+                    "incomes": incomes,
+                    "expenses": expenses,
+                }
                 replace_controls(self._body, _build(), self._page)
+                self._slots_ready = True
             if animate:
                 await play_count_ups(self._body, self._page)
         finally:

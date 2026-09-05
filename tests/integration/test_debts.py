@@ -24,6 +24,32 @@ def test_debt_crud_and_list(container) -> None:
     run_async(_run())
 
 
+def test_create_debt_rolls_back_when_principal_tx_fails(container, monkeypatch) -> None:
+    """Debt row + principal cash must share one UoW."""
+
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="1000"))
+        real = container.add_transaction.execute
+
+        async def boom(tx):
+            raise RuntimeError("simulated principal write failure")
+
+        monkeypatch.setattr(container.add_transaction, "execute", boom)
+        with pytest.raises(RuntimeError, match="simulated principal"):
+            await container.create_debt.execute(
+                make_debt(amount="100", direction=DebtDirection.I_OWE),
+                account_id=acc.id,
+            )
+        debts = await container.list_debts.execute()
+        assert debts == []
+        after = await container.account_repository.get_by_id(acc.id)
+        assert after is not None
+        assert after.balance == Decimal("1000.00")
+        monkeypatch.setattr(container.add_transaction, "execute", real)
+
+    run_async(_run())
+
+
 def test_repay_clamps_to_remaining(container) -> None:
     async def _run() -> None:
         acc = await container.create_account.execute(make_account(balance="1000"))

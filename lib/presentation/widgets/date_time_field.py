@@ -14,6 +14,7 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.infrastructure.services.localization import normalize_lang
+from lib.presentation.responsive import calendar_cell_size, tap_button_style
 from lib.presentation.utils import format_date, safe_update, tr
 
 
@@ -160,6 +161,7 @@ class DateTimeField(ft.Column):
             tooltip=tr("date.clear", lang),
             visible=allow_clear,
             on_click=lambda _e: self.clear(),
+            style=tap_button_style(horizontal=8, vertical=8),
         )
         self._selected_row = ft.Container(
             visible=False,
@@ -235,6 +237,7 @@ class DateTimeField(ft.Column):
                                 icon_size=20,
                                 icon_color=ft.Colors.PRIMARY,
                                 on_click=lambda _e: self._shift_month(-1),
+                                style=tap_button_style(horizontal=8, vertical=8),
                             ),
                             self._month_title,
                             ft.IconButton(
@@ -242,6 +245,7 @@ class DateTimeField(ft.Column):
                                 icon_size=20,
                                 icon_color=ft.Colors.PRIMARY,
                                 on_click=lambda _e: self._shift_month(1),
+                                style=tap_button_style(horizontal=8, vertical=8),
                             ),
                         ],
                     ),
@@ -423,11 +427,12 @@ class DateTimeField(ft.Column):
         weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(
             state["year"], state["month"]
         )
+        cell = calendar_cell_size(self._page)
         header = ft.Row(
             spacing=2,
             controls=[
                 ft.Container(
-                    width=34,
+                    width=cell,
                     alignment=ft.Alignment.CENTER,
                     content=ft.Text(
                         name,
@@ -445,7 +450,7 @@ class DateTimeField(ft.Column):
             cells: list[ft.Control] = []
             for day_num in week:
                 if day_num == 0:
-                    cells.append(ft.Container(width=34, height=34))
+                    cells.append(ft.Container(width=cell, height=cell))
                     continue
                 current = date(state["year"], state["month"], day_num)
                 disabled = current < self._first_date or current > self._last_date
@@ -469,9 +474,9 @@ class DateTimeField(ft.Column):
 
                 cells.append(
                     ft.Container(
-                        width=34,
-                        height=34,
-                        border_radius=17,
+                        width=cell,
+                        height=cell,
+                        border_radius=max(12, cell // 2),
                         bgcolor=bg,
                         alignment=ft.Alignment.CENTER,
                         ink=not disabled,

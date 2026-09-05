@@ -504,26 +504,32 @@ def build_container(
                 return
             values.append(value)
         try:
+            kwargs: dict[str, Any] = {
+                "budgets": container.budget_repository,
+                "settings": container.settings_repository,
+                "notifications": container.notification_service,
+                "currencies": container.currency_repository,
+            }
+            if attr in {
+                "add_transaction",
+                "update_transaction",
+                "delete_transaction",
+            }:
+                kwargs["session_factory"] = session_factory
+            if attr == "delete_transaction":
+                from lib.infrastructure.services.media_store import MediaStore
+
+                store = MediaStore(container.config)
+
+                def _media_cleanup(tx_id: str, paths: list[str]) -> None:
+                    store.delete_paths(list(paths or []))
+                    store.delete_transaction_dir(tx_id)
+
+                kwargs["media_cleanup"] = _media_cleanup
             setattr(
                 container,
                 attr,
-                factory(
-                    *values,
-                    budgets=container.budget_repository,
-                    settings=container.settings_repository,
-                    notifications=container.notification_service,
-                    currencies=container.currency_repository,
-                    **(
-                        {"session_factory": session_factory}
-                        if attr
-                        in {
-                            "add_transaction",
-                            "update_transaction",
-                            "delete_transaction",
-                        }
-                        else {}
-                    ),
-                ),
+                factory(*values, **kwargs),
             )
         except Exception as exc:  # pragma: no cover
             container.missing.append(attr)
@@ -541,7 +547,12 @@ def build_container(
         "settings_repository",
     )
 
-    _wire("create_account", CreateAccountUseCase, "account_repository")
+    _wire(
+        "create_account",
+        CreateAccountUseCase,
+        "account_repository",
+        "settings_repository",
+    )
     _wire(
         "update_account",
         UpdateAccountUseCase,
@@ -549,6 +560,11 @@ def build_container(
         "currency_repository",
         "transaction_repository",
     )
+    if container.update_account is not None:
+        try:
+            container.update_account._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire("delete_account", DeleteAccountUseCase, "account_repository")
     _wire("list_accounts", ListAccountsUseCase, "account_repository")
     _wire(
@@ -617,6 +633,11 @@ def build_container(
         "goal_repository",
         "transaction_repository",
     )
+    if container.delete_goal is not None:
+        try:
+            container.delete_goal._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire("list_goals", ListGoalsUseCase, "goal_repository")
     _wire("archive_goal", ArchiveGoalUseCase, "goal_repository")
     _wire("close_goal_item", CloseGoalItemUseCase, "goal_repository")
@@ -667,6 +688,11 @@ def build_container(
         "add_transaction",
         "currency_repository",
     )
+    if container.create_debt is not None:
+        try:
+            container.create_debt._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire(
         "update_debt",
         UpdateDebtUseCase,
@@ -680,6 +706,11 @@ def build_container(
         "transaction_repository",
         "delete_transaction",
     )
+    if container.delete_debt is not None:
+        try:
+            container.delete_debt._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire("list_debts", ListDebtsUseCase, "debt_repository")
     _wire("archive_debt", ArchiveDebtUseCase, "debt_repository")
     _wire("mark_overdue_debts", MarkOverdueDebtsUseCase, "debt_repository")
@@ -756,13 +787,32 @@ def build_container(
             container.update_subscription._audit = (  # type: ignore[attr-defined]
                 container.subscription_audit_repository
             )
+            container.update_subscription._session_factory = (  # type: ignore[attr-defined]
+                session_factory
+            )
         except Exception:  # noqa: BLE001
             pass
     _wire("delete_subscription", DeleteSubscriptionUseCase, "subscription_repository")
     _wire("list_subscriptions", ListSubscriptionsUseCase, "subscription_repository")
     _wire("get_subscription", GetSubscriptionUseCase, "subscription_repository")
     _wire("pause_subscription", PauseSubscriptionUseCase, "subscription_repository")
+    if container.pause_subscription is not None:
+        try:
+            container.pause_subscription._audit = (  # type: ignore[attr-defined]
+                container.subscription_audit_repository
+            )
+            container.pause_subscription._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire("resume_subscription", ResumeSubscriptionUseCase, "subscription_repository")
+    if container.resume_subscription is not None:
+        try:
+            container.resume_subscription._audit = (  # type: ignore[attr-defined]
+                container.subscription_audit_repository
+            )
+            container.resume_subscription._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire(
         "process_due_subscriptions",
         ProcessDueSubscriptionsUseCase,
@@ -907,6 +957,7 @@ def build_container(
         "transaction_repository",
         "currency_repository",
         "settings_repository",
+        "account_repository",
     )
     _wire("delete_budget", DeleteBudgetUseCase, "budget_repository")
     _wire("get_budget_progress", GetBudgetProgressUseCase, "budget_repository")
@@ -918,6 +969,7 @@ def build_container(
         "transaction_repository",
         "currency_repository",
         "settings_repository",
+        "account_repository",
     )
     _wire(
         "suggest_budget_limit",

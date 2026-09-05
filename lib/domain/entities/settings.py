@@ -45,6 +45,11 @@ class AppSettings(BaseModel):
     # Home chart preferences (persisted across restarts).
     dashboard_hide_chart: bool = False
     dashboard_chart_days: int = 30
+    # Legacy tour flags (feature removed; kept for DB column compatibility).
+    completed_onboarding: bool = True
+    completed_tour_debts: bool = True
+    completed_tour_analytics: bool = True
+    completed_tour_goals: bool = True
     updated_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("reminder_days")

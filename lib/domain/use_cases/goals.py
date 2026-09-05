@@ -103,8 +103,15 @@ def encode_goal_allocation_tags(allocations: dict[str, Decimal]) -> list[str]:
     return tags
 
 
+def has_goal_allocation_tag_markers(tags: list[str] | None) -> bool:
+    """True when any ``goal_alloc:`` marker is present (even if corrupt)."""
+    return any(
+        str(tag).strip().startswith(GOAL_ALLOC_TAG_PREFIX) for tag in (tags or [])
+    )
+
+
 def parse_goal_allocation_tags(tags: list[str] | None) -> dict[str, Decimal] | None:
-    """Parse per-item splits from tags; ``None`` when no allocation tags exist."""
+    """Parse per-item splits from tags; ``None`` when no valid allocation tags exist."""
     found: dict[str, Decimal] = {}
     for tag in tags or []:
         text = (tag or "").strip()
@@ -227,11 +234,15 @@ def reverse_goal_contribution_credit(
     *,
     item_id: str | None = None,
     allocations: dict[str, Decimal] | None = None,
+    allocation_mode: str | None = None,
 ) -> Goal:
     """Undo goal (and optional item) progress when a contribution is removed.
 
-    Prefer exact ``allocations`` from the contribution transaction tags.
-    Without them, fall back to LIFO reverse of apply (overflow → siblings → primary).
+    ``allocation_mode``:
+    - ``exact`` — use ``allocations`` then debit leftover from primary only
+      (no sibling LIFO; prevents wiping unrelated item credits).
+    - ``primary_only`` — corrupt/partial markers; debit primary only.
+    - ``lifo`` / ``None`` — legacy spillover reverse when no tags were stored.
     """
     credit = quantize_money(credit)
     if goal.items:
@@ -258,30 +269,37 @@ def reverse_goal_contribution_credit(
             )
             return quantize_money(take)
 
+        mode = (allocation_mode or "").strip().lower()
+        if not mode:
+            mode = "exact" if allocations else "lifo"
+
         debit_left = credit
-        if allocations:
-            # Exact reverse from tags; any shortfall falls through to LIFO.
+        if mode == "exact" and allocations:
             for iid, amount in allocations.items():
                 taken = _debit_item(iid, quantize_money(amount))
                 debit_left = quantize_money(debit_left - taken)
-        if debit_left > 0:
-            # 1) Undo overflow parked on the primary above its target.
-            primary = updated[item_id]
+            # Leftover stays on primary — never LIFO into siblings when tags
+            # were authoritative (avoids full wipe on partial tags).
+            if debit_left > 0:
+                _debit_item(item_id, debit_left)
+        elif mode == "primary_only":
+            _debit_item(item_id, debit_left)
+        else:
+            # Legacy LIFO: overflow → siblings → primary.
             excess = quantize_money(
-                max(Decimal("0"), primary.current_amount - primary.target_amount)
+                max(
+                    Decimal("0"),
+                    updated[item_id].current_amount - updated[item_id].target_amount,
+                )
             )
             if excess > 0 and debit_left > 0:
                 taken = _debit_item(item_id, min(excess, debit_left))
                 debit_left = quantize_money(debit_left - taken)
-
-            # 2) Undo spillover into siblings (opposite of forward sort_order).
             for item in sorted(goal.items, key=lambda i: i.sort_order, reverse=True):
                 if item.id == item_id or debit_left <= 0:
                     continue
                 taken = _debit_item(item.id, debit_left)
                 debit_left = quantize_money(debit_left - taken)
-
-            # 3) Undo the primary fill itself.
             if debit_left > 0:
                 _debit_item(item_id, debit_left)
 
@@ -476,9 +494,11 @@ class DeleteGoalUseCase:
         self,
         goals: GoalRepository,
         transactions: Optional[TransactionRepository] = None,
+        session_factory: object = None,
     ) -> None:
         self._goals = goals
         self._transactions = transactions
+        self._session_factory = session_factory
 
     async def execute(self, goal_id: str) -> bool:
         """Remove a goal; unlink txs without reversing cash.
@@ -486,9 +506,20 @@ class DeleteGoalUseCase:
         Clears ``goal_id`` but keeps ``goal_credit_amount`` so budget
         recalculate never treats former contributions as category spend.
         """
-        if self._transactions is not None:
-            await self._transactions.clear_goal_links(goal_id)
-        return await self._goals.delete(goal_id)
+
+        async def _run() -> bool:
+            if self._transactions is not None:
+                await self._transactions.clear_goal_links(goal_id)
+            return await self._goals.delete(goal_id)
+
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
 
 
 class ListGoalsUseCase:

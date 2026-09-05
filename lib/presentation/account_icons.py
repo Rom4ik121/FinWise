@@ -232,29 +232,57 @@ def currency_glyph_label(code: str, symbol: str | None = None) -> str:
     return code if len(code) <= 4 else code[:4]
 
 
-def account_icon_groups(*, include_exchanges: bool = True) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Thematic groups plus fiat / crypto currency glyph groups.
-
-    Exchange logos are omitted for regular (manual) account pickers.
-    """
-    fiat_keys: list[str] = []
-    crypto_keys: list[str] = []
-    for row in _currency_catalog():
-        key = currency_icon_key(row["code"])
-        if row["is_crypto"] == "1":
-            crypto_keys.append(key)
-        else:
-            fiat_keys.append(key)
+def account_icon_groups(
+    *,
+    include_exchanges: bool = True,
+    include_crypto: bool = True,
+    include_fiat: bool = True,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Thematic groups plus optional fiat / crypto / exchange logo groups."""
     extra: list[tuple[str, tuple[str, ...]]] = []
-    if fiat_keys:
-        extra.append(("icon_group.fiat", tuple(fiat_keys)))
-    if crypto_keys:
-        extra.append(
-            ("icon_group.crypto", tuple(crypto_keys) + extra_crypto_icon_keys())
-        )
+    if include_fiat or include_crypto:
+        fiat_keys: list[str] = []
+        crypto_keys: list[str] = []
+        for row in _currency_catalog():
+            key = currency_icon_key(row["code"])
+            if row["is_crypto"] == "1":
+                if include_crypto:
+                    crypto_keys.append(key)
+            elif include_fiat:
+                fiat_keys.append(key)
+        if fiat_keys:
+            extra.append(("icon_group.fiat", tuple(fiat_keys)))
+        if crypto_keys:
+            extra.append(
+                ("icon_group.crypto", tuple(crypto_keys) + extra_crypto_icon_keys())
+            )
     if include_exchanges:
         extra.append(("icon_group.exchanges", exchange_icon_keys()))
     return ACCOUNT_ICON_GROUPS + tuple(extra)
+
+
+def entity_icon_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Full Material catalog for goals / debts / subscriptions / categories.
+
+    Excludes exchange logos and crypto token PNGs (and fiat currency glyphs).
+    """
+    from lib.core.config import ACCOUNT_ICON_GROUPS, CATEGORY_ICON_GROUPS
+
+    seen: set[str] = set()
+    merged: list[tuple[str, tuple[str, ...]]] = []
+    for label, icons in (*CATEGORY_ICON_GROUPS, *ACCOUNT_ICON_GROUPS):
+        fresh = tuple(icon for icon in icons if icon not in seen)
+        if not fresh:
+            continue
+        seen.update(fresh)
+        # Append into an existing label when both catalogs share a group key.
+        for idx, (existing_label, existing_icons) in enumerate(merged):
+            if existing_label == label:
+                merged[idx] = (label, existing_icons + fresh)
+                break
+        else:
+            merged.append((label, fresh))
+    return tuple(merged)
 
 
 def icon_is_logo(key: str | None) -> bool:
@@ -332,6 +360,13 @@ def is_valid_account_icon(key: str | None) -> bool:
     from lib.domain.exchanges import get_exchange
 
     return get_exchange(parse_exchange_icon_key(key) or "") is not None
+
+
+def is_valid_entity_icon(key: str | None) -> bool:
+    """True for Material keys in the goals/debts/subs/category catalog."""
+    if not key:
+        return False
+    return any(key in icons for _label, icons in entity_icon_groups())
 
 
 def account_icon_control(

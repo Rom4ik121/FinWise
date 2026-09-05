@@ -5,9 +5,6 @@ Classic (default) is slate + mint. Neon is matte black + #00FF99.
 
 from __future__ import annotations
 
-import os
-import sys
-
 import flet as ft
 
 from lib.presentation.skins import get_active_skin, set_active_skin
@@ -49,22 +46,11 @@ FONT_FAMILY_DISPLAY = "Segoe UI Semibold"
 
 def _mobile_runtime(page: ft.Page | None = None) -> bool:
     """True on iOS/Android packaged Flet apps (system fonts only)."""
-    if sys.platform in {"android", "ios"}:
-        return True
-    plat = os.getenv("FLET_PLATFORM", "").strip().lower()
-    if plat in {"android", "ios"}:
-        return True
-    try:
-        from lib.core.config import _is_ios
+    from lib.infrastructure.services.biometric import is_mobile_platform, mobile_runtime
 
-        if _is_ios():
-            return True
-    except Exception:  # noqa: BLE001
-        pass
-    if page is None:
-        return False
-    host = str(getattr(page, "platform", "")).lower()
-    return "ios" in host or "android" in host
+    if mobile_runtime():
+        return True
+    return is_mobile_platform(page)
 
 
 def light_color_scheme() -> ft.ColorScheme:

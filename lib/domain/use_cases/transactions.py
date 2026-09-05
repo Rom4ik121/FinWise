@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -32,6 +32,7 @@ from lib.domain.use_cases.goals import (
     assert_goal_accepts_ledger,
     encode_goal_allocation_tags,
     goal_credit_amount,
+    has_goal_allocation_tag_markers,
     parse_goal_allocation_tags,
     reverse_goal_contribution_credit,
     strip_goal_allocation_tags,
@@ -73,7 +74,11 @@ async def _credit_goal_from_transaction(
     transactions: TransactionRepository,
     transaction: Transaction,
 ) -> Transaction:
-    """Apply contribution, persist allocation tags, return the tagged row."""
+    """Apply contribution and persist allocation tags atomically (same UoW).
+
+    Goal progress and ``goal_alloc:`` tags are written in one unit of work so a
+    failed tag write rolls back the goal credit (no partial state).
+    """
     if not _is_goal_contribution(transaction):
         return transaction
     goal = await goals.get_by_id(transaction.goal_id or "")
@@ -85,18 +90,24 @@ async def _credit_goal_from_transaction(
         credit,
         item_id=transaction.goal_item_id,
     )
-    await goals.update(updated)
-    if not allocations:
-        # Flat goals need no alloc tags; strip any stale ones.
-        clean = strip_goal_allocation_tags(transaction.tags)
-        if clean != list(transaction.tags or []):
-            tagged = transaction.model_copy(update={"tags": clean})
-            return await transactions.update(tagged)
-        return transaction
+    if goal.items and not allocations:
+        raise ValueError("Goal allocation tags are required")
     clean = strip_goal_allocation_tags(transaction.tags)
-    tagged = transaction.model_copy(
-        update={"tags": clean + encode_goal_allocation_tags(allocations)}
-    )
+    if allocations:
+        tagged = transaction.model_copy(
+            update={"tags": clean + encode_goal_allocation_tags(allocations)}
+        )
+    else:
+        tagged = (
+            transaction.model_copy(update={"tags": clean})
+            if clean != list(transaction.tags or [])
+            else transaction
+        )
+
+    # Persist goal + tagged row together; callers wrap in unit_of_work.
+    await goals.update(updated)
+    if tagged is transaction and not allocations:
+        return transaction
     return await transactions.update(tagged)
 
 
@@ -112,11 +123,23 @@ async def _debit_goal_from_transaction(
     if goal is None:
         return
     credit = goal_credit_amount(transaction)
+    markers = has_goal_allocation_tag_markers(transaction.tags)
+    parsed = parse_goal_allocation_tags(transaction.tags)
+    if markers and parsed is None:
+        mode = "primary_only"
+        allocations = None
+    elif parsed is not None:
+        mode = "exact"
+        allocations = parsed
+    else:
+        mode = "lifo"
+        allocations = None
     updated = reverse_goal_contribution_credit(
         goal,
         credit,
         item_id=transaction.goal_item_id,
-        allocations=parse_goal_allocation_tags(transaction.tags),
+        allocations=allocations,
+        allocation_mode=mode,
     )
     await goals.update(updated)
 
@@ -267,24 +290,23 @@ async def _sync_budget_expense(
     settings_repo: Optional[SettingsRepository] = None,
     notifications: object = None,
     currencies: Optional[CurrencyRepository] = None,
+    accounts: Optional[object] = None,
 ) -> None:
     """Apply or reverse an expense against the matching monthly budget(s).
 
     Multi-line transactions sync each line's category separately so a
     supermarket basket can hit Food + Tobacco budgets in one receipt.
+    Corporate account expenses only touch corporate-scoped budgets.
     """
     if budgets is None or transaction.type != TransactionType.EXPENSE:
         return
     if transaction.transfer_id:
         return
-    # Transfer bank/exchange fees are tagged xfer_fee:{id} and must not hit
-    # category budgets (same rule as transfer legs).
     if any(
         str(tag).startswith(TRANSFER_FEE_TAG_PREFIX)
         for tag in (transaction.tags or [])
     ):
         return
-    # Savings into a goal should not consume category budgets.
     if transaction.goal_id or transaction.goal_credit_amount is not None:
         return
     from lib.domain.use_cases.budgets import apply_expense_delta
@@ -307,6 +329,16 @@ async def _sync_budget_expense(
             rate_book = await get_cached_rate_book(currencies)
         except Exception:  # noqa: BLE001
             rate_book = None
+
+    budget_account_id: Optional[str] = None
+    get_account = getattr(accounts, "get_by_id", None) if accounts is not None else None
+    if callable(get_account):
+        try:
+            account = await get_account(transaction.account_id)
+            if account is not None and getattr(account, "is_corporate", False):
+                budget_account_id = account.id
+        except Exception:  # noqa: BLE001
+            budget_account_id = None
 
     slices: list[tuple[str, Decimal]]
     if transaction.items:
@@ -332,6 +364,7 @@ async def _sync_budget_expense(
             language=language,
             amount_currency=transaction.currency,
             rate_book=rate_book,
+            account_id=budget_account_id,
         )
 
 
@@ -410,6 +443,7 @@ class AddTransactionUseCase:
                 settings_repo=self._settings,
                 notifications=self._notifications,
                 currencies=self._currencies,
+                accounts=self._accounts,
             )
             return created
 
@@ -557,6 +591,7 @@ class UpdateTransactionUseCase:
                 settings_repo=self._settings,
                 notifications=self._notifications,
                 currencies=self._currencies,
+                accounts=self._accounts,
             )
             await _sync_budget_expense(
                 self._budgets,
@@ -565,6 +600,7 @@ class UpdateTransactionUseCase:
                 settings_repo=self._settings,
                 notifications=self._notifications,
                 currencies=self._currencies,
+                accounts=self._accounts,
             )
             return saved
 
@@ -659,6 +695,7 @@ class DeleteTransactionUseCase:
         notifications: object = None,
         currencies: Optional[CurrencyRepository] = None,
         session_factory: object = None,
+        media_cleanup: Optional[Callable[[str, Sequence[str]], None]] = None,
     ) -> None:
         self._transactions = transactions
         self._accounts = accounts
@@ -669,6 +706,7 @@ class DeleteTransactionUseCase:
         self._notifications = notifications
         self._currencies = currencies
         self._session_factory = session_factory
+        self._media_cleanup = media_cleanup
 
     async def execute(self, transaction_id: str) -> bool:
         """Remove a transaction and undo account / goal / debt side effects."""
@@ -757,7 +795,15 @@ class DeleteTransactionUseCase:
             settings_repo=self._settings,
             notifications=self._notifications,
             currencies=self._currencies,
+            accounts=self._accounts,
         )
+        try:
+            if self._media_cleanup is not None:
+                self._media_cleanup(
+                    existing.id, list(existing.attachments or [])
+                )
+        except Exception:  # noqa: BLE001
+            pass
         return await self._transactions.delete(existing.id)
 
 
@@ -783,6 +829,7 @@ class ListTransactionsUseCase:
         has_debt: Optional[bool] = None,
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
+        query: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
@@ -801,6 +848,7 @@ class ListTransactionsUseCase:
             has_debt=has_debt,
             transfer_id=transfer_id,
             has_transfer=has_transfer,
+            query=query,
             limit=limit,
             offset=offset,
         )

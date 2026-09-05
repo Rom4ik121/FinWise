@@ -302,6 +302,15 @@ def test_transfer_fee_skipped_in_budgets(container) -> None:
         )
         assert progress.spent == Decimal("0.00")
 
+        # Full month recalc must use the same exclusion (parity with live delta).
+        await container.recalculate_budget_spent.execute(
+            month=now.month, year=now.year
+        )
+        after = await container.get_budget_progress.execute(
+            category_id="Комиссия", month=now.month, year=now.year
+        )
+        assert after.spent == Decimal("0.00")
+
     run_async(_run())
 
 
@@ -327,5 +336,56 @@ def test_transfer_amount_cannot_be_edited(container) -> None:
         )
         assert saved.comment == "note"
         assert saved.amount == Decimal("40.00")
+
+    run_async(_run())
+
+
+def test_corporate_personal_transfer_roundtrip(container) -> None:
+    """Corporate ↔ personal transfers update balances and corporate analytics."""
+
+    async def _run() -> None:
+        corp = await container.create_account.execute(
+            make_account(name="Corp", balance="5000", is_corporate=True)
+        )
+        personal = await container.create_account.execute(
+            make_account(name="Wallet", balance="1000")
+        )
+        out, incoming = await container.transfer_between_accounts.execute(
+            from_account_id=corp.id,
+            to_account_id=personal.id,
+            amount=Decimal("800"),
+            comment="to wallet",
+        )
+        assert out.account_id == corp.id
+        assert incoming.account_id == personal.id
+        assert out.transfer_id == incoming.transfer_id
+
+        corp2 = await container.account_repository.get_by_id(corp.id)
+        personal2 = await container.account_repository.get_by_id(personal.id)
+        assert corp2 is not None and corp2.balance == Decimal("4200.00")
+        assert personal2 is not None and personal2.balance == Decimal("1800.00")
+
+        back_out, back_in = await container.transfer_between_accounts.execute(
+            from_account_id=personal.id,
+            to_account_id=corp.id,
+            amount=Decimal("300"),
+        )
+        assert back_out.account_id == personal.id
+        assert back_in.account_id == corp.id
+
+        corp3 = await container.account_repository.get_by_id(corp.id)
+        assert corp3 is not None and corp3.balance == Decimal("4500.00")
+
+        corp_txs = await container.list_transactions.execute(account_id=corp.id)
+        from lib.domain.use_cases.transactions import StatsPeriod
+        from lib.presentation.account_stats import aggregate_account_period
+
+        stats = aggregate_account_period(corp_txs, StatsPeriod.DAY)
+        assert stats.transfer_out == Decimal("800.00")
+        assert stats.transfer_in == Decimal("300.00")
+        assert stats.income == Decimal("300.00")
+        assert stats.expense == Decimal("800.00")
+        personal_list = await container.list_accounts.execute(corporate=False)
+        assert all(not a.is_corporate for a in personal_list)
 
     run_async(_run())

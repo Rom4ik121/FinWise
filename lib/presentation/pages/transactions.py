@@ -49,7 +49,6 @@ if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 _PAGE_SIZE = 60
-_SEARCH_SCAN_LIMIT = 800
 
 
 def _parse_date(value: str, *, end_of_day: bool = False) -> Optional[datetime]:
@@ -83,16 +82,6 @@ def _user_tags(tx: Transaction) -> list[str]:
     return strip_goal_allocation_tags(tx.tags)
 
 
-def _matches_query(tx: Transaction, query: str) -> bool:
-    if not query:
-        return True
-    if query in tx.category.lower():
-        return True
-    if query in (tx.comment or "").lower():
-        return True
-    return any(query in tag.lower() for tag in _user_tags(tx))
-
-
 class TransactionsPage(ft.Column):
     """Searchable / filterable transaction list with day/week/month grouping."""
 
@@ -102,13 +91,13 @@ class TransactionsPage(ft.Column):
         self._token = -1
         self._meta_token = -1
         self._accounts: list = []
+        self._corporate_ids: set[str] = set()
         self._goals: list = []
         self._category_map: dict[str, object] = {}
         self._list = make_v_scroll(spacing=6)
         self._offset = 0
         self._has_more = False
         self._shown: list[Transaction] = []
-        self._search_cache: list[Transaction] = []
         self._search_gen = 0
         self._last_group: str | None = None
         lang = state.language
@@ -431,6 +420,14 @@ class TransactionsPage(ft.Column):
                 try:
                     self._range_from = datetime.strptime(df_text[:10], "%Y-%m-%d").date()
                     self._range_to = datetime.strptime(dt_text[:10], "%Y-%m-%d").date()
+                    if self._range_from > self._range_to:
+                        self._range_from, self._range_to = (
+                            self._range_to,
+                            self._range_from,
+                        )
+                    # Cap unbounded history scans (perf: default window ≤ 1 year).
+                    if (self._range_to - self._range_from).days > 365:
+                        self._range_from = self._range_to - timedelta(days=365)
                     self._range_mode = True
                 except ValueError:
                     self._range_mode = False
@@ -489,7 +486,11 @@ class TransactionsPage(ft.Column):
         if self._meta_token == token and self._accounts:
             return
         c = self._state.container
-        self._accounts = await c.list_accounts.execute(active_only=True)
+        self._accounts = await c.list_accounts.execute(
+            active_only=True, corporate=False
+        )
+        corporate = await c.list_accounts.execute(corporate=True)
+        self._corporate_ids = {a.id for a in corporate}
         self._goals = await c.list_goals.execute(include_completed=False)
         if c.list_categories is not None:
             cats = await c.list_categories.execute(active_only=False)
@@ -600,15 +601,7 @@ class TransactionsPage(ft.Column):
         if not self._has_more:
             return
         lang = self._state.language
-        query = (self._search.value or "").strip().lower()
-        if query:
-            start = len(self._shown)
-            chunk = self._search_cache[start : start + _PAGE_SIZE]
-            self._shown.extend(chunk)
-            self._has_more = start + _PAGE_SIZE < len(self._search_cache)
-            self._render_list(chunk, lang=lang, incremental=True)
-            return
-
+        query = (self._search.value or "").strip()
         c = self._state.container
         try:
             date_from = _parse_date(self._date_from_value)
@@ -619,6 +612,7 @@ class TransactionsPage(ft.Column):
             rows = await c.list_transactions.execute(
                 date_from=date_from,
                 date_to=date_to,
+                query=query or None,
                 limit=_PAGE_SIZE + 1,
                 offset=self._offset,
                 **self._list_filters(),
@@ -626,6 +620,11 @@ class TransactionsPage(ft.Column):
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             return
+        rows = [
+            tx
+            for tx in rows
+            if getattr(tx, "account_id", None) not in self._corporate_ids
+        ]
         self._has_more = len(rows) > _PAGE_SIZE
         chunk = rows[:_PAGE_SIZE]
         self._shown.extend(chunk)
@@ -637,7 +636,9 @@ class TransactionsPage(ft.Column):
         self._token = self._state.transactions_token
         lang = self._state.language
         self._filter_summary.value = self._filter_summary_text()
-        fill_loading(self._list)
+        # Avoid spinner flash when the list already has tiles (search storms).
+        if not self._list.controls:
+            fill_loading(self._list)
         safe_update(self._filter_summary)
 
         c = self._state.container
@@ -653,35 +654,25 @@ class TransactionsPage(ft.Column):
 
         try:
             await self._ensure_meta()
-            query = (self._search.value or "").strip().lower()
+            query = (self._search.value or "").strip()
             filters = self._list_filters()
-            if query:
-                scanned = await c.list_transactions.execute(
-                    date_from=date_from,
-                    date_to=date_to,
-                    limit=_SEARCH_SCAN_LIMIT,
-                    offset=0,
-                    **filters,
-                )
-                matched = [tx for tx in scanned if _matches_query(tx, query)]
-                matched = [tx for tx in matched if self._tx_in_selected_range(tx)]
-                self._search_cache = matched
-                self._shown = self._search_cache[:_PAGE_SIZE]
-                self._offset = len(self._shown)
-                self._has_more = len(self._search_cache) > _PAGE_SIZE
-            else:
-                rows = await c.list_transactions.execute(
-                    date_from=date_from,
-                    date_to=date_to,
-                    limit=_PAGE_SIZE + 1,
-                    offset=0,
-                    **filters,
-                )
-                rows = [tx for tx in rows if self._tx_in_selected_range(tx)]
-                self._search_cache = []
-                self._has_more = len(rows) > _PAGE_SIZE
-                self._shown = rows[:_PAGE_SIZE]
-                self._offset = len(self._shown)
+            rows = await c.list_transactions.execute(
+                date_from=date_from,
+                date_to=date_to,
+                query=query or None,
+                limit=_PAGE_SIZE + 1,
+                offset=0,
+                **filters,
+            )
+            rows = [tx for tx in rows if self._tx_in_selected_range(tx)]
+            rows = [
+                tx
+                for tx in rows
+                if getattr(tx, "account_id", None) not in self._corporate_ids
+            ]
+            self._has_more = len(rows) > _PAGE_SIZE
+            self._shown = rows[:_PAGE_SIZE]
+            self._offset = len(self._shown)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             replace_controls(
@@ -737,6 +728,15 @@ class TransactionsPage(ft.Column):
                 tx.comment or tr("tx.no_comment", lang),
             ),
         ]
+        from lib.presentation.widgets.attachment_picker import attachment_gallery
+
+        rows.extend(
+            attachment_gallery(
+                list(tx.attachments or []),
+                page=self._page,
+                lang=lang,
+            )
+        )
         if _user_tags(tx):
             rows.append(
                 self._detail_row(
@@ -873,9 +873,7 @@ class TransactionsPage(ft.Column):
         """Always refresh accounts/goals, then open the editor."""
         lang = self._state.language
         try:
-            self._accounts = await self._state.container.list_accounts.execute(
-                active_only=True
-            )
+            self._accounts = await self._state.container.list_accounts.execute(active_only=True, corporate=False)
             self._goals = await self._state.container.list_goals.execute(
                 include_completed=False
             )
@@ -943,11 +941,6 @@ class TransactionsPage(ft.Column):
             lang,
             label=tr("field.fee", lang),
         )
-        fee_hint = ft.Text(
-            tr("field.fee_hint", lang),
-            size=11,
-            color=ft.Colors.ON_SURFACE_VARIANT,
-        )
 
         def _sync_fee_visibility() -> None:
             show = (
@@ -956,9 +949,7 @@ class TransactionsPage(ft.Column):
                 == TransactionType.EXPENSE.value
             )
             fee_tf.visible = show
-            fee_hint.visible = show
             safe_update(fee_tf)
-            safe_update(fee_hint)
 
         account_dd = ft.Dropdown(
             label=tr("field.account", lang),
@@ -1016,6 +1007,14 @@ class TransactionsPage(ft.Column):
             label=tr("field.date", lang),
             value=tx.date if tx else datetime.now(timezone.utc),
             with_time=True,
+        )
+        from lib.presentation.widgets.attachment_picker import AttachmentPicker
+
+        attachments = AttachmentPicker(
+            self._page,
+            lang=lang,
+            transaction_id=tx.id if tx else None,
+            existing=list(tx.attachments or []) if tx else None,
         )
 
         async def _save() -> None:
@@ -1076,14 +1075,11 @@ class TransactionsPage(ft.Column):
                 snack(self._page, tr("invalid_amount", lang), error=True)
                 return
 
+            tx_id = tx.id if tx else attachments.transaction_id
+            attachments.set_transaction_id(tx_id)
+            paths = attachments.collected_paths()
             entity = Transaction(
-                id=tx.id if tx else Transaction(
-                    account_id=account.id,
-                    amount=Decimal("1"),
-                    category="x",
-                    date=datetime.now(timezone.utc),
-                    type=TransactionType.EXPENSE,
-                ).id,
+                id=tx_id,
                 account_id=account.id,
                 amount=amount,
                 category=category,
@@ -1095,6 +1091,7 @@ class TransactionsPage(ft.Column):
                 created_at=tx.created_at if tx else datetime.now(timezone.utc),
                 goal_id=goal_id,
                 items=items,
+                attachments=paths,
             )
             try:
                 if tx:
@@ -1157,13 +1154,13 @@ class TransactionsPage(ft.Column):
                 amount_tf,
                 items_editor,
                 fee_tf,
-                fee_hint,
                 account_dd,
                 category_picker,
                 goal_dd,
                 date_field,
                 comment_tf,
                 tags_tf,
+                attachments,
             ],
             on_save=_save,
         )
@@ -1190,11 +1187,6 @@ class TransactionsPage(ft.Column):
         configure_field(comment_tf, "text")
         configure_field(tags_tf, "text")
         wire_field_chain(self._page, [comment_tf, tags_tf])
-        hint = ft.Text(
-            tr("transfer.edit_hint", lang),
-            size=12,
-            color=ft.Colors.ON_SURFACE_VARIANT,
-        )
 
         async def _save() -> None:
             tags = [
@@ -1217,7 +1209,7 @@ class TransactionsPage(ft.Column):
             title=tr("transaction.transfer", lang),
             lang=lang,
             overlay_key="transfer_leg_editor",
-            body=[hint, amount_tf, comment_tf, tags_tf],
+            body=[amount_tf, comment_tf, tags_tf],
             on_save=_save,
         )
 

@@ -61,10 +61,15 @@ class TransactionRepository(ABC):
         has_debt: Optional[bool] = None,
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
+        query: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
-        """List transactions with optional filters."""
+        """List transactions with optional filters.
+
+        ``query`` — free-text search over category, comment, and tags
+        (FTS5 when available).
+        """
 
     async def list_by_account(self, account_id: str) -> list[Transaction]:
         """Return all transactions for an account."""

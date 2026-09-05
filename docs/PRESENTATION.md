@@ -31,11 +31,11 @@ API состояния: `set_tab`, `open_secondary`, `close_secondary`.
 - При наличии PIN — `LockScreen` до разблокировки.
 - **Face ID** (если включено и доступно) + PIN; fingerprint не предлагается.
 - На мобильных: после ≥ **15 с** в фоне — снова lock (`_BACKGROUND_LOCK_SECONDS`).
-- После разблокировки может сработать отложенный голосовой захват (`pending_voice_capture`).
+- После разблокировки открывается основной UI.
 
 ### Deep link
 
-`finwise://voice` → `voice_shortcut.install_voice_shortcut` (цепочка с lifecycle lock).
+`finwise://app` — deep link схема приложения (без голосового ярлыка).
 
 ---
 
@@ -47,7 +47,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 |-----|--------|
 | `bump_refresh(*scopes)` | Точечная перерисовка страниц |
 | `ui_style`, язык, валюта | Тема и локаль |
-| Lock / pending voice | Безопасность и голос |
+| Lock | Безопасность |
 
 Страницы подписываются на refresh и обновляют данные без полного рестарта приложения.
 
@@ -85,13 +85,13 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 
 | Страница | Файл | Содержание |
 |----------|------|------------|
-| Dashboard | `pages/dashboard.py` | Баланс, день, быстрые действия, бюджеты, бейджи, график (prefs hide/days) |
-| Transactions | `pages/transactions.py` | Поиск, фильтры, группировка, CRUD, перевод, частый счёт |
-| Accounts | `pages/accounts.py` | Список счетов, биржи |
-| Account detail | `pages/account_detail.py` | История, статистика, графики счёта |
+| Dashboard | `pages/dashboard.py` | Баланс, день, быстрые действия, бюджеты, бейджи, график (prefs hide/days); toggles in-place mutate |
+| Transactions | `pages/transactions.py` | Поиск (FTS `query=`), фильтры, группировка, CRUD, перевод, частый счёт |
+| Accounts | `pages/accounts.py` | Список счетов, биржи, корпоративные workspace |
+| Account detail | `pages/account_detail.py` | История, статистика, графики счёта; быстрый расход/доход; перевод; PDF-отчёт за период; детали tx с фото |
 | Analytics | `pages/analytics.py` | Категории дохода/расхода + линия за период (пустые дни — нули) |
 | Goals / Debts / Subscriptions / Budgets / Currencies | соответствующие `pages/` | CRUD и профили; списки через `layout.make_v_scroll` |
-| Settings | `pages/settings.py` | Тема, скин, язык, валюта, пуши, PIN/Face ID, голос, экспорт, бэкап, сброс |
+| Settings | `pages/settings.py` | Тема, скин, язык, валюта, пуши, PIN/Face ID, голос, экспорт, бэкап, сброс, **обучение** |
 
 ### UX-детали
 
@@ -122,19 +122,11 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 
 ---
 
-## 8. Голос (`voice_shortcut.py`)
-
-Маршруты `finwise://voice` / `/voice`.  
-Пока приложение открыто, плагин речи может поднять `on_voice_request` (в т.ч. долгое зажатие громкости вниз на поддерживаемых устройствах).
-
-Примеры фраз: «расход такси 500», «доход зарплата 2 млн».
-
----
-
-## 9. Утилиты presentation
+## 8. Утилиты presentation
 
 | Модуль | Роль |
 |--------|------|
+| `responsive.py` | `scale_font`, `tap_*`, `clamp_content_width`, `calendar_cell_size`, `compact_chart_size`, breakpoints |
 | `utils.py` | `format_money`, `run_async`, `snack`, RateBook helpers, `user_facing_error`, `snack_exception` |
 | `tx_query.py` | Paged load транзакций (500 / 25k) через use case |
 | `reload_gate.py` | Coalesce частых reload |
@@ -144,8 +136,16 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 | `analytics_period.py` | `enumerate_period_keys`, `fill_time_series` |
 | `notification_badges.py` | Бейджи pending |
 | `dropdown_options.py` / `currency_options.py` | Опции форм |
-| `layout.py` | `make_v_scroll`, chip rows, отступы |
+| `layout.py` | `make_v_scroll`, chip rows + re-export responsive API |
 | `widgets/period_scale.py` | Шкала периода на summary rings |
+
+### Responsive / touch (2026-09-04)
+
+- Шрифты заголовков через `scale_font` (SE…Pro Max).
+- Touch targets ≥ **40** logical px (`tap_button_style`, calendar cells, nav pads).
+- Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
+- Графики: `chart_layout` / `compact_chart_size` от `page.width/height`.
+- ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный).
 
 ---
 

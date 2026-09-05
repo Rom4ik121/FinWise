@@ -21,8 +21,8 @@ def test_normalize_lang() -> None:
     assert normalize_lang("ru-RU") == "ru"
     assert normalize_lang("en_US") == "en"
     assert normalize_lang("uz-Latn") == "uz"
-    assert normalize_lang(None) == "ru"
-    assert normalize_lang("xx") == "ru"
+    assert normalize_lang(None) == "en"
+    assert normalize_lang("xx") == "en"
 
 
 def test_every_key_has_all_langs() -> None:

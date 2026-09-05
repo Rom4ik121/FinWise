@@ -60,6 +60,40 @@ def test_list_transactions_filters(container) -> None:
     run_async(_run())
 
 
+def test_list_transactions_fts_query(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account())
+        hit = await container.add_transaction.execute(
+            make_transaction(acc.id, amount="12", category="CoffeeShop")
+        )
+        hit = await container.update_transaction.execute(
+            hit.model_copy(update={"comment": "morning latte", "tags": ["cafe"]})
+        )
+        await container.add_transaction.execute(
+            make_transaction(acc.id, amount="9", category="Transport")
+        )
+        by_cat = await container.list_transactions.execute(
+            account_id=acc.id, query="Coffee"
+        )
+        assert [t.id for t in by_cat] == [hit.id]
+        by_comment = await container.list_transactions.execute(
+            account_id=acc.id, query="latte"
+        )
+        assert [t.id for t in by_comment] == [hit.id]
+        by_tag = await container.list_transactions.execute(
+            account_id=acc.id, query="cafe"
+        )
+        assert [t.id for t in by_tag] == [hit.id]
+        assert (
+            await container.list_transactions.execute(
+                account_id=acc.id, query="nomatchzzz"
+            )
+            == []
+        )
+
+    run_async(_run())
+
+
 def test_transaction_stats(container) -> None:
     async def _run() -> None:
         acc = await container.create_account.execute(make_account())
@@ -155,5 +189,26 @@ def test_update_rejects_bad_goal_without_reversing_balance(container) -> None:
         assert loaded is not None
         assert loaded.amount == Decimal("40.00")
         assert loaded.goal_id is None
+
+    run_async(_run())
+
+
+def test_transaction_attachments_persist(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account())
+        tx = await container.add_transaction.execute(
+            make_transaction(
+                acc.id,
+                amount="15",
+                attachments=["receipts/abc/one.jpg"],
+            )
+        )
+        loaded = await container.transaction_repository.get_by_id(tx.id)
+        assert loaded is not None
+        assert loaded.attachments == ["receipts/abc/one.jpg"]
+        updated = await container.update_transaction.execute(
+            loaded.model_copy(update={"attachments": ["receipts/abc/two.png"]})
+        )
+        assert updated.attachments == ["receipts/abc/two.png"]
 
     run_async(_run())

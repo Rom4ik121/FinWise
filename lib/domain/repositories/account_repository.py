@@ -28,13 +28,24 @@ class AccountRepository(ABC):
         """Delete an account. Returns ``True`` if removed."""
 
     @abstractmethod
-    async def list(self, *, active_only: bool = False) -> list[Account]:
-        """List accounts, optionally filtering inactive ones."""
+    async def list(
+        self,
+        *,
+        active_only: bool = False,
+        corporate: bool | None = None,
+    ) -> list[Account]:
+        """List accounts.
+
+        ``corporate``:
+          - ``None`` — all accounts
+          - ``False`` — personal only (exclude corporate workspaces)
+          - ``True`` — corporate workspaces only
+        """
 
     async def list_all(self) -> list[Account]:
         """Compatibility helper — list every account."""
         return await self.list(active_only=False)
 
     async def list_active(self) -> list[Account]:
-        """Compatibility helper — list active accounts only."""
-        return await self.list(active_only=True)
+        """Compatibility helper — list active personal accounts only."""
+        return await self.list(active_only=True, corporate=False)

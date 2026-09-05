@@ -24,7 +24,13 @@ from lib.infrastructure.repositories._base import (
 logger = logging.getLogger("finanse.infrastructure.repositories.budget")
 
 
+def _scope_key(account_id: Optional[str]) -> str:
+    """DB stores personal scope as empty string (unique-constraint friendly)."""
+    return (account_id or "").strip()
+
+
 def _to_entity(model: BudgetModel) -> Budget:
+    raw = getattr(model, "account_id", "") or ""
     return Budget(
         id=model.id,
         category_id=model.category_id,
@@ -33,6 +39,7 @@ def _to_entity(model: BudgetModel) -> Budget:
         amount_limit=Decimal(str(model.amount_limit)),
         spent=Decimal(str(model.spent)),
         last_alert_level=int(getattr(model, "last_alert_level", 0) or 0),
+        account_id=raw or None,
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
@@ -46,6 +53,7 @@ def _apply_entity(model: BudgetModel, entity: Budget) -> None:
     model.amount_limit = entity.amount_limit
     model.spent = entity.spent
     model.last_alert_level = int(entity.last_alert_level or 0)
+    model.account_id = _scope_key(entity.account_id)
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 
@@ -62,12 +70,23 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
         return await asyncio.to_thread(self._get_by_id_sync, budget_id)
 
     async def get_by_category_and_month(
-        self, category_id: str, month: int, year: int
+        self,
+        category_id: str,
+        month: int,
+        year: int,
+        *,
+        account_id: Optional[str] = None,
     ) -> Optional[Budget]:
         if in_unit_of_work():
-            return self._get_by_category_and_month_sync(category_id, month, year)
+            return self._get_by_category_and_month_sync(
+                category_id, month, year, account_id
+            )
         return await asyncio.to_thread(
-            self._get_by_category_and_month_sync, category_id, month, year
+            self._get_by_category_and_month_sync,
+            category_id,
+            month,
+            year,
+            account_id,
         )
 
     async def list_for_month(
@@ -75,11 +94,15 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
         month: int,
         year: int,
         category_ids: Optional[Sequence[str]] = None,
+        *,
+        account_id: Optional[str] = None,
     ) -> list[Budget]:
         names = tuple(category_ids) if category_ids else None
         if in_unit_of_work():
-            return self._list_for_month_sync(month, year, names)
-        return await asyncio.to_thread(self._list_for_month_sync, month, year, names)
+            return self._list_for_month_sync(month, year, names, account_id)
+        return await asyncio.to_thread(
+            self._list_for_month_sync, month, year, names, account_id
+        )
 
     async def list_all(self) -> list[Budget]:
         if in_unit_of_work():
@@ -111,24 +134,34 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
             return _to_entity(model) if model is not None else None
 
     def _get_by_category_and_month_sync(
-        self, category_id: str, month: int, year: int
+        self,
+        category_id: str,
+        month: int,
+        year: int,
+        account_id: Optional[str],
     ) -> Optional[Budget]:
         with session_scope(self._session_factory) as session:
             stmt = select(BudgetModel).where(
                 BudgetModel.category_id == category_id,
                 BudgetModel.month == month,
                 BudgetModel.year == year,
+                BudgetModel.account_id == _scope_key(account_id),
             )
             model = session.scalars(stmt).first()
             return _to_entity(model) if model is not None else None
 
     def _list_for_month_sync(
-        self, month: int, year: int, category_ids: Optional[tuple[str, ...]]
+        self,
+        month: int,
+        year: int,
+        category_ids: Optional[tuple[str, ...]],
+        account_id: Optional[str],
     ) -> list[Budget]:
         with session_scope(self._session_factory) as session:
             stmt = select(BudgetModel).where(
                 BudgetModel.month == month,
                 BudgetModel.year == year,
+                BudgetModel.account_id == _scope_key(account_id),
             )
             if category_ids:
                 stmt = stmt.where(BudgetModel.category_id.in_(category_ids))
@@ -147,11 +180,13 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
     def _save_sync(self, entity: Budget) -> Budget:
         with session_scope(self._session_factory) as session:
             model = session.get(BudgetModel, entity.id)
+            scope = _scope_key(entity.account_id)
             if model is None:
                 stmt = select(BudgetModel).where(
                     BudgetModel.category_id == entity.category_id,
                     BudgetModel.month == entity.month,
                     BudgetModel.year == entity.year,
+                    BudgetModel.account_id == scope,
                 )
                 model = session.scalars(stmt).first()
             if model is None:

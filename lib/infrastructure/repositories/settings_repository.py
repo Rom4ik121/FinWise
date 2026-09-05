@@ -51,6 +51,10 @@ def _to_entity(model: SettingsModel) -> AppSettings:
         biometric_enabled=bool(getattr(model, "biometric_enabled", False)),
         dashboard_hide_chart=bool(getattr(model, "dashboard_hide_chart", False)),
         dashboard_chart_days=int(getattr(model, "dashboard_chart_days", None) or 30),
+        completed_onboarding=bool(getattr(model, "completed_onboarding", False)),
+        completed_tour_debts=bool(getattr(model, "completed_tour_debts", False)),
+        completed_tour_analytics=bool(getattr(model, "completed_tour_analytics", False)),
+        completed_tour_goals=bool(getattr(model, "completed_tour_goals", False)),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
 
@@ -76,6 +80,10 @@ def _apply_entity(model: SettingsModel, entity: AppSettings) -> None:
     model.biometric_enabled = entity.biometric_enabled
     model.dashboard_hide_chart = bool(getattr(entity, "dashboard_hide_chart", False))
     model.dashboard_chart_days = int(getattr(entity, "dashboard_chart_days", 30) or 30)
+    model.completed_onboarding = bool(getattr(entity, "completed_onboarding", False))
+    model.completed_tour_debts = bool(getattr(entity, "completed_tour_debts", False))
+    model.completed_tour_analytics = bool(getattr(entity, "completed_tour_analytics", False))
+    model.completed_tour_goals = bool(getattr(entity, "completed_tour_goals", False))
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 
 
@@ -116,12 +124,30 @@ class SqlAlchemySettingsRepository(SettingsRepository):
         with session_scope(self._session_factory) as session:
             model = session.get(SettingsModel, DEFAULT_SETTINGS_ID)
             if model is None:
-                entity = AppSettings(id=DEFAULT_SETTINGS_ID)
+                from lib.infrastructure.services.locale_prefs import (
+                    detect_language_and_currency,
+                )
+
+                lang, currency = detect_language_and_currency()
+                entity = AppSettings(
+                    id=DEFAULT_SETTINGS_ID,
+                    language=lang,
+                    default_currency=currency,
+                    # Legacy tour flags — feature removed; mark done so old DBs stay quiet.
+                    completed_onboarding=True,
+                    completed_tour_debts=True,
+                    completed_tour_analytics=True,
+                    completed_tour_goals=True,
+                )
                 model = SettingsModel(id=DEFAULT_SETTINGS_ID)
                 _apply_entity(model, entity)
                 session.add(model)
                 session.flush()
-                logger.info("Created default settings row")
+                logger.info(
+                    "Created default settings row (language=%s currency=%s)",
+                    lang,
+                    currency,
+                )
             return _to_entity(model)
 
     def _update_sync(self, entity: AppSettings) -> AppSettings:

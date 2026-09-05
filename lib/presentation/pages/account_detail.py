@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
-from typing import TYPE_CHECKING
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Optional
 
 import flet as ft
 
+from lib.domain.entities.account import Account
+from lib.domain.entities.budget import Budget
+from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.exchange_connection import ExchangeConnection
+from lib.domain.entities.transaction import TransactionType
 from lib.domain.exchanges import exchange_title
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.account_icons import account_icon_badge, resolve_account_icon_key
@@ -22,11 +26,13 @@ from lib.presentation.analytics_period import (
     resolve_analytics_period,
 )
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
+from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
+    form_section,
     glass_layer,
     muted_text,
     page_header,
@@ -46,16 +52,23 @@ from lib.presentation.utils import (
     tr,
     user_facing_error,
 )
+from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.charts import (
     build_line_chart_image,
     build_pie_chart_image,
     chart_layout,
 )
+from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.empty_state import EmptyState
+from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.layout import h_chip_row, make_v_scroll
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.summary_card import SummaryCard
 from lib.presentation.widgets.transaction_tile import TransactionTile
+from lib.presentation.widgets.quick_add_sheet import open_quick_add
+from lib.presentation.widgets.transfer_sheet import open_transfer
+from lib.presentation.widgets.dual_add_button import dual_add_button
+from lib.presentation.widgets.budget_summary_ring import budget_list_card
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -74,6 +87,16 @@ class AccountDetailPage(ft.Column):
         self._period_row = h_chip_row()
         self._period_chip_map: dict[str, ft.Container] = {}
         self._syncing = False
+        self._account = None
+        self._analytics_open = True
+        self._analytics_body: ft.Column | None = None
+        self._analytics_chevron: ft.Icon | None = None
+        self._budgets_open = True
+        self._budgets_body: ft.Column | None = None
+        self._budgets_chevron: ft.Icon | None = None
+        self._last_txs: list = []
+        self._last_stats = None
+        self._last_period_label = ""
         self._sync_btn = ft.IconButton(
             icon=ft.Icons.SYNC,
             icon_color=ft.Colors.PRIMARY,
@@ -93,6 +116,12 @@ class AccountDetailPage(ft.Column):
                     ),
                     actions=[
                         self._sync_btn,
+                        ft.IconButton(
+                            icon=ft.Icons.PICTURE_AS_PDF_OUTLINED,
+                            icon_color=ft.Colors.PRIMARY,
+                            tooltip=tr("account.export_pdf", state.language),
+                            on_click=lambda _e: run_async(page, self._export_pdf),
+                        ),
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
@@ -122,9 +151,66 @@ class AccountDetailPage(ft.Column):
         self._reload_gate.on_mounted()
 
     def _on_state(self, state: "AppState") -> None:
-        token = state.accounts_token + state.transactions_token
+        token = (
+            state.accounts_token
+            + state.transactions_token
+            + getattr(state, "budgets_token", 0)
+        )
         if token != self._token:
             self._reload_gate.request()
+
+    def _toggle_analytics(self, _e: ft.ControlEvent | None = None) -> None:
+        self._analytics_open = not self._analytics_open
+        if self._analytics_body is not None:
+            self._analytics_body.visible = self._analytics_open
+            safe_update(self._analytics_body)
+        if self._analytics_chevron is not None:
+            self._analytics_chevron.name = (
+                ft.Icons.KEYBOARD_ARROW_DOWN
+                if self._analytics_open
+                else ft.Icons.KEYBOARD_ARROW_UP
+            )
+            safe_update(self._analytics_chevron)
+
+    def _toggle_budgets(self, _e: ft.ControlEvent | None = None) -> None:
+        self._budgets_open = not self._budgets_open
+        if self._budgets_body is not None:
+            self._budgets_body.visible = self._budgets_open
+            safe_update(self._budgets_body)
+        if self._budgets_chevron is not None:
+            self._budgets_chevron.name = (
+                ft.Icons.KEYBOARD_ARROW_DOWN
+                if self._budgets_open
+                else ft.Icons.KEYBOARD_ARROW_UP
+            )
+            safe_update(self._budgets_chevron)
+
+    def _analytics_header(self, lang: str) -> ft.Control:
+        self._analytics_chevron = ft.Icon(
+            ft.Icons.KEYBOARD_ARROW_DOWN
+            if self._analytics_open
+            else ft.Icons.KEYBOARD_ARROW_UP,
+            size=22,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+        )
+        return ft.Container(
+            ink=True,
+            border_radius=12,
+            padding=ft.Padding.symmetric(horizontal=4, vertical=6),
+            on_click=self._toggle_analytics,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Text(
+                        tr("account.stats.analytics", lang),
+                        size=15,
+                        weight=ft.FontWeight.W_700,
+                    ),
+                    self._analytics_chevron,
+                ],
+            ),
+        )
 
     def _chip(self, label: str, *, selected: bool, on_click) -> ft.Container:
         skin = get_active_skin()
@@ -313,7 +399,25 @@ class AccountDetailPage(ft.Column):
         balance: Decimal,
         base_line: str | None,
         lang: str,
+        is_corporate: bool = False,
     ) -> ft.Control:
+        badge = (
+            [
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                    border_radius=999,
+                    bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.PRIMARY),
+                    content=ft.Text(
+                        tr("account.corporate_badge", lang),
+                        size=11,
+                        weight=ft.FontWeight.W_600,
+                        color=ft.Colors.PRIMARY,
+                    ),
+                )
+            ]
+            if is_corporate
+            else []
+        )
         return card_surface(
             ft.Column(
                 spacing=10,
@@ -339,10 +443,11 @@ class AccountDetailPage(ft.Column):
                                         name,
                                         size=18,
                                         weight=ft.FontWeight.W_700,
-                                        max_lines=1,
+                                        max_lines=2,
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
                                     muted_text(currency, size=12),
+                                    *badge,
                                 ],
                             ),
                         ],
@@ -350,23 +455,370 @@ class AccountDetailPage(ft.Column):
                     mark_money_text(
                         ft.Text(
                             format_money(balance, currency),
-                            size=26,
+                            size=28,
                             weight=ft.FontWeight.W_700,
                         ),
                         balance,
                         currency=currency,
                     ),
-                    *([muted_text(base_line)] if base_line else []),
+                    *(
+                        [muted_text(base_line, size=12)]
+                        if base_line
+                        else []
+                    ),
                 ],
             ),
-            accent=color,
             padding=16,
+        )
+
+    async def _corporate_budgets_section(
+        self, account: Account, *, lang: str
+    ) -> list[ft.Control]:
+        now = datetime.now(timezone.utc)
+        month, year = now.month, now.year
+        base = self._state.base_currency
+        rows: list[ft.Control] = []
+        uc = getattr(self._state.container, "get_budgets_for_month", None)
+        items = []
+        if uc is not None:
+            try:
+                items = await uc.execute(month, year, account_id=account.id)
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+        if not items:
+            rows.append(
+                muted_text(tr("account.corporate_budgets_empty", lang), size=12)
+            )
+        for progress in items:
+            rows.append(
+                budget_list_card(
+                    progress,
+                    language=lang,
+                    currency=base,
+                    category_name=localize_category_name(
+                        progress.category_id, lang
+                    ),
+                    compact=True,
+                    on_open=lambda p=progress: self._open_corporate_budget_editor(
+                        account, p.budget
+                    ),
+                )
+            )
+
+        self._budgets_chevron = ft.Icon(
+            ft.Icons.KEYBOARD_ARROW_DOWN
+            if self._budgets_open
+            else ft.Icons.KEYBOARD_ARROW_UP,
+            size=22,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+        )
+        header = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+            content=ft.Row(
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Container(
+                        expand=True,
+                        ink=True,
+                        border_radius=12,
+                        padding=ft.Padding.symmetric(horizontal=4, vertical=6),
+                        on_click=self._toggle_budgets,
+                        content=ft.Row(
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Text(
+                                    tr("account.corporate_budgets", lang),
+                                    size=15,
+                                    weight=ft.FontWeight.W_700,
+                                    expand=True,
+                                ),
+                                self._budgets_chevron,
+                            ],
+                        ),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CONTENT_COPY_OUTLINED,
+                        icon_size=20,
+                        icon_color=ft.Colors.PRIMARY,
+                        tooltip=tr("budgets.copy_previous", lang),
+                        on_click=lambda _e, acc=account: run_async(
+                            self._page, self._copy_corporate_budgets, acc
+                        ),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.ADD,
+                        icon_size=20,
+                        icon_color=ft.Colors.PRIMARY,
+                        tooltip=tr("budgets.add", lang),
+                        on_click=lambda _e, acc=account: self._open_corporate_budget_editor(
+                            acc
+                        ),
+                    ),
+                ],
+            ),
+        )
+        self._budgets_body = ft.Column(
+            spacing=8,
+            tight=True,
+            visible=self._budgets_open,
+            controls=rows,
+        )
+        return [header, self._budgets_body]
+
+    async def _copy_corporate_budgets(self, account: Account) -> None:
+        uc = getattr(self._state.container, "copy_budgets_from_previous", None)
+        if uc is None:
+            return
+        lang = self._state.language
+        now = datetime.now(timezone.utc)
+        try:
+            count = await uc.execute(now.month, now.year, account_id=account.id)
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=lang)
+            return
+        self._state.bump_refresh("dashboard", "budgets", "accounts", "analytics")
+        snack(self._page, tr("budgets.copied", lang, count=str(count)))
+        self._reload_gate.request(True)
+
+    def _open_corporate_budget_editor(
+        self, account: Account, budget: Optional[Budget] = None
+    ) -> None:
+        run_async(self._page, self._open_corporate_budget_editor_async, account, budget)
+
+    async def _open_corporate_budget_editor_async(
+        self, account: Account, budget: Optional[Budget] = None
+    ) -> None:
+        lang = self._state.language
+        now = datetime.now(timezone.utc)
+        month, year = now.month, now.year
+        picker = CategoryPicker(
+            self._page,
+            self._state,
+            tx_type=TransactionType.EXPENSE.value,
+            initial_name=budget.category_id if budget else None,
+        )
+        await picker.reload()
+        limit_tf = make_amount_field(
+            lang,
+            label=tr("budgets.limit", lang),
+            value=budget.amount_limit if budget else "",
+            dense=True,
+            border_radius=12,
+            filled=True,
+            bgcolor=ft.Colors.SURFACE,
+        )
+
+        async def _save() -> None:
+            name = picker.selected_name
+            if not name:
+                snack(self._page, tr("budgets.category_required", lang), error=True)
+                return
+            try:
+                limit = parse_amount(limit_tf.value)
+            except (InvalidOperation, ValueError):
+                snack(self._page, tr("budgets.limit_required", lang), error=True)
+                return
+            try:
+                await self._state.container.set_budget.execute(
+                    name, month, year, limit, account_id=account.id
+                )
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
+            close()
+            self._state.bump_refresh("budgets", "accounts", "dashboard")
+            snack(self._page, tr("budgets.saved", lang))
+            self._reload_gate.request(True)
+
+        def _delete() -> None:
+            if budget is None:
+                return
+
+            async def _do() -> None:
+                try:
+                    await self._state.container.delete_budget.execute(budget.id)
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
+                    return
+                close()
+                self._state.bump_refresh("budgets", "accounts")
+                self._reload_gate.request(True)
+
+            confirm_dialog(
+                self._page,
+                title=tr("budgets.delete", lang),
+                message=tr(
+                    "budgets.delete_confirm", lang, category=budget.category_id
+                ),
+                confirm_text=tr("budgets.delete", lang),
+                cancel_text=tr("action.cancel", lang),
+                on_confirm=_do,
+            )
+
+        body = [
+            form_section(
+                tr("form.section.category", lang),
+                [picker, limit_tf],
+                icon=ft.Icons.PIE_CHART,
+            ),
+        ]
+        if budget is not None:
+            body.append(
+                ft.TextButton(
+                    tr("budgets.delete", lang),
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    style=ft.ButtonStyle(color=ft.Colors.ERROR),
+                    on_click=lambda _e: _delete(),
+                )
+            )
+        close = open_fullscreen_form(
+            self._page,
+            title=tr("budgets.edit" if budget else "budgets.add", lang),
+            lang=lang,
+            overlay_key="corporate_budget_form",
+            wrap_body=False,
+            body=body,
+            on_save=_save,
+        )
+
+    async def _export_pdf(self) -> None:
+        lang = self._state.language
+        account = self._account
+        stats = self._last_stats
+        if account is None or stats is None:
+            snack(self._page, tr("account.export_pdf_need_data", lang), error=True)
+            return
+        from lib.infrastructure.services.export_service import ExportService
+        from lib.presentation.file_transfer import offer_saved_file
+
+        expense_rows: list[tuple[str, str, Decimal]] = []
+        for tx in self._last_txs:
+            if tx.transfer_id:
+                continue
+            if tx.type != TransactionType.EXPENSE:
+                continue
+            expense_rows.append(
+                (
+                    format_date(tx.date, with_time=False),
+                    localize_category_name(tx.category, lang),
+                    tx.amount,
+                )
+            )
+        cats = [
+            (localize_category_name(cat, lang), amt)
+            for cat, amt in stats.by_category
+        ]
+        try:
+            path = ExportService(self._state.container.config).export_account_period_pdf(
+                account_name=account.name,
+                currency=account.currency,
+                period_label=self._last_period_label or self._period,
+                balance=account.balance,
+                income=stats.income,
+                expense=stats.expense,
+                ops_income=(
+                    stats.income if account.is_corporate else stats.ops_income
+                ),
+                ops_expense=(
+                    stats.expense if account.is_corporate else stats.ops_expense
+                ),
+                by_category=cats,
+                expenses=expense_rows,
+                by_period=stats.by_period,
+                language=lang,
+            )
+            location = await offer_saved_file(
+                self._page, path, title=tr("account.export_pdf", lang)
+            )
+            snack(
+                self._page,
+                tr(
+                    "account.export_pdf_ok",
+                    lang,
+                    path=location or str(path),
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=lang)
+
+    def _open_tx_detail(self, tx) -> None:
+        """Read-only detail with attachments (same idea as transactions page)."""
+        from lib.presentation.widgets.attachment_picker import attachment_gallery
+
+        lang = self._state.language
+        is_income = tx.type == TransactionType.INCOME
+        type_label = tr(
+            "transaction.income" if is_income else "transaction.expense",
+            lang,
+        )
+        if tx.is_transfer:
+            type_label = tr("transaction.transfer", lang)
+        amount_text = format_money(tx.amount, tx.currency)
+        amount_text = f"+{amount_text}" if is_income else f"−{amount_text}"
+        rows: list[ft.Control] = [
+            ft.Text(
+                amount_text,
+                size=28,
+                weight=ft.FontWeight.W_800,
+                color=ft.Colors.PRIMARY if is_income or tx.is_transfer else ft.Colors.ERROR,
+            ),
+            ft.Text(
+                localize_category_name(tx.category, lang),
+                size=18,
+                weight=ft.FontWeight.W_600,
+            ),
+            ft.Divider(height=16),
+            ft.Column(
+                spacing=2,
+                tight=True,
+                controls=[
+                    ft.Text(tr("field.type", lang), size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(type_label, size=14, weight=ft.FontWeight.W_500),
+                ],
+            ),
+            ft.Column(
+                spacing=2,
+                tight=True,
+                controls=[
+                    ft.Text(tr("field.date", lang), size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(format_date(tx.date, with_time=True), size=14, weight=ft.FontWeight.W_500),
+                ],
+            ),
+            ft.Column(
+                spacing=2,
+                tight=True,
+                controls=[
+                    ft.Text(tr("field.comment", lang), size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                    ft.Text(
+                        tx.comment or tr("tx.no_comment", lang),
+                        size=14,
+                        weight=ft.FontWeight.W_500,
+                    ),
+                ],
+            ),
+            *attachment_gallery(
+                list(tx.attachments or []),
+                page=self._page,
+                lang=lang,
+            ),
+        ]
+        open_fullscreen_form(
+            self._page,
+            title=tr("tx.detail_title", lang),
+            lang=lang,
+            overlay_key="account_tx_detail",
+            show_save=False,
+            body=rows,
         )
 
     async def reload(self, animate: bool = False) -> None:
         """Load the account and rebuild KPIs / charts."""
         self._token = (
-            self._state.accounts_token + self._state.transactions_token
+            self._state.accounts_token
+            + self._state.transactions_token
+            + self._state.budgets_token
         )
         lang = self._state.language
         self._rebuild_period_row(lang)
@@ -412,6 +864,7 @@ class AccountDetailPage(ft.Column):
             return
 
         currency = account.currency
+        self._account = account
         self._sync_btn.visible = link is not None
         self._sync_btn.tooltip = tr("account.sync.now", lang)
         safe_update(self._sync_btn)
@@ -424,8 +877,18 @@ class AccountDetailPage(ft.Column):
                 base_line = f"≈ {format_money(converted, base)}"
 
         stats = aggregate_account_period(txs, period_cfg.group_by)
-        # KPIs exclude transfers (match analytics); transfers shown separately below.
-        net = stats.ops_income - stats.ops_expense
+        self._last_txs = list(txs)
+        self._last_stats = stats
+        self._last_period_label = period_label
+        # Corporate: transfers are part of workspace cash-flow KPIs.
+        # Personal: match dashboard — ops only; transfers shown separately.
+        if account.is_corporate:
+            kpi_income = stats.income
+            kpi_expense = stats.expense
+        else:
+            kpi_income = stats.ops_income
+            kpi_expense = stats.ops_expense
+        net = kpi_income - kpi_expense
         net_accent = amount_color(net >= 0, dark=dark)
 
         controls: list[ft.Control] = [
@@ -439,34 +902,71 @@ class AccountDetailPage(ft.Column):
                 balance=account.balance,
                 base_line=base_line,
                 lang=lang,
+                is_corporate=account.is_corporate,
+            ),
+            dual_add_button(
+                lang,
+                on_expense=lambda: open_quick_add(
+                    self._page,
+                    self._state,
+                    accounts=[account],
+                    default_type=TransactionType.EXPENSE,
+                    locked_account=account,
+                    on_saved=lambda: self._reload_gate.request(True),
+                ),
+                on_income=lambda: open_quick_add(
+                    self._page,
+                    self._state,
+                    accounts=[account],
+                    default_type=TransactionType.INCOME,
+                    locked_account=account,
+                    on_saved=lambda: self._reload_gate.request(True),
+                ),
+            ),
+            ft.OutlinedButton(
+                tr("transaction.transfer", lang),
+                icon=ft.Icons.SWAP_HORIZ,
+                expand=True,
+                on_click=lambda _e, acc=account: open_transfer(
+                    self._page,
+                    self._state,
+                    default_from_id=acc.id,
+                    include_corporate=True,
+                    on_saved=lambda: self._reload_gate.request(True),
+                ),
             ),
         ]
         if link is not None:
             controls.append(self._exchange_section(link, currency=currency, lang=lang))
-        controls.extend(
-            [
+
+        if account.is_corporate:
+            controls.extend(
+                await self._corporate_budgets_section(account, lang=lang)
+            )
+
+        analytics_children: list[ft.Control] = [
             section_title(tr("dashboard.period_summary", lang, period=period_label)),
             ft.Row(
                 spacing=10,
                 controls=[
                     SummaryCard(
                         title=tr("dashboard.period_income", lang, period=period_label),
-                        value=format_money(stats.ops_income, currency),
+                        value=format_money(kpi_income, currency),
                         icon=ft.Icons.TRENDING_UP,
                         accent=amount_color(True, dark=dark),
                         expand=True,
                         dark=dark,
-                        amount=stats.ops_income,
+                        amount=kpi_income,
                         currency=currency,
                     ),
                     SummaryCard(
                         title=tr("dashboard.period_expense", lang, period=period_label),
-                        value=format_money(stats.ops_expense, currency),
+                        value=format_money(kpi_expense, currency),
                         icon=ft.Icons.TRENDING_DOWN,
                         accent=amount_color(False, dark=dark),
                         expand=True,
                         dark=dark,
-                        amount=stats.ops_expense,
+                        amount=kpi_expense,
                         currency=currency,
                     ),
                 ],
@@ -512,11 +1012,10 @@ class AccountDetailPage(ft.Column):
                 ),
                 padding=14,
             ),
-            ]
-        )
+        ]
 
         if stats.transfer_in > 0 or stats.transfer_out > 0:
-            controls.append(
+            analytics_children.append(
                 card_surface(
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -590,11 +1089,20 @@ class AccountDetailPage(ft.Column):
             )
 
         if not txs:
-            controls.append(
+            analytics_children.append(
                 EmptyState(
                     tr("account.stats.empty", lang),
                     icon=ft.Icons.ANALYTICS_OUTLINED,
                 )
+            )
+            self._analytics_body = ft.Column(
+                spacing=12,
+                tight=True,
+                visible=self._analytics_open,
+                controls=analytics_children,
+            )
+            controls.extend(
+                [self._analytics_header(lang), self._analytics_body]
             )
             replace_controls(self._body, controls, self._page)
             try:
@@ -685,7 +1193,7 @@ class AccountDetailPage(ft.Column):
                 )
             )
 
-        controls.extend(
+        analytics_children.extend(
             [
                 section_title(tr("dashboard.charts", lang)),
                 card_surface(
@@ -698,7 +1206,6 @@ class AccountDetailPage(ft.Column):
                                 size=14,
                                 weight=ft.FontWeight.W_700,
                             ),
-                            muted_text(tr("account.stats.spend_hint", lang), size=11),
                             pie,
                             *category_rows,
                         ],
@@ -715,17 +1222,29 @@ class AccountDetailPage(ft.Column):
                                 size=14,
                                 weight=ft.FontWeight.W_700,
                             ),
-                            muted_text(tr("dashboard.dynamics_hint", lang), size=11),
                             line,
                         ],
                     ),
                     padding=12,
                 ),
-                section_title(tr("account.stats.recent", lang)),
             ]
         )
+        self._analytics_body = ft.Column(
+            spacing=12,
+            tight=True,
+            visible=self._analytics_open,
+            controls=analytics_children,
+        )
+        controls.extend([self._analytics_header(lang), self._analytics_body])
+        controls.append(section_title(tr("account.stats.recent", lang)))
         for tx in txs[:10]:
-            controls.append(TransactionTile(tx, language=lang))
+            controls.append(
+                TransactionTile(
+                    tx,
+                    language=lang,
+                    on_open=self._open_tx_detail,
+                )
+            )
         replace_controls(self._body, controls, self._page)
         try:
             if animate:

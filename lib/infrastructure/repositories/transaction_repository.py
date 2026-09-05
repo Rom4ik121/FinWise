@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import or_, select, update as sa_update, text, cast, String
 
 from lib.domain.entities.transaction import Transaction, TransactionItem, TransactionType
 from lib.domain.repositories.transaction_repository import TransactionRepository
@@ -18,6 +18,11 @@ from lib.infrastructure.repositories._base import (
     ensure_utc,
     in_unit_of_work,
     session_scope,
+)
+from lib.infrastructure.repositories.transaction_fts import (
+    build_fts_match,
+    fts_delete,
+    fts_upsert,
 )
 
 logger = logging.getLogger("finanse.infrastructure.repositories.transaction")
@@ -84,6 +89,11 @@ def _to_entity(model: TransactionModel) -> Transaction:
         transfer_id=getattr(model, "transfer_id", None),
         transfer_peer_account_id=getattr(model, "transfer_peer_account_id", None),
         items=_items_from_model(getattr(model, "items", None)),
+        attachments=[
+            str(p).strip()
+            for p in (getattr(model, "attachments", None) or [])
+            if str(p).strip()
+        ],
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
@@ -108,6 +118,9 @@ def _apply_entity(model: TransactionModel, entity: Transaction) -> None:
     model.transfer_id = entity.transfer_id
     model.transfer_peer_account_id = entity.transfer_peer_account_id
     model.items = _items_to_json(list(entity.items or []))
+    model.attachments = [
+        str(p).strip() for p in (entity.attachments or []) if str(p).strip()
+    ]
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 
@@ -160,6 +173,7 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         has_debt: Optional[bool] = None,
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
+        query: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
@@ -177,6 +191,7 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             has_debt,
             transfer_id,
             has_transfer,
+            (query or "").strip() or None,
             limit,
             offset,
         )
@@ -190,6 +205,13 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             _apply_entity(model, entity)
             session.add(model)
             session.flush()
+            fts_upsert(
+                session,
+                tx_id=model.id,
+                category=model.category,
+                comment=model.comment or "",
+                tags=list(model.tags or []),
+            )
             logger.debug("Created transaction %s", model.id)
             return _to_entity(model)
 
@@ -201,6 +223,13 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             _apply_entity(model, entity)
             model.updated_at = datetime.now(timezone.utc)
             session.flush()
+            fts_upsert(
+                session,
+                tx_id=model.id,
+                category=model.category,
+                comment=model.comment or "",
+                tags=list(model.tags or []),
+            )
             logger.debug("Updated transaction %s", model.id)
             return _to_entity(model)
 
@@ -210,6 +239,7 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             if model is None:
                 logger.warning("Delete skipped; transaction not found: %s", transaction_id)
                 return False
+            fts_delete(session, transaction_id)
             session.delete(model)
             logger.debug("Deleted transaction %s", transaction_id)
             return True
@@ -246,6 +276,7 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         has_debt: Optional[bool],
         transfer_id: Optional[str],
         has_transfer: Optional[bool],
+        query: Optional[str],
         limit: Optional[int],
         offset: int,
     ) -> list[Transaction]:
@@ -286,6 +317,38 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 stmt = stmt.where(TransactionModel.transfer_id.is_not(None))
             elif has_transfer is False:
                 stmt = stmt.where(TransactionModel.transfer_id.is_(None))
+
+            q = (query or "").strip()
+            if q:
+                match = build_fts_match(q)
+                fts_ids: list[str] | None = None
+                if match:
+                    try:
+                        rows = session.execute(
+                            text(
+                                "SELECT id FROM transactions_fts "
+                                "WHERE transactions_fts MATCH :q"
+                            ),
+                            {"q": match},
+                        ).fetchall()
+                        fts_ids = [str(r[0]) for r in rows]
+                    except Exception:  # noqa: BLE001
+                        fts_ids = None
+                if fts_ids is not None:
+                    if not fts_ids:
+                        return []
+                    stmt = stmt.where(TransactionModel.id.in_(fts_ids))
+                else:
+                    # LIKE fallback when FTS table is missing.
+                    pattern = f"%{q}%"
+                    stmt = stmt.where(
+                        or_(
+                            TransactionModel.category.ilike(pattern),
+                            TransactionModel.comment.ilike(pattern),
+                            cast(TransactionModel.tags, String).ilike(pattern),
+                        )
+                    )
+
             stmt = stmt.order_by(TransactionModel.date.desc())
             # Tags live in JSON — filter in Python *before* limit/offset so
             # pagination matches the filtered set (AUDIT #63).

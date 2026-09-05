@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 import flet as ft
 
-from lib.core.config import CATEGORY_COLORS, CATEGORY_ICON_GROUPS, CATEGORY_ICONS
+from lib.core.config import CATEGORY_COLORS, CATEGORY_ICONS
+from lib.presentation.account_icons import entity_icon_groups
 from lib.domain.entities.category import Category, CategoryKind
 from lib.domain.entities.transaction import TransactionType
 from lib.presentation.styles import page_header
@@ -472,7 +473,7 @@ class CategoryPicker(ft.Column):
             open_icon_picker(
                 self._page,
                 lang=lang,
-                groups=CATEGORY_ICON_GROUPS,
+                groups=entity_icon_groups(),
                 selected=selected_icon["value"],
                 on_select=_select_icon,
                 render_icon=lambda key: ft.Icon(

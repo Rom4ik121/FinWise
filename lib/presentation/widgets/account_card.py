@@ -81,6 +81,7 @@ class AccountCard(ft.Container):
         include_row = ft.Row(
             spacing=8,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            visible=on_include_in_total is not None,
             controls=[
                 ft.Text(
                     tr("account.include_in_total", language),
@@ -91,6 +92,18 @@ class AccountCard(ft.Container):
                 ),
                 include_sw,
             ],
+        )
+        corporate_badge = ft.Container(
+            visible=bool(getattr(account, "is_corporate", False)),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+            border_radius=999,
+            bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.PRIMARY),
+            content=ft.Text(
+                tr("account.corporate_badge", language),
+                size=11,
+                weight=ft.FontWeight.W_600,
+                color=ft.Colors.PRIMARY,
+            ),
         )
 
         header = ft.Row(
@@ -164,6 +177,7 @@ class AccountCard(ft.Container):
                         *converted_line,
                     ],
                 ),
+                corporate_badge,
                 include_row,
             ],
         )

@@ -131,8 +131,13 @@ def reminder_fire_at(
 
 
 def _icon_path() -> str:
-    icon = Path(__file__).resolve().parents[3] / "assets" / "icon.ico"
-    return str(icon) if icon.is_file() else ""
+    """Prefer PNG for Linux notify-send; ICO for Windows toast."""
+    root = Path(__file__).resolve().parents[3] / "assets"
+    for name in ("icon.png", "icon_android.png", "icon.ico"):
+        candidate = root / name
+        if candidate.is_file():
+            return str(candidate)
+    return ""
 
 
 def _show_windows_toast(title: str, body: str) -> bool:
@@ -159,14 +164,41 @@ def _show_windows_toast(title: str, body: str) -> bool:
         return False
 
 
+def _show_linux_notification(title: str, body: str) -> bool:
+    """Desktop Linux: ``notify-send`` with the FinWise icon when available."""
+    if sys.platform != "linux":
+        return False
+    import shutil
+    import subprocess
+
+    if shutil.which("notify-send") is None:
+        return False
+    cmd = [
+        "notify-send",
+        "--app-name=FinWise",
+        "--urgency=normal",
+        "--expire-time=8000",
+    ]
+    icon = _icon_path()
+    if icon:
+        cmd.extend(["--icon", icon])
+    cmd.extend([title or APP_ID, body or ""])
+    try:
+        subprocess.run(cmd, check=False, timeout=5)
+        return True
+    except Exception:  # noqa: BLE001
+        logger.debug("notify-send failed", exc_info=True)
+        return False
+
+
 async def request_push_permissions() -> bool:
     """Request OS notification permission when supported."""
     if push_disabled_by_env():
         return False
     svc = _mobile_service
     if svc is None:
-        # Windows toasts do not need a runtime permission prompt.
-        return sys.platform == "win32"
+        # Desktop toasts (Windows / Linux notify-send) do not need a runtime prompt.
+        return sys.platform in {"win32", "linux"}
     try:
         granted = await svc.request_permissions()
         return bool(granted)
@@ -226,6 +258,8 @@ async def show_os_notification(
             logger.exception("Android OS notification failed")
 
     if _show_windows_toast(title, body):
+        return True
+    if _show_linux_notification(title, body):
         return True
 
     logger.debug("No OS notification backend available for this platform")
@@ -301,9 +335,10 @@ def dispatch_push(
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        # No event loop — Windows toast is sync-safe.
+        # No event loop — desktop toast is sync-safe.
         if _mobile_service is None:
-            _show_windows_toast(title, body)
+            if not _show_windows_toast(title, body):
+                _show_linux_notification(title, body)
         else:
             logger.debug("Skipping Android push outside event loop")
         return

@@ -99,19 +99,29 @@ def hero_card(
     )
 
 
-def section_title(text: str) -> ft.Text:
-    """Section heading."""
+def section_title(text: str, *, page: ft.Page | None = None) -> ft.Text:
+    """Section heading (viewport-scaled)."""
+    from lib.presentation.responsive import scale_font
+
     return ft.Text(
         text,
-        size=15,
+        size=scale_font(15, page),
         weight=ft.FontWeight.W_700,
         color=ft.Colors.ON_SURFACE,
     )
 
 
-def muted_text(text: str, *, size: int = 12) -> ft.Text:
+def muted_text(
+    text: str, *, size: int = 12, page: ft.Page | None = None
+) -> ft.Text:
     """Secondary / meta text with strong readability."""
-    return ft.Text(text, size=size, color=ft.Colors.ON_SURFACE_VARIANT)
+    from lib.presentation.responsive import scale_font
+
+    return ft.Text(
+        text,
+        size=scale_font(size, page, minimum=10, maximum=18),
+        color=ft.Colors.ON_SURFACE_VARIANT,
+    )
 
 
 def summary_strip(
@@ -158,15 +168,18 @@ def page_header(
     *,
     actions: Optional[Sequence[ft.Control]] = None,
     leading: Optional[ft.Control] = None,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     """Page top bar — sits below SafeArea, clear of notch / status bar."""
+    from lib.presentation.responsive import scale_font
+
     left: list[ft.Control] = []
     if leading is not None:
         left.append(leading)
     left.append(
         ft.Text(
             title,
-            size=22,
+            size=scale_font(22, page, minimum=18, maximum=26),
             weight=ft.FontWeight.W_700,
             color=ft.Colors.ON_SURFACE,
             overflow=ft.TextOverflow.ELLIPSIS,
@@ -249,12 +262,12 @@ def shortcut_chip(
 ) -> ft.Container:
     """Quick-nav tile that stretches inside a responsive grid."""
     icon_box = ft.Container(
-        width=34,
-        height=34,
-        border_radius=11,
+        width=40,
+        height=40,
+        border_radius=12,
         bgcolor=get_active_skin().badge_bg(dark=True),
         alignment=ft.Alignment.CENTER,
-        content=ft.Icon(icon, color=get_active_skin().badge_fg(dark=True), size=18),
+        content=ft.Icon(icon, color=get_active_skin().badge_fg(dark=True), size=20),
     )
     if badge > 0:
         label_count = "9+" if badge > 9 else str(badge)
@@ -459,14 +472,10 @@ def polish_form_control(control: ft.Control) -> ft.Control:
     return control
 
 
-def form_hint(text: str, *, size: int = 12) -> ft.Text:
-    """Secondary helper line under a field or section."""
-    return ft.Text(
-        text,
-        size=size,
-        color=ft.Colors.ON_SURFACE_VARIANT,
-        max_lines=6,
-    )
+def form_hint(text: str, *, size: int = 12) -> ft.Control:
+    """Explanatory helper lines are suppressed app-wide (kept as API stub)."""
+    del text, size
+    return ft.Container(visible=False, height=0, padding=0, margin=0)
 
 
 def form_section(
@@ -477,6 +486,7 @@ def form_section(
     icon: Optional[ft.IconData] = None,
 ) -> ft.Container:
     """Grouped card of related fields — used inside fullscreen editors."""
+    del hint  # section explanations disabled
     kids: list[ft.Control] = []
     if title:
         title_row: list[ft.Control] = []
@@ -502,8 +512,6 @@ def form_section(
                 controls=title_row,
             )
         )
-    if hint:
-        kids.append(form_hint(hint, size=11))
     for item in controls:
         polish_form_control(item)
         kids.append(item)

@@ -18,9 +18,17 @@ class BudgetRepository(ABC):
 
     @abstractmethod
     async def get_by_category_and_month(
-        self, category_id: str, month: int, year: int
+        self,
+        category_id: str,
+        month: int,
+        year: int,
+        *,
+        account_id: Optional[str] = None,
     ) -> Optional[Budget]:
-        """Fetch the unique budget for a category in a calendar month."""
+        """Fetch the unique budget for a category in a calendar month.
+
+        ``account_id=None`` selects the personal (non-corporate) budget.
+        """
 
     @abstractmethod
     async def list_for_month(
@@ -28,8 +36,14 @@ class BudgetRepository(ABC):
         month: int,
         year: int,
         category_ids: Optional[Sequence[str]] = None,
+        *,
+        account_id: Optional[str] = None,
     ) -> list[Budget]:
-        """List budgets for a month, optionally filtered by category names."""
+        """List budgets for a month.
+
+        ``account_id=None`` → personal budgets only.
+        ``account_id=<id>`` → budgets for that corporate account.
+        """
 
     @abstractmethod
     async def list_all(self) -> list[Budget]:

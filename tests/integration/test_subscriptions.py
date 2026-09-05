@@ -112,6 +112,33 @@ def test_process_due_skips_when_insufficient_balance(container) -> None:
     run_async(_run())
 
 
+def test_process_due_missing_fx_does_not_mark_last_skip(container) -> None:
+    """Missing FX must fail-closed for that sub (no last_skip / no charge)."""
+
+    async def _run() -> None:
+        acc = await container.create_account.execute(
+            make_account(balance="500", currency="RUB")
+        )
+        due = datetime.now(timezone.utc) - timedelta(days=1)
+        sub = await container.create_subscription.execute(
+            make_subscription(
+                acc.id,
+                amount="20",
+                next_billing=due,
+                currency="USD",
+            )
+        )
+        txs = await container.process_due_subscriptions.execute()
+        assert txs == []
+        refreshed = await container.subscription_repository.get_by_id(sub.id)
+        assert refreshed is not None
+        assert refreshed.next_billing_date == due
+        assert refreshed.last_skip_date is None
+        assert refreshed.payments_made == 0
+
+    run_async(_run())
+
+
 def test_pause_skips_billing_resume_advances(container) -> None:
     async def _run() -> None:
         acc = await container.create_account.execute(make_account(balance="500"))
@@ -467,8 +494,6 @@ def test_delete_charge_restores_paused_not_active(container) -> None:
             )
         )
         await container.pause_subscription.execute(sub.id)
-        if container.append_subscription_audit is not None:
-            await container.append_subscription_audit.execute(sub.id, "pause")
         tx = await container.charge_subscription_now.execute(
             sub.id, check_balance=False
         )
@@ -486,6 +511,38 @@ def test_delete_charge_restores_paused_not_active(container) -> None:
         assert restored.status == SubscriptionStatus.PAUSED
         assert restored.is_active is False
         assert restored.payments_made == 0
+
+    run_async(_run())
+
+
+def test_pause_expired_subscription_is_rejected(container) -> None:
+    """Fail-closed: EXPIRED must not transition to PAUSED."""
+
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="500"))
+        due = datetime.now(timezone.utc)
+        sub = await container.create_subscription.execute(
+            make_subscription(
+                acc.id,
+                amount="25",
+                next_billing=due,
+                max_payments=1,
+            )
+        )
+        await container.charge_subscription_now.execute(sub.id, check_balance=False)
+        expired = await container.subscription_repository.get_by_id(sub.id)
+        assert expired is not None
+        assert expired.status == SubscriptionStatus.EXPIRED
+
+        with pytest.raises(ValueError, match="cannot be paused"):
+            await container.pause_subscription.execute(sub.id)
+
+        still = await container.subscription_repository.get_by_id(sub.id)
+        assert still is not None
+        assert still.status == SubscriptionStatus.EXPIRED
+
+        with pytest.raises(ValueError, match="has ended"):
+            await container.resume_subscription.execute(sub.id)
 
     run_async(_run())
 

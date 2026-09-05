@@ -25,6 +25,16 @@ def test_resolve_analytics_period_defaults_to_30_days() -> None:
     assert cfg.date_to == now
 
 
+def test_resolve_analytics_period_one_day() -> None:
+    now = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
+    cfg = resolve_analytics_period("1d", now)
+
+    assert cfg.key == "1d"
+    assert cfg.group_by == StatsPeriod.DAY
+    assert cfg.date_from == now - timedelta(days=1)
+    assert cfg.date_to == now
+
+
 def test_resolve_analytics_period_all_time_uses_monthly_buckets() -> None:
     now = datetime(2026, 8, 12, tzinfo=timezone.utc)
     cfg = resolve_analytics_period("all", now)

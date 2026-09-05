@@ -29,6 +29,8 @@ class Account(BaseModel):
     color: str = "#2E7D32"
     is_active: bool = True
     include_in_total: bool = True
+    # Isolated workspace: hidden from personal lists/totals; analytics only in detail.
+    is_corporate: bool = False
     created_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("balance", "initial_balance", mode="before")

@@ -22,7 +22,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 
 | Класс | Таблица / таблицы | Заметки |
 |-------|------------------|---------|
-| `SqlAlchemyAccountRepository` | `accounts` | CRUD, `active_only`, `include_in_total` |
+| `SqlAlchemyAccountRepository` | `accounts` | CRUD, `active_only`, `corporate`, `include_in_total` |
 | `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`; **теги** дофильтровываются в Python **до** LIMIT/OFFSET |
 | `SqlAlchemyGoalRepository` | `goals` | status / priority / сортировки |
 | `SqlAlchemyDebtRepository` | `debts` | status / direction |
@@ -112,7 +112,7 @@ Wipe таблиц с учётом FK — «сброс данных» в наст
 | Модуль | Роль |
 |--------|------|
 | `notification_service.py` | Очередь in-app уведомлений; `push` → `dispatch_push` |
-| `push_notifier.py` | `FinanseLocalNotifications` (iOS/Android show + schedule); Windows toast; **не** тянуть `flet-android-notifications` в IPA (конфликт Flutter `timezone`) |
+| `push_notifier.py` | Mobile (`FinanseLocalNotifications` + launcher icon), Windows toast, Linux `notify-send` with `assets/icon.png`; **не** тянуть `flet-android-notifications` в IPA |
 | `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней вперёд |
 
 Env: **`FINANCE_DISABLE_PUSH=1`** — отключить OS-push (в pytest включено autouse).
@@ -121,19 +121,7 @@ Haptic на успех snack: лёгкая вибрация через notificat
 
 ---
 
-## 6. Речь
-
-| Модуль | Роль |
-|--------|------|
-| `speech.py` | Мост к `FinanseSpeech` |
-| `voice_capture.py` | Listen / pending capture |
-| `voice_parse.py` | Разбор фраз («расход такси 500», «доход зарплата 2 млн») |
-
-Deep link / ярлык: `finwise://voice` → `presentation/voice_shortcut.py`.
-
----
-
-## 7. Flet-сервисы (`flet_services.py`)
+## 6. Flet-сервисы (`flet_services.py`)
 
 **Критично:** кастомные Service **нельзя** класть в `page.add()` — на splash будет `Unknown control`.
 
@@ -144,7 +132,7 @@ Deep link / ярлык: `finwise://voice` → `presentation/voice_shortcut.py`.
 
 ---
 
-## 8. Локализация
+## 7. Локализация
 
 `localization.py` — словарь `STRINGS` + `tr(key, lang, **kwargs)`.
 
@@ -154,21 +142,20 @@ UI-языки: **ru**, **en**, **uz**. Каждый ключ обязан име
 
 ---
 
-## 9. Flutter-расширения (`extensions/`)
+## 8. Flutter-расширения (`extensions/`)
 
 Ставятся editable (`-e`) из `requirements.txt`. В APK/IPA попадают только после **`flet build`**.
 
 | Пакет | Control | Роль |
 |-------|---------|------|
 | `flet_local_auth` | `FinanseLocalAuth` | Face ID / face unlock |
-| `flet_local_notifications` | `FinanseLocalNotifications` | show + zonedSchedule, haptic |
-| `flet_speech` | `FinanseSpeech` | STT, `voice_request`, `take_pending_voice` |
+| `flet_local_notifications` | `FinanseLocalNotifications` | show + zonedSchedule, haptic, app icon |
 
 После правок Python/Dart плагинов нужна **новая** мобильная сборка.
 
 ---
 
-## 10. Связанные документы
+## 9. Связанные документы
 
 - Схема БД — [DATABASE.md](DATABASE.md)  
 - Сценарии — [USE_CASES.md](USE_CASES.md)  

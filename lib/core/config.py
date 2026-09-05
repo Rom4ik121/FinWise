@@ -19,9 +19,9 @@ from lib.core.color_palette import PALETTE_COLORS
 APP_NAME: Final[str] = "finanse"
 APP_AUTHOR: Final[str] = "finanse"
 
-DEFAULT_CURRENCY: Final[str] = "RUB"
+DEFAULT_CURRENCY: Final[str] = "USD"
 DEFAULT_THEME: Final[str] = "dark"
-DEFAULT_LANGUAGE: Final[str] = "ru"
+DEFAULT_LANGUAGE: Final[str] = "en"
 DEFAULT_UI_STYLE: Final[str] = "neon"
 KNOWN_UI_STYLES: Final[tuple[str, ...]] = ("classic", "neon")
 DEFAULT_EXCHANGE_UPDATE_INTERVAL_MINUTES: Final[int] = 60
@@ -691,6 +691,7 @@ CATEGORY_ICON_GROUPS: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
             "emoji_events",
             "military_tech",
             "bolt",
+            "flag",
             "more_horiz",
             "apps",
         ),
@@ -953,11 +954,26 @@ class AppConfig:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    @property
+    def media_dir(self) -> Path:
+        """Directory for receipt photos and other transaction media."""
+        path = self.data_dir / "media"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def receipts_dir(self) -> Path:
+        path = self.media_dir / "receipts"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def ensure_directories(self) -> None:
-        """Create data, backup, export, and log directories if missing."""
+        """Create data, backup, export, media, and log directories if missing."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         self.export_dir.mkdir(parents=True, exist_ok=True)
+        self.media_dir.mkdir(parents=True, exist_ok=True)
+        self.receipts_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
 

@@ -43,7 +43,7 @@ class AppState:
         self.budgets_token: int = 0
         self.is_loading: bool = False
         self.is_unlocked: bool = True
-        self.pending_voice_capture: bool = False
+        self.pending_open_account_create: bool = False
         self.pending_notifications: list[str] = []
         self.view_rebuild_token: int = 0
         self._listeners: list[Listener] = []

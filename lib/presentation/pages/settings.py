@@ -33,7 +33,6 @@ from lib.presentation.skins import list_skins, normalize_skin_id, get_active_ski
 from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, snack_exception, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
-
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
@@ -205,8 +204,6 @@ class SettingsPage(ft.Column):
                 apply = (getattr(item, "data", None) or {}).get("apply")
                 if callable(apply):
                     apply(item is section and will_open)
-            if will_open and section is getattr(self, "_voice_section", None):
-                run_async(self._page, self._on_voice_section_open)
 
         def section(
             title: str,
@@ -382,36 +379,6 @@ class SettingsPage(ft.Column):
             shape=ft.RoundedRectangleBorder(radius=12),
             padding=ft.Padding.symmetric(horizontal=14, vertical=12),
         )
-        from lib.infrastructure.services.biometric import feature_voice_available
-
-        voice_controls: list[ft.Control] = []
-        if feature_voice_available():
-            voice_controls = [
-                form_hint(tr("voice.shortcut_how", lang)),
-                form_hint(tr("voice.shortcut_android", lang), size=11),
-                form_hint(tr("voice.shortcut_ios", lang), size=11),
-                ft.FilledTonalButton(
-                    tr("voice.grant_permissions", lang),
-                    icon=ft.Icons.SETTINGS_VOICE,
-                    style=btn_style,
-                    on_click=lambda _e: run_async(
-                        page, self._grant_voice_permissions
-                    ),
-                ),
-                ft.FilledTonalButton(
-                    tr("voice.listen_now", lang),
-                    icon=ft.Icons.MIC,
-                    style=btn_style,
-                    on_click=lambda _e: self._listen_voice_now(),
-                ),
-            ]
-            self._voice_section = section(
-                tr("voice.shortcut_title", lang),
-                ft.Icons.MIC_NONE,
-                voice_controls,
-            )
-        else:
-            self._voice_section = ft.Container(height=0, visible=False)
 
         def _open_secondary(route: str) -> Callable[[ft.ControlEvent], None]:
             return lambda _e: state.open_secondary(route)
@@ -521,7 +488,6 @@ class SettingsPage(ft.Column):
                         self._biometric_hint,
                     ],
                 ),
-                self._voice_section,
                 section(
                     tr("settings.sections", lang),
                     ft.Icons.APPS_OUTLINED,
@@ -769,46 +735,6 @@ class SettingsPage(ft.Column):
                 safe_update(ctrl)
             except Exception:  # noqa: BLE001
                 pass
-
-    def _listen_voice_now(self) -> None:
-        capture = getattr(self._state, "voice_capture", None)
-        if capture is None:
-            snack(self._page, tr("voice.unavailable", self._state.language), error=True)
-            return
-        run_async(self._page, self._listen_voice_after_permissions, capture)
-
-    async def _listen_voice_after_permissions(self, capture) -> None:
-        allowed = await self._prepare_voice_permissions(announce_ok=False)
-        if not allowed:
-            return
-        await capture()
-
-    async def _on_voice_section_open(self) -> None:
-        await self._prepare_voice_permissions(announce_ok=False)
-
-    async def _grant_voice_permissions(self) -> None:
-        await self._prepare_voice_permissions(announce_ok=True)
-
-    async def _prepare_voice_permissions(self, *, announce_ok: bool = False) -> bool:
-        """Ask for mic + speech, then open OS Settings if still denied."""
-        from lib.infrastructure.services.speech import (
-            get_speech_service,
-            open_os_app_settings,
-            prepare_speech_permissions,
-        )
-
-        lang = self._state.language
-        if get_speech_service() is None:
-            snack(self._page, tr("voice.unavailable", lang), error=True)
-            return False
-        result = await prepare_speech_permissions()
-        if result.get("ok"):
-            if announce_ok:
-                snack(self._page, tr("voice.permission_ok", lang))
-            return True
-        snack(self._page, tr("voice.permission_denied", lang), error=True)
-        await open_os_app_settings(self._page)
-        return False
 
     def _on_notifications_toggle(self, e: ft.ControlEvent) -> None:
         if bool(getattr(e.control, "value", False)):
@@ -1242,7 +1168,7 @@ class SettingsPage(ft.Column):
             picked = await pick_restore_bytes(
                 self._page,
                 title=tr("action.restore", lang),
-                extensions=["db", "sqlite", "sqlite3", "json"],
+                extensions=["db", "sqlite", "sqlite3", "json", "fwexport"],
             )
             if not picked:
                 backups = service.list_backups()
@@ -1261,6 +1187,9 @@ class SettingsPage(ft.Column):
                 return
             name, payload = picked
             kind = classify_restore_payload(name, payload)
+            if kind == "enc":
+                await self._decrypt_export_payload(name, payload)
+                return
             if kind == "json":
                 snack(self._page, tr("settings.restore_need_db", lang), error=True)
                 return
@@ -1294,6 +1223,71 @@ class SettingsPage(ft.Column):
             cancel_text=tr("action.cancel", lang),
             on_confirm=lambda: self._do_restore(latest),
         )
+
+    async def _decrypt_export_payload(self, name: str, payload: bytes) -> None:
+        """Decrypt a ``.fwexport`` blob to a JSON file in the export dir."""
+        import asyncio
+        from pathlib import Path
+
+        from lib.domain.use_cases.export_data import decrypt_export_blob
+        from lib.presentation.file_transfer import safe_filename
+
+        lang = self._state.language
+        pwd = ft.TextField(
+            label=tr("settings.export_password", lang),
+            password=True,
+            can_reveal_password=False,
+            autofocus=True,
+        )
+        done: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
+
+        def _close(password: str | None) -> None:
+            dlg.open = False
+            safe_update(self._page)
+            if not done.done():
+                done.set_result(password)
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(tr("settings.export_json_encrypted", lang)),
+            content=pwd,
+            actions=[
+                ft.TextButton(
+                    tr("action.cancel", lang),
+                    on_click=lambda _e: _close(None),
+                ),
+                ft.FilledButton(
+                    tr("action.restore", lang),
+                    on_click=lambda _e: _close((pwd.value or "").strip()),
+                ),
+            ],
+        )
+        self._page.overlay.append(dlg)
+        dlg.open = True
+        safe_update(self._page)
+        password = await done
+        try:
+            self._page.overlay.remove(dlg)
+        except ValueError:
+            pass
+        safe_update(self._page)
+        if password is None:
+            return
+        try:
+            raw = decrypt_export_blob(payload, password)
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=lang)
+            return
+        export_dir = Path(self._state.container.config.export_dir)
+        export_dir.mkdir(parents=True, exist_ok=True)
+        base = safe_filename(name, default="export.fwexport")
+        if base.lower().endswith(".fwexport"):
+            base = base[: -len(".fwexport")] + ".json"
+        elif not base.lower().endswith(".json"):
+            base = f"{base}.json"
+        out = export_dir / base
+        out.write_bytes(raw)
+        await self._offer_file(out, kind="JSON")
 
     async def _do_restore(self, backup_path) -> None:
         """Replace the live DB, rebind sessions, and reload settings."""
@@ -1418,22 +1412,6 @@ class SettingsPage(ft.Column):
                 settings = await c.get_settings.execute()
                 self._state.set_settings(settings, notify=False)
                 apply_theme_from_settings(self._page, settings)
-            if c.create_account is not None:
-                from lib.domain.entities.account import Account
-
-                await c.create_account.execute(
-                    Account(
-                        name=tr(
-                            "account.default_cash",
-                            self._state.language,
-                        ),
-                        currency=self._state.base_currency or c.config.default_currency,
-                        initial_balance=0,
-                        balance=0,
-                        icon="wallet",
-                        color="#2E7D32",
-                    )
-                )
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             return

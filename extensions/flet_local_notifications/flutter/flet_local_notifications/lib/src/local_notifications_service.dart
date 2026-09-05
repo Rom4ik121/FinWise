@@ -170,6 +170,8 @@ class FinanseLocalNotificationsService extends FletService {
     final channelId = (args?["channel_id"] as String?) ?? "finwise_reminders";
     final channelName =
         (args?["channel_name"] as String?) ?? "FinWise reminders";
+    // App launcher icon so the OS tray / shade shows FinWise branding.
+    const launcherIcon = '@mipmap/ic_launcher';
     return NotificationDetails(
       android: AndroidNotificationDetails(
         channelId,
@@ -179,8 +181,18 @@ class FinanseLocalNotificationsService extends FletService {
         priority: Priority.high,
         playSound: true,
         enableVibration: true,
+        icon: launcherIcon,
+        largeIcon: const DrawableResourceAndroidBitmap(launcherIcon),
+        ticker: 'FinWise',
       ),
       iOS: const DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        presentBanner: true,
+        presentList: true,
+      ),
+      macOS: const DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,

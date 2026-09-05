@@ -11,6 +11,12 @@ import flet as ft
 from lib.infrastructure.services.biometric import BiometricResult, BiometricStatus
 from lib.infrastructure.services.encryption_service import EncryptionService
 from lib.presentation.theme import is_dark_mode, page_gradient
+from lib.presentation.responsive import (
+    clamp_content_width,
+    form_control_width,
+    page_width,
+    scale_font,
+)
 from lib.presentation.utils import run_async, safe_update, snack, tr
 
 
@@ -55,13 +61,16 @@ class LockScreen(ft.Container):
         self._pin_fails = 0
         self._pin_locked_until = 0.0
         self._countdown_task: asyncio.Task[None] | None = None
+        field_w = form_control_width(page, preferred=280)
+        if field_w is None:
+            field_w = clamp_content_width(page, margin=56, max_width=280)
         self._pin = ft.TextField(
             label=tr("settings.pin", language),
             password=True,
             can_reveal_password=False,
             max_length=8,
             keyboard_type=ft.KeyboardType.NUMBER,
-            width=280,
+            width=field_w,
             text_align=ft.TextAlign.CENTER,
             border_radius=14,
             filled=True,
@@ -73,7 +82,11 @@ class LockScreen(ft.Container):
 
         configure_field(self._pin, "number")
         wire_field_chain(page, [self._pin])
-        self._error = ft.Text("", color=ft.Colors.ERROR, size=12)
+        self._error = ft.Text(
+            "",
+            color=ft.Colors.ERROR,
+            size=scale_font(12, page, minimum=11, maximum=14),
+        )
         self._bio_btn = ft.OutlinedButton(
             tr("settings.biometric", language),
             icon=ft.Icons.FACE_2,
@@ -81,7 +94,7 @@ class LockScreen(ft.Container):
                 shape=ft.RoundedRectangleBorder(radius=14),
                 padding=ft.Padding.symmetric(horizontal=18, vertical=14),
             ),
-            width=280,
+            width=field_w,
             visible=biometric_enabled,
             on_click=lambda _e: run_async(page, self._try_biometric),
         )
@@ -95,20 +108,22 @@ class LockScreen(ft.Container):
                 tr("lock.unlock", language),
                 icon=ft.Icons.LOCK_OPEN,
                 style=btn_style,
-                width=280,
+                width=field_w,
                 on_click=lambda _e: run_async(page, self._try_pin),
             ),
             self._bio_btn,
         ]
 
         dark = is_dark_mode(page)
+        card_w = clamp_content_width(page, margin=24, max_width=400)
         super().__init__(
             expand=True,
             alignment=ft.Alignment.CENTER,
             gradient=page_gradient(dark),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=24),
             content=ft.Container(
-                width=340,
-                padding=28,
+                width=card_w,
+                padding=24 if page_width(page) < 360 else 28,
                 border_radius=24,
                 bgcolor=ft.Colors.SURFACE_CONTAINER,
                 border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
@@ -138,7 +153,7 @@ class LockScreen(ft.Container):
                         ),
                         ft.Text(
                             tr("app.name", language),
-                            size=30,
+                            size=scale_font(28, page, minimum=24, maximum=32),
                             weight=ft.FontWeight.W_700,
                             color=ft.Colors.PRIMARY,
                         ),
@@ -147,7 +162,7 @@ class LockScreen(ft.Container):
                                 "lock.subtitle_bio" if biometric_enabled else "lock.subtitle",
                                 language,
                             ),
-                            size=14,
+                            size=scale_font(14, page, minimum=12, maximum=16),
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             text_align=ft.TextAlign.CENTER,
                         ),

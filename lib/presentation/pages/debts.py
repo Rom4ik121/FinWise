@@ -29,7 +29,7 @@ from lib.core.config import ACCOUNT_COLORS
 from lib.presentation.account_icons import (
     account_icon_badge,
     account_icon_control,
-    account_icon_groups,
+    entity_icon_groups,
 )
 from lib.presentation.debts_templates import DEBT_TEMPLATES, DebtTemplate, debt_template_chip
 from lib.presentation.styles import (
@@ -58,6 +58,7 @@ from lib.presentation.utils import (
     snack,
     snack_exception,
     tr,
+    try_convert_amount,
 )
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -109,6 +110,8 @@ class DebtsPage(ft.Column):
         self._alert_ids: set[str] = set()
         self._token = -1
         self._debt_state_synced = False
+        self._cached_debts: list[Debt] | None = None
+        self._cache_key: tuple | None = None
         self._search_tf = ft.TextField(
             hint_text=tr("debt.search_hint", state.language),
             prefix_icon=ft.Icons.SEARCH,
@@ -283,8 +286,9 @@ class DebtsPage(ft.Column):
         """Reload debts list for the current filters."""
         self._token = self._state.debts_token
         lang = self._state.language
-        fill_loading(self._list)
-        safe_update(self._list)
+        if self._cached_debts is None:
+            fill_loading(self._list)
+            safe_update(self._list)
         self._alert_ids = pending_related_ids(
             self._state.container,
             self._state.settings,
@@ -299,30 +303,42 @@ class DebtsPage(ft.Column):
             if self._direction_filter in ("", "all", None)
             else self._direction_filter
         )
+        cache_key = (
+            self._token,
+            self._status_filter,
+            direction,
+            self._sort_by,
+            self._interest_only,
+        )
         try:
-            status_arg = (
-                None
-                if self._status_filter in (_OPEN_FILTER, "", "all", None)
-                else self._status_filter
-            )
-            debts = await self._state.container.list_debts.execute(
-                status=status_arg,
-                direction=direction,
-                sort_by=self._sort_by,
-            )
-            if self._status_filter == _OPEN_FILTER:
-                debts = [
-                    d
-                    for d in debts
-                    if (
-                        d.status.value
-                        if isinstance(d.status, DebtStatus)
-                        else str(d.status)
-                    )
-                    in _OPEN_STATUSES
-                ]
-            if self._interest_only:
-                debts = [d for d in debts if d.interest_rate is not None]
+            if self._cached_debts is None or self._cache_key != cache_key:
+                status_arg = (
+                    None
+                    if self._status_filter in (_OPEN_FILTER, "", "all", None)
+                    else self._status_filter
+                )
+                debts = await self._state.container.list_debts.execute(
+                    status=status_arg,
+                    direction=direction,
+                    sort_by=self._sort_by,
+                )
+                if self._status_filter == _OPEN_FILTER:
+                    debts = [
+                        d
+                        for d in debts
+                        if (
+                            d.status.value
+                            if isinstance(d.status, DebtStatus)
+                            else str(d.status)
+                        )
+                        in _OPEN_STATUSES
+                    ]
+                if self._interest_only:
+                    debts = [d for d in debts if d.interest_rate is not None]
+                self._cached_debts = debts
+                self._cache_key = cache_key
+            else:
+                debts = self._cached_debts
             debts = self._filter_debts(debts)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
@@ -369,17 +385,15 @@ class DebtsPage(ft.Column):
                     continue
                 if debt.status == DebtStatus.OVERDUE:
                     overdue_count += 1
-                converted = book.convert(
+                converted = try_convert_amount(
+                    book,
                     debt.remaining_amount,
                     debt.currency,
                     base,
                 )
                 if converted is None:
-                    if debt.currency.upper() == base.upper():
-                        converted = debt.remaining_amount
-                    else:
-                        fx_ok = False
-                        continue
+                    fx_ok = False
+                    continue
                 if debt.direction == DebtDirection.I_OWE:
                     i_owe += converted
                 else:
@@ -493,9 +507,7 @@ class DebtsPage(ft.Column):
 
         async def _open() -> None:
             try:
-                accounts = await self._state.container.list_accounts.execute(
-                    active_only=True
-                )
+                accounts = await self._state.container.list_accounts.execute(active_only=True, corporate=False)
                 book = await load_rate_book(self._state.container)
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=self._state.language)
@@ -1172,9 +1184,7 @@ class DebtsPage(ft.Column):
         async def _open() -> None:
             accounts: list = []
             try:
-                accounts = await self._state.container.list_accounts.execute(
-                    active_only=True
-                )
+                accounts = await self._state.container.list_accounts.execute(active_only=True, corporate=False)
             except Exception:  # noqa: BLE001
                 accounts = []
 
@@ -1351,7 +1361,7 @@ class DebtsPage(ft.Column):
                     ft.GestureDetector(content=icon_preview, on_tap=lambda _e: open_icon_picker(
                         self._page,
                         lang=lang,
-                        groups=account_icon_groups(include_exchanges=False),
+                        groups=entity_icon_groups(),
                         selected=selected_icon["value"],
                         on_select=_select_icon,
                         render_icon=lambda key: account_icon_control(

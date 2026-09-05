@@ -105,26 +105,69 @@ def test_apply_spills_when_primary_already_at_target() -> None:
     assert allocations[case_id] == Decimal("40.00")
 
 
-def test_reverse_partial_allocations_falls_back_to_lifo() -> None:
+def test_reverse_partial_allocations_debits_leftover_on_primary_only() -> None:
+    """Exact mode: partial tags debit listed items, leftover on primary — no LIFO wipe."""
     goal, phone_id, case_id = _goal_with_items()
+    # Case owns 50 first, then phone spill fills case to 100.
+    after_case, _ = allocate_goal_contribution_credit(
+        goal, Decimal("50.00"), item_id=case_id
+    )
     credited, full_alloc = allocate_goal_contribution_credit(
-        goal, Decimal("650.00"), item_id=phone_id
+        after_case, Decimal("650.00"), item_id=phone_id
     )
     assert full_alloc[phone_id] == Decimal("600.00")
     assert full_alloc[case_id] == Decimal("50.00")
+    case = next(i for i in credited.items if i.id == case_id)
+    assert case.current_amount == Decimal("100.00")
 
-    # Corrupt/partial tags only cover the sibling spill — remainder via LIFO.
+    # Partial tags only list the spill onto case — leftover must hit primary only.
     partial = {case_id: Decimal("50.00")}
     reversed_goal = reverse_goal_contribution_credit(
         credited,
         Decimal("650.00"),
         item_id=phone_id,
         allocations=partial,
+        allocation_mode="exact",
     )
     phone2 = next(i for i in reversed_goal.items if i.id == phone_id)
     case2 = next(i for i in reversed_goal.items if i.id == case_id)
     assert phone2.current_amount == Decimal("0.00")
-    assert case2.current_amount == Decimal("0.00")
+    assert case2.current_amount == Decimal("50.00")  # case's own credit survives
+
+
+def test_reverse_corrupt_markers_use_primary_only() -> None:
+    """Corrupt goal_alloc markers must not LIFO-wipe sibling credits."""
+    goal, phone_id, case_id = _goal_with_items()
+    after_case, _ = allocate_goal_contribution_credit(
+        goal, Decimal("50.00"), item_id=case_id
+    )
+    credited, _ = allocate_goal_contribution_credit(
+        after_case, Decimal("650.00"), item_id=phone_id
+    )
+    reversed_goal = reverse_goal_contribution_credit(
+        credited,
+        Decimal("650.00"),
+        item_id=phone_id,
+        allocations=None,
+        allocation_mode="primary_only",
+    )
+    phone2 = next(i for i in reversed_goal.items if i.id == phone_id)
+    case2 = next(i for i in reversed_goal.items if i.id == case_id)
+    assert phone2.current_amount == Decimal("0.00")
+    assert case2.current_amount == Decimal("100.00")
+
+
+def test_corrupt_alloc_tags_parse_as_none_but_markers_detected() -> None:
+    from lib.domain.use_cases.goals import has_goal_allocation_tag_markers
+
+    tags = [
+        "goal_alloc:broken",
+        "goal_alloc::10.00",
+        "goal_alloc:abc:not-a-number",
+        "user-tag",
+    ]
+    assert has_goal_allocation_tag_markers(tags) is True
+    assert parse_goal_allocation_tags(tags) is None
 
 
 def test_interleaved_reverse_uses_allocation_tags() -> None:

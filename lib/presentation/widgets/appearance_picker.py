@@ -21,6 +21,23 @@ IconRenderer = Callable[[str], ft.Control]
 SelectStr = Callable[[str], None]
 
 
+def _picker_list(*, spacing: float, padding: ft.Padding, controls: list[ft.Control]) -> ft.ListView:
+    """Vertical catalog scroll — no nested scrollables (wrap Rows only).
+
+    Uses visible/adaptive scroll so drag-to-scroll works reliably on desktop
+    and mobile; ``build_controls_on_demand=False`` so long catalogs measure height.
+    """
+    return ft.ListView(
+        expand=True,
+        spacing=spacing,
+        padding=padding,
+        auto_scroll=False,
+        build_controls_on_demand=False,
+        scroll=ft.ScrollMode.AUTO,
+        controls=controls,
+    )
+
+
 def build_icon_catalog(
     *,
     lang: str,
@@ -30,7 +47,11 @@ def build_icon_catalog(
     on_change: Optional[SelectStr] = None,
     accent: Optional[str] = None,
 ) -> list[ft.Control]:
-    """Grouped circular badges with soft fill; logos clip to the circle."""
+    """Grouped circular badges with soft fill; logos clip to the circle.
+
+    Uses non-scrolling wrap rows so the outer ListView can scroll vertically
+    (nested GridView + ListView fights gesture handling on mobile/desktop).
+    """
     accent_color = accent or ft.Colors.PRIMARY
     tiles_by_key: dict[str, list[ft.Container]] = {}
 
@@ -78,8 +99,6 @@ def build_icon_catalog(
             on_change(key)
 
     controls: list[ft.Control] = []
-    cols = 5
-    cell = 66
     for group_key, keys in groups:
         if not keys:
             continue
@@ -106,18 +125,12 @@ def build_icon_catalog(
             _style_tile(key, tile)
             tiles_by_key.setdefault(key, []).append(tile)
             tiles.append(tile)
-        rows = (len(tiles) + cols - 1) // cols
         controls.append(
-            ft.GridView(
-                runs_count=cols,
-                max_extent=56,
-                child_aspect_ratio=1,
+            ft.Row(
+                wrap=True,
                 spacing=10,
                 run_spacing=10,
-                padding=0,
-                height=rows * cell,
                 controls=tiles,
-                scroll=ft.ScrollMode.HIDDEN,
             )
         )
         controls.append(ft.Container(height=16))
@@ -158,6 +171,12 @@ def open_icon_picker(
         accent=accent,
     )
 
+    body = _picker_list(
+        spacing=4,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+        controls=[*group_controls, ft.Container(height=8)],
+    )
+
     overlay = ft.Container(
         left=0,
         top=0,
@@ -180,16 +199,7 @@ def open_icon_picker(
                             on_click=_close,
                         ),
                     ),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.Padding.symmetric(horizontal=16, vertical=8),
-                        content=ft.ListView(
-                            expand=True,
-                            spacing=4,
-                            scroll=ft.ScrollMode.HIDDEN,
-                            controls=[*group_controls, ft.Container(height=8)],
-                        ),
-                    ),
+                    ft.Container(expand=True, content=body),
                     ft.Container(
                         padding=ft.Padding.only(left=16, right=16, bottom=12, top=4),
                         content=ft.FilledButton(
@@ -258,6 +268,8 @@ def open_color_picker(
     tiles: list[ft.Control] = []
     for color in palette:
         tile = ft.Container(
+            width=56,
+            height=56,
             border_radius=999,
             bgcolor=color,
             ink=True,
@@ -266,6 +278,20 @@ def open_color_picker(
         _apply_border(color, tile)
         tiles_by_color[color] = tile
         tiles.append(tile)
+
+    body = _picker_list(
+        spacing=0,
+        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        controls=[
+            ft.Row(
+                wrap=True,
+                spacing=8,
+                run_spacing=8,
+                controls=tiles,
+            ),
+            ft.Container(height=8),
+        ],
+    )
 
     overlay = ft.Container(
         left=0,
@@ -289,20 +315,7 @@ def open_color_picker(
                             on_click=_close,
                         ),
                     ),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                        content=ft.GridView(
-                            expand=True,
-                            runs_count=6,
-                            max_extent=56,
-                            child_aspect_ratio=1,
-                            spacing=8,
-                            run_spacing=8,
-                            scroll=ft.ScrollMode.HIDDEN,
-                            controls=tiles,
-                        ),
-                    ),
+                    ft.Container(expand=True, content=body),
                     ft.Container(
                         padding=ft.Padding.only(left=16, right=16, bottom=12, top=4),
                         content=ft.FilledButton(

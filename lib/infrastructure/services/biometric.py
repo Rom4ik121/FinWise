@@ -157,13 +157,6 @@ def platform_supports_biometrics() -> bool:
     return False
 
 
-def feature_voice_available() -> bool:
-    """True when the speech bridge is registered (packaged iOS/Android)."""
-    from lib.infrastructure.services.speech import get_speech_service
-
-    return get_speech_service() is not None
-
-
 def feature_biometrics_available() -> bool:
     """True when OS biometrics / Hello can be offered in Settings."""
     return platform_supports_biometrics()

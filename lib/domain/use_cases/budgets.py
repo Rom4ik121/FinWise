@@ -26,6 +26,9 @@ from lib.domain.services.rate_book import RateBook
 from lib.domain.use_cases.budget_insights import shift_month
 from lib.domain.use_cases.subscriptions import monthly_equivalent
 
+# Keep in sync with ``transactions.TRANSFER_FEE_TAG_PREFIX`` (avoid circular import).
+_TRANSFER_FEE_TAG_PREFIX = "xfer_fee:"
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -104,12 +107,14 @@ class SetBudgetUseCase:
         transactions: TransactionRepository,
         currencies: Optional[CurrencyRepository] = None,
         settings: Optional[SettingsRepository] = None,
+        accounts: Optional[object] = None,
     ) -> None:
         self._budgets = budgets
         self._categories = categories
         self._transactions = transactions
         self._currencies = currencies
         self._settings = settings
+        self._accounts = accounts
 
     async def execute(
         self,
@@ -117,6 +122,8 @@ class SetBudgetUseCase:
         month: int,
         year: int,
         amount_limit: Decimal,
+        *,
+        account_id: Optional[str] = None,
     ) -> Budget:
         name = (category_id or "").strip()
         if not name:
@@ -124,6 +131,7 @@ class SetBudgetUseCase:
         limit = quantize_money(amount_limit)
         if limit <= 0:
             raise ValueError("Budget limit must be positive")
+        scope = (account_id or "").strip() or None
 
         category = await self._categories.get_by_name(name)
         if category is None:
@@ -133,7 +141,9 @@ class SetBudgetUseCase:
         if kind_value not in (CategoryKind.EXPENSE.value, CategoryKind.BOTH.value):
             raise ValueError("Budget category must be expense or both")
 
-        existing = await self._budgets.get_by_category_and_month(name, month, year)
+        existing = await self._budgets.get_by_category_and_month(
+            name, month, year, account_id=scope
+        )
         spent = await _sum_expenses(
             self._transactions,
             name,
@@ -141,6 +151,8 @@ class SetBudgetUseCase:
             year,
             currencies=self._currencies,
             settings=self._settings,
+            account_id=scope,
+            accounts=self._accounts,
         )
         now = _utc_now()
         if existing is None:
@@ -151,6 +163,7 @@ class SetBudgetUseCase:
                 amount_limit=limit,
                 spent=spent,
                 last_alert_level=0,
+                account_id=scope,
                 created_at=now,
                 updated_at=now,
             )
@@ -159,6 +172,7 @@ class SetBudgetUseCase:
                 update={
                     "amount_limit": limit,
                     "spent": spent,
+                    "account_id": scope,
                     "updated_at": now,
                 }
             )
@@ -188,13 +202,14 @@ class GetBudgetProgressUseCase:
         category_id: Optional[str] = None,
         month: Optional[int] = None,
         year: Optional[int] = None,
+        account_id: Optional[str] = None,
     ) -> BudgetProgress:
         budget: Optional[Budget] = None
         if budget_id:
             budget = await self._budgets.get_by_id(budget_id)
         elif category_id and month and year:
             budget = await self._budgets.get_by_category_and_month(
-                category_id, month, year
+                category_id, month, year, account_id=account_id
             )
         else:
             raise ValueError("Budget lookup is incomplete")
@@ -214,9 +229,11 @@ class GetBudgetsForMonthUseCase:
         month: int,
         year: int,
         category_ids: Optional[Sequence[str]] = None,
+        *,
+        account_id: Optional[str] = None,
     ) -> list[BudgetProgress]:
         items = await self._budgets.list_for_month(
-            month, year, category_ids=category_ids
+            month, year, category_ids=category_ids, account_id=account_id
         )
         items.sort(key=lambda b: b.percent_used, reverse=True)
         return [BudgetProgress.from_budget(b) for b in items]
@@ -231,11 +248,13 @@ class RecalculateBudgetSpentUseCase:
         transactions: TransactionRepository,
         currencies: Optional[CurrencyRepository] = None,
         settings: Optional[SettingsRepository] = None,
+        accounts: Optional[object] = None,
     ) -> None:
         self._budgets = budgets
         self._transactions = transactions
         self._currencies = currencies
         self._settings = settings
+        self._accounts = accounts
 
     async def execute(
         self,
@@ -244,34 +263,41 @@ class RecalculateBudgetSpentUseCase:
         year: int,
         budget_id: Optional[str] = None,
         category_id: Optional[str] = None,
+        account_id: Optional[str] = None,
     ) -> list[Budget]:
+        scope = (account_id or "").strip() or None
         if budget_id:
             budget = await self._budgets.get_by_id(budget_id)
             targets = [budget] if budget is not None else []
         elif category_id:
             budget = await self._budgets.get_by_category_and_month(
-                category_id, month, year
+                category_id, month, year, account_id=scope
             )
             targets = [budget] if budget is not None else []
         else:
-            targets = await self._budgets.list_for_month(month, year)
+            targets = await self._budgets.list_for_month(
+                month, year, account_id=scope
+            )
 
         updated: list[Budget] = []
         now = _utc_now()
-        # One month scan for all targets in the same calendar month.
-        spent_by_month: dict[tuple[int, int], dict[str, Decimal]] = {}
+        spent_cache: dict[tuple[int, int, str], dict[str, Decimal]] = {}
         for budget in targets:
-            key = (budget.month, budget.year)
-            if key not in spent_by_month:
-                spent_by_month[key] = await _month_category_spent(
+            scope_key = (budget.account_id or "") or ""
+            key = (budget.month, budget.year, scope_key)
+            if key not in spent_cache:
+                spent_cache[key] = await _month_category_spent(
                     self._transactions,
                     budget.month,
                     budget.year,
                     currencies=self._currencies,
                     settings=self._settings,
+                    account_id=budget.account_id,
+                    accounts=self._accounts,
                 )
         for budget in targets:
-            spent = spent_by_month[(budget.month, budget.year)].get(
+            scope_key = (budget.account_id or "") or ""
+            spent = spent_cache[(budget.month, budget.year, scope_key)].get(
                 budget.category_id, Decimal("0.00")
             )
             saved = await self._budgets.save(
@@ -288,20 +314,23 @@ class CopyBudgetsFromPreviousMonthUseCase:
         self._budgets = budgets
         self._set_budget = set_budget
 
-    async def execute(self, month: int, year: int) -> int:
+    async def execute(self, month: int, year: int, *, account_id: Optional[str] = None) -> int:
+        scope = (account_id or "").strip() or None
         prev_year, prev_month = shift_month(year, month, -1)
-        source = await self._budgets.list_for_month(prev_month, prev_year)
+        source = await self._budgets.list_for_month(
+            prev_month, prev_year, account_id=scope
+        )
         if not source:
             raise ValueError("No budgets in the previous month")
         created = 0
         for row in source:
             existing = await self._budgets.get_by_category_and_month(
-                row.category_id, month, year
+                row.category_id, month, year, account_id=scope
             )
             if existing is not None:
                 continue
             await self._set_budget.execute(
-                row.category_id, month, year, row.amount_limit
+                row.category_id, month, year, row.amount_limit, account_id=scope
             )
             created += 1
         return created
@@ -412,17 +441,22 @@ async def apply_expense_delta(
     language: str = "ru",
     amount_currency: Optional[str] = None,
     rate_book: Optional[RateBook] = None,
+    account_id: Optional[str] = None,
 ) -> Optional[Budget]:
     """Adjust ``spent`` for the matching monthly budget and emit alerts.
 
     ``sign`` is ``+1`` when an expense is added and ``-1`` when reversed.
     ``amount`` is converted from ``amount_currency`` into settings base when needed.
+    ``account_id`` scopes corporate budgets; ``None`` is the personal ledger.
     """
     name = (category or "").strip()
     if not name or amount <= 0:
         return None
     moment = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
-    budget = await budgets.get_by_category_and_month(name, moment.month, moment.year)
+    scope = (account_id or "").strip() or None
+    budget = await budgets.get_by_category_and_month(
+        name, moment.month, moment.year, account_id=scope
+    )
     if budget is None:
         return None
     base = normalize_currency_code(
@@ -514,8 +548,14 @@ async def _month_category_spent(
     *,
     currencies: Optional[CurrencyRepository] = None,
     settings: Optional[SettingsRepository | AppSettings] = None,
+    account_id: Optional[str] = None,
+    accounts: Optional[object] = None,
 ) -> dict[str, Decimal]:
-    """One month expense scan → spent totals per category (base currency)."""
+    """One month expense scan → spent totals per category (base currency).
+
+    ``account_id`` set → only that account (corporate scope).
+    ``account_id`` None → personal: exclude corporate account expenses.
+    """
     from lib.domain.transaction_paging import list_transactions_paged
 
     start, end = month_bounds(year, month)
@@ -524,13 +564,30 @@ async def _month_category_spent(
         transaction_type=TransactionType.EXPENSE,
         date_from=start,
         date_to=end,
+        account_id=account_id,
     )
+    exclude_ids: set[str] = set()
+    if account_id is None and accounts is not None:
+        list_fn = getattr(accounts, "list", None)
+        if callable(list_fn):
+            try:
+                corp = await list_fn(corporate=True)
+                exclude_ids = {a.id for a in corp}
+            except Exception:  # noqa: BLE001
+                exclude_ids = set()
     book, base = await _load_budget_fx(currencies, settings)
     totals: dict[str, Decimal] = {}
     for tx in rows:
         if tx.transfer_id:
             continue
+        if exclude_ids and getattr(tx, "account_id", None) in exclude_ids:
+            continue
         if tx.goal_id or tx.goal_credit_amount is not None:
+            continue
+        if any(
+            str(tag).startswith(_TRANSFER_FEE_TAG_PREFIX)
+            for tag in (tx.tags or [])
+        ):
             continue
         for category, amount in _allocate_expense_slices(tx):
             if not category:
@@ -551,13 +608,10 @@ async def _sum_expenses(
     *,
     currencies: Optional[CurrencyRepository] = None,
     settings: Optional[SettingsRepository | AppSettings] = None,
+    account_id: Optional[str] = None,
+    accounts: Optional[object] = None,
 ) -> Decimal:
-    """Sum base-currency spend for ``category`` in the month.
-
-    Mirrors :func:`lib.domain.use_cases.transactions._sync_budget_expense`:
-    skips transfers and goal contributions (``goal_id`` / ``goal_credit_amount``),
-    and allocates multi-line ``items[]`` by each line's category.
-    """
+    """Sum base-currency spend for ``category`` in the month."""
     want = (category or "").strip()
     if not want:
         return quantize_money(Decimal("0"))
@@ -567,5 +621,7 @@ async def _sum_expenses(
         year,
         currencies=currencies,
         settings=settings,
+        account_id=account_id,
+        accounts=accounts,
     )
-    return totals.get(want, quantize_money(Decimal("0")))
+    return totals.get(want, Decimal("0.00"))

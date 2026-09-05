@@ -20,8 +20,8 @@ from lib.domain.use_cases.goal_insights import (
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.account_icons import (
     account_icon_control,
-    account_icon_groups,
-    is_valid_account_icon,
+    entity_icon_groups,
+    is_valid_entity_icon,
 )
 from lib.presentation.goals_templates import GOAL_TEMPLATES, GoalTemplate, goal_template_chip
 from lib.presentation.notification_badges import (
@@ -96,6 +96,8 @@ class GoalsPage(ft.Column):
         self._group_mode = "none"
         self._search_query = ""
         self._search_gen = 0
+        self._cached_goals: list[Goal] | None = None
+        self._cache_key: tuple | None = None
         self._alert_ids: set[str] = set()
         self._token = -1
         self._search_tf = ft.TextField(
@@ -257,19 +259,27 @@ class GoalsPage(ft.Column):
         """Reload goals list."""
         self._token = self._state.goals_token
         lang = self._state.language
-        fill_loading(self._list)
-        safe_update(self._list)
+        # Skip spinner when filtering an already-loaded list (ListView storms).
+        if self._cached_goals is None:
+            fill_loading(self._list)
+            safe_update(self._list)
         self._alert_ids = pending_related_ids(
             self._state.container,
             self._state.settings,
             GOAL_ALERT_KINDS,
         )
         # Do not auto-mark alerts read here — only when the user opens a goal.
+        cache_key = (self._token, self._status_filter, self._sort_by)
         try:
-            goals = await self._state.container.list_goals.execute(
-                status=self._status_filter,
-                sort_by=self._sort_by,
-            )
+            if self._cached_goals is None or self._cache_key != cache_key:
+                goals = await self._state.container.list_goals.execute(
+                    status=self._status_filter,
+                    sort_by=self._sort_by,
+                )
+                self._cached_goals = goals
+                self._cache_key = cache_key
+            else:
+                goals = self._cached_goals
             goals = self._filter_goals(goals)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
@@ -463,9 +473,7 @@ class GoalsPage(ft.Column):
 
         async def _open() -> None:
             try:
-                accounts = await self._state.container.list_accounts.execute(
-                    active_only=True
-                )
+                accounts = await self._state.container.list_accounts.execute(active_only=True, corporate=False)
                 book = await load_rate_book(self._state.container)
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
@@ -1017,9 +1025,7 @@ class GoalsPage(ft.Column):
 
         async def _open() -> None:
             try:
-                accounts = await self._state.container.list_accounts.execute(
-                    active_only=True
-                )
+                accounts = await self._state.container.list_accounts.execute(active_only=True, corporate=False)
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
                 return
@@ -1277,7 +1283,7 @@ class GoalsPage(ft.Column):
     def _open_editor(self, goal: Optional[Goal] = None) -> None:
         lang = self._state.language
         initial_icon = (goal.icon if goal else "flag") or "flag"
-        if not is_valid_account_icon(initial_icon):
+        if not is_valid_entity_icon(initial_icon):
             initial_icon = "flag"
         selected_icon = {"value": initial_icon}
         selected_color = {
@@ -1385,7 +1391,7 @@ class GoalsPage(ft.Column):
             open_icon_picker(
                 self._page,
                 lang=lang,
-                groups=account_icon_groups(include_exchanges=False),
+                groups=entity_icon_groups(),
                 selected=selected_icon["value"],
                 on_select=_select_icon,
                 render_icon=lambda key: account_icon_control(

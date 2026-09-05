@@ -55,6 +55,10 @@ class ReloadGate:
         self._busy = True
         try:
             while self._pending:
+                # After the first paint, do not burn CPU for off-screen hosts —
+                # keep ``_pending`` and wait for :meth:`on_mounted`.
+                if self._completed and control_page(self._host) is None:
+                    break
                 self._pending = False
                 animate = self._pending_animate
                 self._pending_animate = False

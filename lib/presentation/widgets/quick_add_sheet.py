@@ -24,9 +24,11 @@ from lib.presentation.money_input import (
     parse_amount,
     parse_optional_amount,
 )
-from lib.presentation.styles import form_hint, form_section
+from lib.presentation.styles import form_section
 from lib.presentation.utils import bind_dropdown_select, run_async, safe_update, snack, snack_exception, tr
+from lib.presentation.widgets.attachment_picker import AttachmentPicker
 from lib.presentation.widgets.category_picker import CategoryPicker
+from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.widgets.line_items_editor import LineItemsEditor
 
@@ -40,17 +42,27 @@ def open_quick_add(
     *,
     accounts: Sequence[Account] | None = None,
     default_type: TransactionType = TransactionType.EXPENSE,
+    locked_account: Account | None = None,
     on_saved: Optional[Callable[[], None]] = None,
 ) -> None:
-    """Open a fullscreen form for quickly adding income or expense."""
+    """Open a fullscreen form for quickly adding income or expense.
+
+    When ``locked_account`` is set (e.g. corporate workspace), only that
+    account is used and the account picker is hidden.
+    """
 
     async def _open() -> None:
         lang = state.language
         loaded: list[Account]
         try:
-            loaded = list(
-                await state.container.list_accounts.execute(active_only=True)
-            )
+            if locked_account is not None:
+                loaded = [locked_account]
+            else:
+                loaded = list(
+                    await state.container.list_accounts.execute(
+                        active_only=True, corporate=False
+                    )
+                )
         except Exception as exc:  # noqa: BLE001
             snack_exception(page, exc, lang=lang)
             return
@@ -64,6 +76,7 @@ def open_quick_add(
             state,
             accounts=loaded,
             default_type=default_type,
+            locked_account=locked_account,
             on_saved=on_saved,
         )
 
@@ -76,10 +89,15 @@ async def _show_form(
     *,
     accounts: Sequence[Account],
     default_type: TransactionType,
+    locked_account: Account | None,
     on_saved: Optional[Callable[[], None]],
 ) -> None:
     lang = state.language
-    accounts, default_account_id = await prepare_tx_account_choices(state, accounts)
+    if locked_account is not None:
+        accounts = [locked_account]
+        default_account_id = locked_account.id
+    else:
+        accounts, default_account_id = await prepare_tx_account_choices(state, accounts)
     type_dd = ft.Dropdown(
         label=tr("field.type", lang),
         value=default_type.value,
@@ -119,7 +137,6 @@ async def _show_form(
         label=tr("field.fee", lang),
         expand=True,
     )
-    fee_hint = form_hint(tr("field.fee_hint", lang), size=11)
     account_dd = ft.Dropdown(
         label=tr("field.account", lang),
         value=default_account_id,
@@ -130,6 +147,22 @@ async def _show_form(
             ),
         ),
         expand=True,
+        visible=locked_account is None,
+        disabled=locked_account is not None,
+    )
+    locked_account_label = (
+        ft.Text(
+            tr(
+                "account.locked_for_tx",
+                lang,
+                name=locked_account.name,
+            ),
+            size=13,
+            weight=ft.FontWeight.W_600,
+            color=ft.Colors.PRIMARY,
+        )
+        if locked_account is not None
+        else None
     )
     category_picker = CategoryPicker(
         page,
@@ -143,9 +176,7 @@ async def _show_form(
     def _sync_fee_visibility() -> None:
         show = (type_dd.value or TransactionType.EXPENSE.value) == TransactionType.EXPENSE.value
         fee_tf.visible = show
-        fee_hint.visible = show
         safe_update(fee_tf)
-        safe_update(fee_hint)
 
     def _on_type(_e: ft.ControlEvent) -> None:
         category_picker.set_tx_type(type_dd.value or TransactionType.EXPENSE.value)
@@ -160,57 +191,25 @@ async def _show_form(
         hint_text=tr("tags.hint", lang),
         expand=True,
     )
+    attachments = AttachmentPicker(page, lang=lang)
+    # Corporate (locked) workspace: pick any past/future date via inline calendar.
+    allow_custom_date = locked_account is not None and bool(
+        getattr(locked_account, "is_corporate", False)
+    )
+    date_field: DateTimeField | None = None
+    if allow_custom_date:
+        date_field = DateTimeField(
+            page,
+            lang=lang,
+            label=tr("field.date", lang),
+            value=datetime.now(timezone.utc),
+            with_time=True,
+        )
     from lib.presentation.form_keyboard import configure_field, wire_field_chain
 
     configure_field(comment_tf, "text")
     configure_field(tags_tf, "text")
     wire_field_chain(page, [amount_tf, fee_tf, comment_tf, tags_tf])
-    voice_status = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-
-    async def _listen_voice() -> None:
-        from lib.infrastructure.services.speech import get_speech_service, listen_speech
-        from lib.infrastructure.services.voice_parse import parse_voice_expense
-
-        if get_speech_service() is None:
-            snack(page, tr("voice.unavailable", lang), error=True)
-            return
-        voice_status.value = tr("voice.listening", lang)
-        safe_update(voice_status)
-        spoken = await listen_speech(language=lang)
-        if not spoken:
-            voice_status.value = tr("voice.empty", lang)
-            safe_update(voice_status)
-            snack(page, tr("voice.empty", lang), error=True)
-            return
-        draft = parse_voice_expense(spoken)
-        type_dd.value = draft.tx_type.value
-        category_picker.set_tx_type(draft.tx_type.value)
-        _sync_fee_visibility()
-        if draft.amount is not None:
-            amount_tf.value = format_amount_value(draft.amount, lang)
-        if draft.category and draft.category != "Прочее":
-            category_picker.select_name(draft.category)
-        comment_tf.value = spoken
-        voice_status.value = spoken
-        safe_update(type_dd)
-        safe_update(amount_tf)
-        safe_update(comment_tf)
-        safe_update(voice_status)
-        if draft.amount and draft.amount > 0 and category_picker.selected_name:
-            await _save()
-            return
-        snack(page, tr("voice.filled", lang))
-
-    mic = ft.OutlinedButton(
-        tr("voice.button", lang),
-        icon=ft.Icons.MIC,
-        on_click=lambda _e: run_async(page, _listen_voice),
-    )
-    from lib.infrastructure.services.biometric import feature_voice_available
-
-    voice_body: list[ft.Control] = []
-    if feature_voice_available():
-        voice_body = [mic, voice_status]
 
     async def _save() -> None:
         account = next((a for a in accounts if a.id == account_dd.value), accounts[0])
@@ -260,16 +259,28 @@ async def _show_form(
             )
             return
 
+        occurred = datetime.now(timezone.utc)
+        if date_field is not None:
+            picked = date_field.value
+            if picked is None:
+                snack(page, tr("invalid_date", lang), error=True)
+                return
+            occurred = picked
+
+        tx_id = attachments.transaction_id
+        paths = attachments.collected_paths()
         tx = Transaction(
+            id=tx_id,
             account_id=account.id,
             amount=amount,
             category=category_name,
             tags=tags,
-            date=datetime.now(timezone.utc),
+            date=occurred,
             comment=comment_tf.value or "",
             type=tx_type,
             currency=account.currency,
             items=items,
+            attachments=paths,
         )
         try:
             saved = await state.container.add_transaction.execute(tx)
@@ -312,17 +323,30 @@ async def _show_form(
         body=[
             form_section(
                 tr("form.section.type", lang),
-                [type_dd, amount_tf, items_editor, fee_tf, fee_hint, *voice_body],
+                [type_dd, amount_tf, items_editor, fee_tf],
                 icon=ft.Icons.CREDIT_CARD,
             ),
             form_section(
                 tr("form.section.category", lang),
-                [account_dd, category_picker],
+                [
+                    *(
+                        [locked_account_label]
+                        if locked_account_label is not None
+                        else []
+                    ),
+                    account_dd,
+                    category_picker,
+                ],
                 icon=ft.Icons.CATEGORY,
             ),
             form_section(
                 tr("form.section.details", lang),
-                [comment_tf, tags_tf],
+                [
+                    *([date_field] if date_field is not None else []),
+                    comment_tf,
+                    tags_tf,
+                    attachments,
+                ],
                 icon=ft.Icons.NOTES,
             ),
         ],

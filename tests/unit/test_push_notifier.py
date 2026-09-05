@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from lib.infrastructure.services.push_notifier import (
+    _icon_path,
     dispatch_push,
     push_disabled_by_env,
     reminder_fire_at,
@@ -51,3 +53,10 @@ def test_reminder_fire_at_schedules_before_due() -> None:
     when = reminder_fire_at(due, reminder_time="09:00", lead_days=3, now=now)
     assert when is not None
     assert now < when < due
+
+
+def test_icon_path_points_to_app_branding() -> None:
+    path = _icon_path()
+    assert path
+    assert Path(path).is_file()
+    assert Path(path).name in {"icon.png", "icon_android.png", "icon.ico"}

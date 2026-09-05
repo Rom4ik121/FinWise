@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional, Sequence
@@ -106,9 +105,9 @@ def _to_base(
     book: RateBook, amount: Decimal, currency: str, base: str
 ) -> Decimal | None:
     """Convert to base currency; ``None`` when the rate is missing."""
-    from lib.presentation.utils import try_convert_amount
+    from lib.domain.services.ledger_fx import amount_to_base
 
-    return try_convert_amount(book, amount, currency, base)
+    return amount_to_base(book, amount, currency, base)
 
 
 class AnalyticsPage(ft.Column):
@@ -164,9 +163,9 @@ class AnalyticsPage(ft.Column):
                         expand=True,
                         spacing=6,
                         controls=[
-                            ft.Container(height=34, content=self._period_row),
+                            ft.Container(height=40, content=self._period_row),
                             self._kpi_host,
-                            ft.Container(height=34, content=self._section_chips),
+                            ft.Container(height=40, content=self._section_chips),
                             self._pager,
                         ],
                     ),
@@ -354,54 +353,16 @@ class AnalyticsPage(ft.Column):
         bool,
     ]:
         """Single-pass KPI + chart aggregation using an in-memory rate book."""
-        base = normalize_currency_code(base)
-        total = Decimal("0.00")
-        income = Decimal("0.00")
-        expense = Decimal("0.00")
-        ok = True
-        expense_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
-        income_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
-        period_income: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
-        period_expense: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+        from lib.domain.services.ledger_fx import aggregate_cashflow_period
 
-        for account in accounts:
-            if not getattr(account, "include_in_total", True):
-                continue
-            src = normalize_currency_code(account.currency)
-            converted = book.convert(account.balance, src, base)
-            if converted is not None:
-                total += converted
-            elif src == base:
-                total += account.balance
-            else:
-                ok = False
-
-        for tx in txs:
-            if getattr(tx, "transfer_id", None):
-                continue
-            src = normalize_currency_code(tx.currency)
-            converted = book.convert(tx.amount, src, base)
-            if converted is None:
-                if src == base:
-                    converted = tx.amount
-                else:
-                    ok = False
-                    continue
-            key = GetTransactionStatsUseCase._period_key(tx.date, group_by)
-            if tx.type == TransactionType.INCOME:
-                income += converted
-                period_income[key] += converted
-                income_totals[tx.category] += converted
-            else:
-                expense += converted
-                period_expense[key] += converted
-                expense_totals[tx.category] += converted
-
-        by_expense = sorted(expense_totals.items(), key=lambda kv: kv[1], reverse=True)
-        by_income = sorted(income_totals.items(), key=lambda kv: kv[1], reverse=True)
-        keys = sorted(set(period_income) | set(period_expense))
-        by_period = [(key, period_income[key], period_expense[key]) for key in keys]
-        return total, income, expense, by_expense, by_income, by_period, ok
+        return aggregate_cashflow_period(
+            accounts,
+            txs,
+            base=base,
+            book=book,
+            period_key=GetTransactionStatsUseCase._period_key,
+            group_by=group_by,
+        )
 
     def _period_chip(self, key: str, lang: str) -> ft.Control:
         return self._chip(
@@ -754,7 +715,11 @@ class AnalyticsPage(ft.Column):
                     pass
 
         try:
-            accounts = await c.list_accounts.execute(active_only=True)
+            personal = await c.list_accounts.execute(
+                active_only=True, corporate=False
+            )
+            corporate = await c.list_accounts.execute(corporate=True)
+            accounts = [*personal, *corporate]
             period_cfg = resolve_analytics_period(self._analytics_period, now)
             from lib.presentation.tx_query import fetch_transactions_paged
 
@@ -1223,11 +1188,9 @@ class AnalyticsPage(ft.Column):
         analytics=None,
         categories: dict | None = None,
     ) -> list[ft.Control]:
-        period = f"{tr(f'budgets.month.{month}', lang)} {year}"
         cat_map = categories or {}
         if not budgets:
             return [
-                muted_text(tr("analytics.budget_month_hint", lang)),
                 EmptyState(
                     tr("budgets.no_budgets", lang),
                     icon=ft.Icons.PIE_CHART,
@@ -1265,7 +1228,6 @@ class AnalyticsPage(ft.Column):
             )
         )
         rows: list[ft.Control] = [
-            muted_text(f"{tr('analytics.budget_month_hint', lang)} · {period}"),
             budgets_summary_ring(
                 spent=total_spent,
                 limit=total_limit,

@@ -11,8 +11,7 @@
 
 | Компонент | Зачем |
 |-----------|--------|
-| Editable-пакеты из `requirements.txt` (`flet_local_auth`, `flet_local_notifications`, `flet_speech`) | Face ID, локальные пуши, речь |
-| Deep link `finwise://voice` (`pyproject.toml` / Flet config) | Голосовой ярлык |
+| Editable-пакеты из `requirements.txt` (`flet_local_auth`, `flet_local_notifications`) | Face ID, локальные пуши |
 | Mobile-safe **ccxt** via `vendor/ccxt` (`[tool.flet.dev_packages]`) | Биржи по API; пакет генерируется `scripts/vendor_ccxt_mobile.py` перед `flet build` |
 | `cryptography` **&lt; 50** | Совместимость с `pypi.flet.dev` wheels |
 | Splash `#0B1220` | Бренд (как в `flet.toml` / Codemagic scripts) |

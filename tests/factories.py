@@ -18,6 +18,7 @@ def make_account(
     name: str = "Cash",
     currency: str = "RUB",
     balance: str | Decimal = "1000",
+    is_corporate: bool = False,
 ) -> Account:
     amount = Decimal(str(balance))
     return Account(
@@ -25,6 +26,7 @@ def make_account(
         currency=currency,
         initial_balance=amount,
         balance=amount,
+        is_corporate=is_corporate,
     )
 
 
@@ -37,6 +39,7 @@ def make_transaction(
     currency: str = "RUB",
     goal_id: str | None = None,
     debt_id: str | None = None,
+    attachments: list[str] | None = None,
 ) -> Transaction:
     return Transaction(
         account_id=account_id,
@@ -47,6 +50,7 @@ def make_transaction(
         currency=currency,
         goal_id=goal_id,
         debt_id=debt_id,
+        attachments=list(attachments or []),
     )
 
 

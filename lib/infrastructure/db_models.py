@@ -51,6 +51,7 @@ class AccountModel(Base):
     color: Mapped[str] = mapped_column(String(16), nullable=False, default="#2E7D32")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     include_in_total: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_corporate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -109,6 +110,7 @@ class TransactionModel(Base):
     transfer_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     transfer_peer_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    attachments: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -366,10 +368,10 @@ class SettingsModel(Base):
     __tablename__ = "settings"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default="default")
-    default_currency: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
+    default_currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USD")
     theme: Mapped[str] = mapped_column(String(32), nullable=False, default="dark")
     ui_style: Mapped[str] = mapped_column(String(32), nullable=False, default="neon")
-    language: Mapped[str] = mapped_column(String(8), nullable=False, default="ru")
+    language: Mapped[str] = mapped_column(String(8), nullable=False, default="en")
     exchange_update_interval_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=60
     )
@@ -389,6 +391,12 @@ class SettingsModel(Base):
     budget_alerts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     dashboard_hide_chart: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     dashboard_chart_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    completed_onboarding: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    completed_tour_debts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    completed_tour_analytics: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    completed_tour_goals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -398,15 +406,20 @@ class SettingsModel(Base):
 
 
 class BudgetModel(Base):
-    """Persisted monthly spending limit per category."""
+    """Persisted monthly spending limit per category (optional account scope)."""
 
     __tablename__ = "budgets"
     __table_args__ = (
         UniqueConstraint(
-            "category_id", "month", "year", name="uq_budgets_category_month"
+            "category_id",
+            "month",
+            "year",
+            "account_id",
+            name="uq_budgets_category_month_account",
         ),
         Index("ix_budgets_month_year", "month", "year"),
         Index("ix_budgets_category_month", "category_id", "month", "year"),
+        Index("ix_budgets_account_month", "account_id", "month", "year"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -423,6 +436,8 @@ class BudgetModel(Base):
         Numeric(18, 2), nullable=False, default=Decimal("0.00")
     )
     last_alert_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Empty string = personal; UUID = corporate account scope (SQLite-unique friendly).
+    account_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )

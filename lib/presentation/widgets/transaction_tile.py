@@ -147,7 +147,7 @@ class TransactionTile(ft.Container):
 
         # --- Arrow toggle button (rotates 180° when open) ---
         self._arrow_container = ft.Container(
-            width=28,
+            width=40,
             height=_TILE_HEIGHT,
             alignment=ft.Alignment.CENTER,
             ink=True,

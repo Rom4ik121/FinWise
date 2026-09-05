@@ -4,10 +4,11 @@ Usage (from project root)::
 
     python scripts/seed_demo_data.py --wipe
     python scripts/seed_demo_data.py --wipe --scale large
+    python scripts/seed_demo_data.py --wipe --scale max
     python scripts/seed_demo_data.py --wipe --currency UZS
 
 Default target is the real user DB
-(``%LOCALAPPDATA%\\finanse\\finanse\\finanse.db`` on Windows).
+(``~/.local/share/finanse/finanse.db`` on Linux).
 Close the app before wiping/seeding.
 """
 
@@ -117,10 +118,45 @@ def _utc(year: int, month: int, day: int, hour: int = 12, minute: int = 0) -> da
 
 def _scale_config(scale: str) -> dict[str, int]:
     if scale == "small":
-        return {"days_span": 400, "txs_per_day": 2, "extra_accounts": 1}
+        return {
+            "days_span": 400,
+            "txs_per_day": 2,
+            "extra_accounts": 1,
+            "goal_extra": 0,
+            "debt_extra": 0,
+            "sub_extra": 0,
+            "budget_months": 3,
+        }
     if scale == "large":
-        return {"days_span": 1200, "txs_per_day": 6, "extra_accounts": 3}
-    return {"days_span": 900, "txs_per_day": 4, "extra_accounts": 2}
+        return {
+            "days_span": 1200,
+            "txs_per_day": 6,
+            "extra_accounts": 3,
+            "goal_extra": 4,
+            "debt_extra": 4,
+            "sub_extra": 4,
+            "budget_months": 12,
+        }
+    if scale == "max":
+        # ~5.5 years × ~18 txs/day ≈ 35k+ operations — heavy UI stress.
+        return {
+            "days_span": 2000,
+            "txs_per_day": 18,
+            "extra_accounts": 10,
+            "goal_extra": 14,
+            "debt_extra": 12,
+            "sub_extra": 16,
+            "budget_months": 24,
+        }
+    return {
+        "days_span": 900,
+        "txs_per_day": 4,
+        "extra_accounts": 2,
+        "goal_extra": 2,
+        "debt_extra": 2,
+        "sub_extra": 2,
+        "budget_months": 6,
+    }
 
 
 async def _seed_currencies(container, root: Path) -> int:
@@ -288,6 +324,56 @@ def _account_specs(base: str, extra: int) -> list[dict]:
             "icon": "account_balance_wallet",
             "color": "#EF6C00",
         },
+        {
+            "name": "Корпоративный (ООО)",
+            "currency": base,
+            "balance": "45000000" if base == "UZS" else "450000",
+            "icon": "business",
+            "color": "#37474F",
+            "is_corporate": True,
+        },
+        {
+            "name": "KZT карта",
+            "currency": "KZT",
+            "balance": "850000",
+            "icon": "credit_card",
+            "color": "#0277BD",
+        },
+        {
+            "name": "Крипто USDT",
+            "currency": "USD",
+            "balance": "3200",
+            "icon": "currency_bitcoin",
+            "color": "#F9A825",
+        },
+        {
+            "name": "Семейный бюджет",
+            "currency": base,
+            "balance": "8000000" if base == "UZS" else "90000",
+            "icon": "home",
+            "color": "#AD1457",
+        },
+        {
+            "name": "Резерв GBP",
+            "currency": "GBP",
+            "balance": "640",
+            "icon": "savings",
+            "color": "#5D4037",
+        },
+        {
+            "name": "Командировки",
+            "currency": "USD",
+            "balance": "1100",
+            "icon": "flight",
+            "color": "#00695C",
+        },
+        {
+            "name": "Фриланс",
+            "currency": base,
+            "balance": "3200000" if base == "UZS" else "42000",
+            "icon": "work",
+            "color": "#283593",
+        },
     ]
     return specs + extras[: max(0, extra)]
 
@@ -305,6 +391,8 @@ async def _create_accounts(container, specs: list[dict]) -> list[Account]:
                 icon=spec["icon"],
                 color=spec["color"],
                 is_active=True,
+                is_corporate=bool(spec.get("is_corporate")),
+                include_in_total=not bool(spec.get("is_corporate")),
             )
         )
         accounts.append(acc)
@@ -547,7 +635,9 @@ async def _recalc_all(container, accounts: list[Account]) -> None:
         logger.info("Recalculated %s → %s %s", updated.name, updated.balance, updated.currency)
 
 
-async def _seed_goals(container, funding_account: Account) -> list[Goal]:
+async def _seed_goals(
+    container, funding_account: Account, *, extra: int = 0
+) -> list[Goal]:
     now = datetime.now(timezone.utc)
     base = funding_account.currency
     specs = [
@@ -558,6 +648,15 @@ async def _seed_goals(container, funding_account: Account) -> list[Goal]:
         ("Курсы / обучение", "5000000" if base == "UZS" else "600", 90, 2),
         ("Авто (первоначальный)", "120000000" if base == "UZS" else "12000", 700, 4),
     ]
+    for i in range(extra):
+        specs.append(
+            (
+                f"Цель #{i + 7}",
+                str((i + 3) * (2_000_000 if base == "UZS" else 250)),
+                30 + i * 40,
+                1 + (i % 5),
+            )
+        )
     goals: list[Goal] = []
     for name, target, days, priority in specs:
         goal = await container.create_goal.execute(
@@ -581,6 +680,8 @@ async def _seed_goals(container, funding_account: Account) -> list[Goal]:
         (4, "900000" if base == "UZS" else "150"),
     ]
     for idx, amount in contributions:
+        if idx >= len(goals):
+            break
         try:
             await container.contribute_to_goal.execute(
                 goals[idx].id,
@@ -592,7 +693,9 @@ async def _seed_goals(container, funding_account: Account) -> list[Goal]:
     return goals
 
 
-async def _seed_debts(container, account: Account) -> list[Debt]:
+async def _seed_debts(
+    container, account: Account, *, extra: int = 0
+) -> list[Debt]:
     now = datetime.now(timezone.utc)
     cur = account.currency
     debts_spec = [
@@ -629,6 +732,17 @@ async def _seed_debts(container, account: Account) -> list[Debt]:
             False,
         ),
     ]
+    for i in range(extra):
+        debts_spec.append(
+            (
+                f"Контрагент {i + 1}",
+                str((i + 2) * (400_000 if cur == "UZS" else 80)),
+                DebtDirection.I_OWE if i % 2 == 0 else DebtDirection.OWED_TO_ME,
+                Decimal("12") if i % 3 == 0 else None,
+                5 + i * 7,
+                i % 2 == 0,
+            )
+        )
     created: list[Debt] = []
     for name, amount, direction, rate, due_offset, with_cash in debts_spec:
         debt = Debt(
@@ -662,7 +776,9 @@ async def _seed_debts(container, account: Account) -> list[Debt]:
     return created
 
 
-async def _seed_subscriptions(container, account: Account) -> list[Subscription]:
+async def _seed_subscriptions(
+    container, account: Account, *, extra: int = 0
+) -> list[Subscription]:
     now = datetime.now(timezone.utc)
     cur = account.currency
     specs = [
@@ -674,6 +790,16 @@ async def _seed_subscriptions(container, account: Account) -> list[Subscription]
         ("Gym", "450000" if cur == "UZS" else "40", Periodicity.MONTHLY, "Здоровье", 1),
         ("VPN", "25000" if cur == "UZS" else "4.99", Periodicity.MONTHLY, "Прочее", 25),
     ]
+    for i in range(extra):
+        specs.append(
+            (
+                f"Подписка #{i + 8}",
+                str((i + 1) * (15_000 if cur == "UZS" else 3)),
+                Periodicity.MONTHLY,
+                EXPENSE_CATS[i % len(EXPENSE_CATS)],
+                1 + (i % 28),
+            )
+        )
     items: list[Subscription] = []
     for name, amount, period, category, due_in in specs:
         sub = await container.create_subscription.execute(
@@ -691,6 +817,35 @@ async def _seed_subscriptions(container, account: Account) -> list[Subscription]
         )
         items.append(sub)
     return items
+
+
+async def _seed_budgets(container, *, months: int) -> int:
+    if months <= 0 or container.set_budget is None:
+        return 0
+    now = datetime.now(timezone.utc)
+    created = 0
+    limits = {
+        "Еда": Decimal("4500000"),
+        "Транспорт": Decimal("900000"),
+        "Жильё": Decimal("5000000"),
+        "Развлечения": Decimal("1200000"),
+        "Здоровье": Decimal("800000"),
+        "Прочее": Decimal("1500000"),
+    }
+    for offset in range(months):
+        # Go backwards month by month.
+        month = now.month - offset
+        year = now.year
+        while month <= 0:
+            month += 12
+            year -= 1
+        for cat, limit in limits.items():
+            try:
+                await container.set_budget.execute(cat, month, year, limit)
+                created += 1
+            except Exception:  # noqa: BLE001
+                pass
+    return created
 
 
 async def seed(
@@ -737,20 +892,22 @@ async def seed(
     await _bulk_insert_transactions(container, txs)
     await _recalc_all(container, accounts)
 
-    goals = await _seed_goals(container, funding)
-    debts = await _seed_debts(container, funding)
-    subs = await _seed_subscriptions(container, funding)
+    goals = await _seed_goals(container, funding, extra=cfg["goal_extra"])
+    debts = await _seed_debts(container, funding, extra=cfg["debt_extra"])
+    subs = await _seed_subscriptions(container, funding, extra=cfg["sub_extra"])
+    n_budgets = await _seed_budgets(container, months=cfg["budget_months"])
 
     # Refresh balances after goal/debt cash moves.
     await _recalc_all(container, [funding])
 
     logger.info(
-        "Done. accounts=%s txs≈%s goals=%s debts=%s subs=%s base=%s",
+        "Done. accounts=%s txs≈%s goals=%s debts=%s subs=%s budgets=%s base=%s",
         len(accounts),
         len(txs),
         len(goals),
         len(debts),
         len(subs),
+        n_budgets,
         currency.upper(),
     )
     logger.info("Open FinWise and browse Dashboard / Analytics / Transactions.")
@@ -765,9 +922,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--scale",
-        choices=("small", "medium", "large"),
+        choices=("small", "medium", "large", "max"),
         default="medium",
-        help="Data volume (default: medium ≈ 2–4k txs)",
+        help="Data volume (max ≈ 35k+ txs, many accounts/goals/debts)",
     )
     parser.add_argument(
         "--currency",

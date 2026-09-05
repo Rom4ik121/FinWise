@@ -8,7 +8,7 @@ from typing import Mapping
 logger = logging.getLogger("finanse.infrastructure.services.localization")
 
 SUPPORTED_LANGS = ("ru", "en", "uz")
-DEFAULT_LANG = "ru"
+DEFAULT_LANG = "en"
 
 STRINGS: dict[str, dict[str, str]] = {
     "account.balance": {
@@ -136,6 +136,81 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Выключите, если этот счёт не нужно показывать в общем балансе на главной",
         "en": "Turn off if you don’t want this account in the home total balance",
         "uz": "Bu hisobni bosh sahifadagi umumiy balansda ko‘rsatmaslik uchun o‘chiring",
+    },
+    "account.corporate": {
+        "ru": "Корпоративный счёт",
+        "en": "Corporate account",
+        "uz": "Korporativ hisob",
+    },
+    "account.corporate_hint": {
+        "ru": "Отдельное пространство: не в общем балансе, не в личных операциях и аналитике. Всё ведётся внутри карточки счёта.",
+        "en": "Isolated workspace: hidden from home totals, personal transactions, and analytics. Manage everything inside the account screen.",
+        "uz": "Alohida maydon: umumiy balans, shaxsiy amaliyotlar va tahlildan yashirin. Hammasi hisob kartasida yuritiladi.",
+    },
+    "account.corporate_section": {
+        "ru": "Корпоративные счета",
+        "en": "Corporate accounts",
+        "uz": "Korporativ hisoblar",
+    },
+    "account.corporate_section_hint": {
+        "ru": "Не смешиваются с личными. Откройте счёт для своей аналитики и операций.",
+        "en": "Kept separate from personal accounts. Open one for its own analytics and transactions.",
+        "uz": "Shaxsiy hisoblar bilan aralashmaydi. O‘z tahlili va amaliyotlari uchun oching.",
+    },
+    "account.corporate_badge": {
+        "ru": "Корпоративный",
+        "en": "Corporate",
+        "uz": "Korporativ",
+    },
+    "account.corporate_workspace_hint": {
+        "ru": "Операции и аналитика этого счёта только здесь — в личном бюджете их нет.",
+        "en": "This account’s transactions and analytics live only here — not in your personal budget.",
+        "uz": "Bu hisobning amaliyotlari va tahlili faqat shu yerda — shaxsiy byudjetda yo‘q.",
+    },
+    "account.locked_for_tx": {
+        "ru": "Счёт: {name}",
+        "en": "Account: {name}",
+        "uz": "Hisob: {name}",
+    },
+    "account.corporate_date_hint": {
+        "ru": "Можно выбрать прошлую или будущую дату в календаре",
+        "en": "Pick a past or future date in the calendar",
+        "uz": "Taqvimdan o‘tgan yoki kelajak sanani tanlash mumkin",
+    },
+    "account.stats.analytics": {
+        "ru": "Аналитика",
+        "en": "Analytics",
+        "uz": "Tahlil",
+    },
+    "account.corporate_budgets": {
+        "ru": "Бюджеты счёта",
+        "en": "Account budgets",
+        "uz": "Hisob byudjetlari",
+    },
+    "account.corporate_budgets_hint": {
+        "ru": "Лимиты только для этого корпоративного счёта — личный бюджет не затрагивается.",
+        "en": "Limits apply only to this corporate account — your personal budgets stay separate.",
+        "uz": "Limitlar faqat shu korporativ hisob uchun — shaxsiy byudjetlar alohida.",
+    },
+    "account.corporate_budgets_empty": {
+        "ru": "Пока нет лимитов. Добавьте категорию и сумму.",
+        "en": "No limits yet. Add a category and amount.",
+        "uz": "Hali limitlar yo‘q. Toifa va summa qo‘shing.",
+    },
+    "account.export_pdf": {
+        "ru": "Отчёт PDF",
+        "en": "PDF report",
+        "uz": "PDF hisobot",
+    },
+    "account.export_pdf_ok": {
+        "ru": "Отчёт сохранён: {path}",
+        "en": "Report saved: {path}",
+        "uz": "Hisobot saqlandi: {path}",
+    },
+    "account.export_pdf_need_data": {
+        "ru": "Сначала дождитесь загрузки статистики счёта",
+        "en": "Wait until account stats finish loading",
+        "uz": "Avval hisob statistikasi yuklanishini kuting",
     },
     "field.exchange": {
         "ru": "Биржа",
@@ -288,86 +363,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Перевод",
         "en": "Transfer",
         "uz": "O‘tkazma",
-    },
-    "voice.button": {
-        "ru": "Голосовой ввод",
-        "en": "Voice input",
-        "uz": "Ovozli kiritish",
-    },
-    "voice.listening": {
-        "ru": "Слушаю… скажите расход, название и сумму",
-        "en": "Listening… say expense, name and amount",
-        "uz": "Tinglanmoqda… xarajat, nom va summani ayting",
-    },
-    "voice.empty": {
-        "ru": "Не удалось распознать речь",
-        "en": "Could not recognize speech",
-        "uz": "Nutq tanilmadi",
-    },
-    "voice.filled": {
-        "ru": "Проверьте сумму и категорию, затем сохраните",
-        "en": "Check amount and category, then save",
-        "uz": "Summa va toifani tekshiring, keyin saqlang",
-    },
-    "voice.unavailable": {
-        "ru": "Голосовой ввод доступен после сборки приложения на телефон",
-        "en": "Voice input is available in the installed phone app",
-        "uz": "Ovozli kiritish telefon ilovasida ishlaydi",
-    },
-    "voice.saved": {
-        "ru": "Сохранено: {category} · {amount}",
-        "en": "Saved: {category} · {amount}",
-        "uz": "Saqlandi: {category} · {amount}",
-    },
-    "voice.need_amount": {
-        "ru": "Скажите сумму, например: расход такси 500",
-        "en": "Say an amount, for example: expense taxi 500",
-        "uz": "Summani ayting, masalan: xarajat taksi 500",
-    },
-    "voice.need_category": {
-        "ru": "Скажите категорию, например: расход такси 500",
-        "en": "Say a category, for example: expense taxi 500",
-        "uz": "Toifani ayting, masalan: xarajat taksi 500",
-    },
-    "voice.listen_now": {
-        "ru": "Слушать и сохранить",
-        "en": "Listen and save",
-        "uz": "Tinglash va saqlash",
-    },
-    "voice.grant_permissions": {
-        "ru": "Разрешения и настройки",
-        "en": "Permissions and settings",
-        "uz": "Ruxsatlar va sozlamalar",
-    },
-    "voice.permission_ok": {
-        "ru": "Микрофон и распознавание речи разрешены",
-        "en": "Microphone and speech recognition are allowed",
-        "uz": "Mikrofon va nutq ruxsat etilgan",
-    },
-    "voice.permission_denied": {
-        "ru": "Нужен доступ к микрофону и речи. Включите их в настройках FinWise.",
-        "en": "Microphone and speech access are required. Enable them in FinWise settings.",
-        "uz": "Mikrofon va nutq ruxsati kerak. Ularni FinWise sozlamalarida yoqing.",
-    },
-    "voice.shortcut_title": {
-        "ru": "Голосовой ввод с кнопки телефона",
-        "en": "Voice input from a phone button",
-        "uz": "Telefon tugmasi orqali ovoz",
-    },
-    "voice.shortcut_how": {
-        "ru": "Скажите «расход такси 500» или «доход зарплата 2 млн» — операция сохранится сразу.",
-        "en": "Say “expense taxi 500” or “income salary 2 million” — it is saved immediately.",
-        "uz": "«xarajat taksi 500» yoki «daromad oylik 2 mln» deng — darhol saqlanadi.",
-    },
-    "voice.shortcut_android": {
-        "ru": "Чтобы запускать голосовой ввод кнопкой: в настройках Android назначьте ярлык или «Открыть ссылку» на finwise://voice. Пока FinWise открыт, можно также зажать кнопку громкости вниз.",
-        "en": "To start voice input from a button: in Android settings assign a shortcut or Open URL to finwise://voice. While FinWise is open, you can also long-press volume down.",
-        "uz": "Ovozli kiritishni tugma bilan ishga tushirish uchun Android sozlamalarida finwise://voice uchun yorliq yoki «URL ochish»ni belgilang. FinWise ochiq bo‘lsa, ovozni pasaytirish tugmasini bosib turishingiz mumkin.",
-    },
-    "voice.shortcut_ios": {
-        "ru": "На iPhone кнопку блокировки отдать приложению нельзя. Назначьте ярлык: Настройки → Универсальный доступ → Касание → Касание задней панели (или кнопка Действие) → «Открыть URL» finwise://voice.",
-        "en": "On iPhone the lock button can’t be remapped. Set a shortcut instead: Settings → Accessibility → Touch → Back Tap (or Action button) → Open URL finwise://voice.",
-        "uz": "iPhone’da bloklash tugmasini ilovaga biriktirib bo‘lmaydi. Yorliq qo‘ying: Sozlamalar → Foydalanish imkoniyati → Teginish → Orqa panel (yoki Action) → URL ochish: finwise://voice.",
     },
     "action.refresh": {
         "ru": "Обновить",
@@ -698,6 +693,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Расходы · {period}",
         "en": "Expenses · {period}",
         "uz": "Xarajatlar · {period}",
+    },
+    "dashboard.period.1d": {
+        "ru": "1 день",
+        "en": "1 day",
+        "uz": "1 kun",
     },
     "dashboard.period.180d": {
         "ru": "6 месяцев",
@@ -1390,9 +1390,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Menga qarzdorlar",
     },
     "empty.accounts": {
-        "ru": "Добавьте первый счёт",
-        "en": "Add your first account",
-        "uz": "Birinchi hisobni qo‘shing",
+        "ru": "Создайте свой первый счёт",
+        "en": "Create your first account",
+        "uz": "Birinchi hisobingizni yarating",
+    },
+    "empty.accounts_action": {
+        "ru": "Создать счёт",
+        "en": "Create account",
+        "uz": "Hisob yaratish",
     },
     "empty.debts": {
         "ru": "Долгов пока нет",
@@ -1533,6 +1538,31 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Без комментария",
         "en": "No comment",
         "uz": "Izoh yo‘q",
+    },
+    "tx.attach_photo": {
+        "ru": "Прикрепить фото",
+        "en": "Attach photo",
+        "uz": "Fotosurat biriktirish",
+    },
+    "tx.attachments": {
+        "ru": "Вложения",
+        "en": "Attachments",
+        "uz": "Ilovalar",
+    },
+    "tx.attachments_hint": {
+        "ru": "Чек или другое фото — до 8 файлов, до 12 МБ каждый",
+        "en": "Receipt or other photo — up to 8 files, 12 MB each",
+        "uz": "Chek yoki boshqa fotosurat — 8 tagacha, har biri 12 MB gacha",
+    },
+    "tx.attachments_limit": {
+        "ru": "Не больше 8 вложений",
+        "en": "At most 8 attachments",
+        "uz": "Ko‘pi bilan 8 ta ilova",
+    },
+    "tx.attachment_added": {
+        "ru": "Фото добавлено",
+        "en": "Photo added",
+        "uz": "Fotosurat qo‘shildi",
     },
     "field.category": {
         "ru": "Категория",
@@ -3937,6 +3967,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Эту подписку нельзя списать",
         "en": "This subscription cannot be charged",
         "uz": "Bu obunani yechib bo‘lmaydi",
+    },
+    "subscription.cannot_pause": {
+        "ru": "Эту подписку нельзя поставить на паузу",
+        "en": "This subscription cannot be paused",
+        "uz": "Bu obunani pauzaga qo‘yib bo‘lmaydi",
     },
     "subscription.limit_reached": {
         "ru": "Достигнут лимит списаний",

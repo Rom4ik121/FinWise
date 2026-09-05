@@ -64,8 +64,7 @@ ORM (`db_models.py`), репозитории на SQLAlchemy (`asyncio.to_thread
 Dart/Flutter-мосты, подключаемые только в нативной сборке:
 
 - `flet_local_auth` — Face ID / face unlock  
-- `flet_local_notifications` — локальные пуши + haptic  
-- `flet_speech` — распознавание речи  
+- `flet_local_notifications` — локальные пуши + haptic (иконка `@mipmap/ic_launcher`)  
 
 ---
 
@@ -75,17 +74,16 @@ Dart/Flutter-мосты, подключаемые только в нативно
 
 1. **Splash** — тёмный градиент `#0B1220` → `#121A2B`, Material-иконка кошелька, «FinWise», индикатор загрузки (`build_launch_splash`). Только визуальные контролы.
 2. Config → логирование → `init_db` → `build_container(..., init_database=False)`.
-3. `_seed_if_needed` — upsert валют из `assets/data/currencies.json`, настройки, счёт «Наличные» / выравнивание валюты единственного счёта.
+3. `_seed_if_needed` — upsert валют из `assets/data/currencies.json` и настройки (язык с устройства; валюта — после первого счёта).
 4. Фоновые задачи на `page.run_task`:
    - `_exchange_rate_loop` — обновление курсов по интервалу из настроек;
    - `_reminder_loop` — ежедневный sweep напоминаний;
    - `_daily_backup_loop` — раз в час проверка; запись `finanse_daily.db` **не чаще одного раза в локальные сутки**.
-5. Регистрация сервисов на **`page.services`** (не `page.add`): local auth, notifications, speech.
+5. Регистрация сервисов на **`page.services`** (не `page.add`): local auth, notifications.
 6. `FinanseApp.start()` — тема, PIN-гейт, навигация, UI.
 7. Post-start (сразу после первого кадра):
    - **запрос разрешения на уведомления** (система покажет диалог один раз);
    - daily backup, `process_due_subscriptions`, `schedule_reminders`.
-8. `install_voice_shortcut` — deep link `finwise://voice`.
 
 На `page.web is True` (`flet run --android` / web) нативные Dart-сервисы не вешаются.
 

@@ -53,25 +53,17 @@ def _prefer_native_charts() -> bool:
 
 def chart_layout(page: ft.Page | None = None) -> tuple[int, int]:
     """Width and plot height that fill the current window."""
-    raw_w = getattr(page, "width", None) if page is not None else None
-    if not raw_w and page is not None:
-        raw_w = getattr(getattr(page, "window", None), "width", None)
-    raw_h = getattr(page, "height", None) if page is not None else None
-    if not raw_h and page is not None:
-        raw_h = getattr(getattr(page, "window", None), "height", None)
-    try:
-        width = int(raw_w) if raw_w else 390
-    except (TypeError, ValueError):
-        width = 390
-    try:
-        height = int(raw_h) if raw_h else 720
-    except (TypeError, ValueError):
-        height = 720
+    from lib.presentation.responsive import page_height, page_width
+
+    width = int(page_width(page))
+    height = int(page_height(page))
     inset = 28 if width < 420 else 40
-    chart_w = max(260, min(width - inset, 860))
-    chart_h = max(200, min(340, int(height * 0.32)))
-    if width < 400:
-        chart_h = max(chart_h, 220)
+    chart_w = max(240, min(width - inset, 860))
+    chart_h = max(180, min(340, int(height * 0.32)))
+    if width < 360:
+        chart_h = max(180, min(chart_h, 220))
+    elif width < 400:
+        chart_h = max(chart_h, 200)
     return chart_w, chart_h
 
 

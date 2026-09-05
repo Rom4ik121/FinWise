@@ -126,6 +126,7 @@ def init_db(config: Optional[AppConfig] = None, *, echo: bool = False) -> Engine
     Base.metadata.create_all(bind=engine)
     _apply_sqlite_column_patches(engine)
     _ensure_sqlite_indexes(engine)
+    _ensure_transactions_fts(engine)
     _try_alembic_upgrade(config)
     logger.info("Database schema initialized")
     return engine
@@ -173,6 +174,7 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
         ],
         "accounts": [
             ("include_in_total", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("is_corporate", "BOOLEAN NOT NULL DEFAULT 0"),
         ],
         "settings": [
             ("reminder_time", "VARCHAR(8) NOT NULL DEFAULT '09:00'"),
@@ -182,10 +184,16 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("ui_style", "VARCHAR(32) NOT NULL DEFAULT 'neon'"),
             ("dashboard_hide_chart", "BOOLEAN NOT NULL DEFAULT 0"),
             ("dashboard_chart_days", "INTEGER NOT NULL DEFAULT 30"),
+            # Existing installs: mark tours completed so upgrades are not noisy.
+            ("completed_onboarding", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("completed_tour_debts", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("completed_tour_analytics", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("completed_tour_goals", "BOOLEAN NOT NULL DEFAULT 1"),
         ],
         "budgets": [
             ("last_alert_level", "INTEGER NOT NULL DEFAULT 0"),
             ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+            ("account_id", "VARCHAR(36) NOT NULL DEFAULT ''"),
         ],
         "transactions": [
             ("debt_id", "VARCHAR(36)"),
@@ -196,6 +204,7 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("transfer_id", "VARCHAR(36)"),
             ("transfer_peer_account_id", "VARCHAR(36)"),
             ("items", "JSON NOT NULL DEFAULT '[]'"),
+            ("attachments", "JSON NOT NULL DEFAULT '[]'"),
         ],
         "goals": [
             ("currency", "VARCHAR(16) NOT NULL DEFAULT 'RUB'"),
@@ -316,6 +325,49 @@ def _ensure_sqlite_indexes(engine: Engine) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_budgets_category_month "
                 "ON budgets (category_id, month, year)"
             )
+
+
+def _ensure_transactions_fts(engine: Engine) -> None:
+    """Create and backfill FTS5 index for transaction free-text search."""
+    if engine.url.get_backend_name() != "sqlite":
+        return
+    with engine.begin() as conn:
+        tables = {
+            row[0]
+            for row in conn.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+            ).fetchall()
+        }
+        if "transactions" not in tables:
+            return
+        if "transactions_fts" in tables:
+            return
+        try:
+            conn.exec_driver_sql(
+                """
+                CREATE VIRTUAL TABLE transactions_fts USING fts5(
+                    id UNINDEXED,
+                    category,
+                    comment,
+                    tags,
+                    tokenize = 'unicode61 remove_diacritics 2'
+                )
+                """
+            )
+            conn.exec_driver_sql(
+                """
+                INSERT INTO transactions_fts(id, category, comment, tags)
+                SELECT
+                    id,
+                    COALESCE(category, ''),
+                    COALESCE(comment, ''),
+                    COALESCE(CAST(tags AS TEXT), '')
+                FROM transactions
+                """
+            )
+            logger.info("Created transactions_fts FTS5 index")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("transactions_fts setup skipped: %s", exc)
 
 
 def reset_engine() -> None:

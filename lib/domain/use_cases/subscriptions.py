@@ -313,49 +313,62 @@ class UpdateSubscriptionUseCase:
         subscriptions: SubscriptionRepository,
         categories: Optional[CategoryRepository] = None,
         audit_repository: Any = None,
+        session_factory: object = None,
     ) -> None:
         self._subscriptions = subscriptions
         self._categories = categories
         self._audit = audit_repository
+        self._session_factory = session_factory
 
     async def execute(self, subscription: Subscription) -> Subscription:
-        """Update subscription fields."""
-        existing = await self._subscriptions.get_by_id(subscription.id)
-        if existing is None:
-            raise ValueError(f"Subscription not found: {subscription.id}")
-        status = subscription.status or existing.status
-        if (
-            existing.status == SubscriptionStatus.CANCELLED
-            and status != SubscriptionStatus.CANCELLED
-        ):
-            raise ValueError("Cancelled subscription cannot be resumed")
-        if (
-            existing.status == SubscriptionStatus.EXPIRED
-            and status != SubscriptionStatus.EXPIRED
-        ):
-            raise ValueError("Subscription has ended")
-        if (
-            status == SubscriptionStatus.CANCELLED
-            and existing.status != SubscriptionStatus.CANCELLED
-        ):
-            raise ValueError("Cancel a subscription from the detail screen")
-        name = (subscription.name or existing.name or "").strip() or "Subscription"
-        updated = subscription.model_copy(
-            update={
-                "name": name,
-                "category": name,
-                "amount": quantize_money(subscription.amount),
-                "status": status,
-                "is_active": _sync_active(status),
-                "updated_at": _utc_now(),
-                "created_at": existing.created_at,
-                "payments_made": subscription.payments_made,
-            }
-        )
-        saved = await self._subscriptions.update(updated)
-        await sync_subscription_category(self._categories, saved)
-        await self._audit_status_transition(existing, saved)
-        return saved
+        """Update subscription fields (status+audit atomic when UoW is wired)."""
+
+        async def _run() -> Subscription:
+            existing = await self._subscriptions.get_by_id(subscription.id)
+            if existing is None:
+                raise ValueError(f"Subscription not found: {subscription.id}")
+            status = subscription.status or existing.status
+            if (
+                existing.status == SubscriptionStatus.CANCELLED
+                and status != SubscriptionStatus.CANCELLED
+            ):
+                raise ValueError("Cancelled subscription cannot be resumed")
+            if (
+                existing.status == SubscriptionStatus.EXPIRED
+                and status != SubscriptionStatus.EXPIRED
+            ):
+                raise ValueError("Subscription has ended")
+            if (
+                status == SubscriptionStatus.CANCELLED
+                and existing.status != SubscriptionStatus.CANCELLED
+            ):
+                raise ValueError("Cancel a subscription from the detail screen")
+            name = (subscription.name or existing.name or "").strip() or "Subscription"
+            updated = subscription.model_copy(
+                update={
+                    "name": name,
+                    "category": name,
+                    "amount": quantize_money(subscription.amount),
+                    "status": status,
+                    "is_active": _sync_active(status),
+                    "updated_at": _utc_now(),
+                    "created_at": existing.created_at,
+                    "payments_made": subscription.payments_made,
+                }
+            )
+            saved = await self._subscriptions.update(updated)
+            await sync_subscription_category(self._categories, saved)
+            await self._audit_status_transition(existing, saved)
+            return saved
+
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
 
     async def _audit_status_transition(
         self, before: Subscription, after: Subscription
@@ -394,8 +407,9 @@ class UpdateSubscriptionUseCase:
                     },
                 )
             )
-        except Exception:  # noqa: BLE001
-            return
+        except Exception:
+            # Fail-closed: status change without audit would break EXPIRED→restore.
+            raise
 
 
 class DeleteSubscriptionUseCase:
@@ -446,30 +460,82 @@ class GetSubscriptionUseCase:
 class PauseSubscriptionUseCase:
     """Pause an active subscription (billing stops, next date kept)."""
 
-    def __init__(self, subscriptions: SubscriptionRepository) -> None:
+    def __init__(
+        self,
+        subscriptions: SubscriptionRepository,
+        audit_repository: Any = None,
+        session_factory: object = None,
+    ) -> None:
         self._subscriptions = subscriptions
+        self._audit = audit_repository
+        self._session_factory = session_factory
 
     async def execute(self, subscription_id: str) -> Subscription:
-        sub = await self._subscriptions.get_by_id(subscription_id)
-        if sub is None:
-            raise ValueError(f"Subscription not found: {subscription_id}")
-        if sub.status != SubscriptionStatus.ACTIVE:
-            return sub
-        updated = sub.model_copy(
-            update={
-                "status": SubscriptionStatus.PAUSED,
-                "is_active": False,
-                "updated_at": _utc_now(),
-            }
+        async def _run() -> Subscription:
+            sub = await self._subscriptions.get_by_id(subscription_id)
+            if sub is None:
+                raise ValueError(f"Subscription not found: {subscription_id}")
+            if sub.status == SubscriptionStatus.PAUSED:
+                return sub
+            # Fail-closed: never silently "pause" expired/cancelled/other states.
+            if sub.status != SubscriptionStatus.ACTIVE:
+                raise ValueError("Subscription cannot be paused")
+            updated = sub.model_copy(
+                update={
+                    "status": SubscriptionStatus.PAUSED,
+                    "is_active": False,
+                    "updated_at": _utc_now(),
+                }
+            )
+            saved = await self._subscriptions.update(updated)
+            await self._append_pause_audit(sub, saved)
+            return saved
+
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
+
+    async def _append_pause_audit(
+        self, before: Subscription, after: Subscription
+    ) -> None:
+        if self._audit is None:
+            return
+        from lib.domain.entities.subscription_audit import SubscriptionAuditEntry
+
+        await self._audit.append(
+            SubscriptionAuditEntry(
+                subscription_id=after.id,
+                action="pause",
+                details={
+                    "from": before.status.value
+                    if isinstance(before.status, SubscriptionStatus)
+                    else str(before.status),
+                    "to": after.status.value
+                    if isinstance(after.status, SubscriptionStatus)
+                    else str(after.status),
+                    "via": "pause",
+                },
+            )
         )
-        return await self._subscriptions.update(updated)
 
 
 class ResumeSubscriptionUseCase:
     """Resume a paused subscription and skip missed periods without charging."""
 
-    def __init__(self, subscriptions: SubscriptionRepository) -> None:
+    def __init__(
+        self,
+        subscriptions: SubscriptionRepository,
+        audit_repository: Any = None,
+        session_factory: object = None,
+    ) -> None:
         self._subscriptions = subscriptions
+        self._audit = audit_repository
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -477,26 +543,63 @@ class ResumeSubscriptionUseCase:
         *,
         as_of: Optional[datetime] = None,
     ) -> Subscription:
-        sub = await self._subscriptions.get_by_id(subscription_id)
-        if sub is None:
-            raise ValueError(f"Subscription not found: {subscription_id}")
-        if sub.status != SubscriptionStatus.PAUSED:
-            if sub.status == SubscriptionStatus.CANCELLED:
-                raise ValueError("Cancelled subscription cannot be resumed")
-            return sub
+        async def _run() -> Subscription:
+            sub = await self._subscriptions.get_by_id(subscription_id)
+            if sub is None:
+                raise ValueError(f"Subscription not found: {subscription_id}")
+            if sub.status != SubscriptionStatus.PAUSED:
+                if sub.status == SubscriptionStatus.CANCELLED:
+                    raise ValueError("Cancelled subscription cannot be resumed")
+                if sub.status == SubscriptionStatus.EXPIRED:
+                    raise ValueError("Subscription has ended")
+                return sub
 
-        moment = _as_utc(as_of or _utc_now())
-        next_date = skip_missed_to_future(sub, as_of=moment)
+            moment = _as_utc(as_of or _utc_now())
+            next_date = skip_missed_to_future(sub, as_of=moment)
 
-        updated = sub.model_copy(
-            update={
-                "status": SubscriptionStatus.ACTIVE,
-                "is_active": True,
-                "next_billing_date": next_date,
-                "updated_at": _utc_now(),
-            }
+            updated = sub.model_copy(
+                update={
+                    "status": SubscriptionStatus.ACTIVE,
+                    "is_active": True,
+                    "next_billing_date": next_date,
+                    "updated_at": _utc_now(),
+                }
+            )
+            saved = await self._subscriptions.update(updated)
+            await self._append_resume_audit(sub, saved)
+            return saved
+
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
+
+    async def _append_resume_audit(
+        self, before: Subscription, after: Subscription
+    ) -> None:
+        if self._audit is None:
+            return
+        from lib.domain.entities.subscription_audit import SubscriptionAuditEntry
+
+        await self._audit.append(
+            SubscriptionAuditEntry(
+                subscription_id=after.id,
+                action="resume",
+                details={
+                    "from": before.status.value
+                    if isinstance(before.status, SubscriptionStatus)
+                    else str(before.status),
+                    "to": after.status.value
+                    if isinstance(after.status, SubscriptionStatus)
+                    else str(after.status),
+                    "via": "resume",
+                },
+            )
         )
-        return await self._subscriptions.update(updated)
 
 
 class ChargeSubscriptionNowUseCase:
@@ -869,14 +972,8 @@ class ProcessDueSubscriptionsUseCase:
                             to_currency=account.currency,
                         )
                     except ValueError:
-                        sub = sub.model_copy(
-                            update={
-                                "last_skip_date": billing_day,
-                                "updated_at": _utc_now(),
-                            }
-                        )
-                        await self._subscriptions.update(sub)
-                        return
+                        # Fail-closed like ChargeSubscriptionNow (no last_skip).
+                        raise
 
                     if check_balance and account.balance < cash_amount:
                         sub = sub.model_copy(
@@ -953,13 +1050,25 @@ class ProcessDueSubscriptionsUseCase:
             if self._session_factory is not None:
                 from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
 
-                if in_unit_of_work():
-                    await _process_one()
-                else:
-                    with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                try:
+                    if in_unit_of_work():
                         await _process_one()
+                    else:
+                        with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                            await _process_one()
+                except ValueError as exc:
+                    # Missing FX / validation: leave this subscription unchanged
+                    # and continue the batch (no last_skip pollution).
+                    if "No exchange rate" in str(exc):
+                        continue
+                    raise
             else:
-                await _process_one()
+                try:
+                    await _process_one()
+                except ValueError as exc:
+                    if "No exchange rate" in str(exc):
+                        continue
+                    raise
 
         return created_txs
 

@@ -15,12 +15,11 @@ from lib.presentation.styles import (
     polish_form_control,
 )
 from lib.presentation.theme import is_dark_mode
+from lib.presentation.responsive import clamp_content_width, tap_button_style
 from lib.presentation.utils import run_async, safe_update, tr
 
 CloseFn = Callable[[], None]
 SaveFn = Callable[[], Awaitable[None]]
-
-_FORM_MAX_WIDTH = 560
 
 
 def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
@@ -58,6 +57,7 @@ def build_form_shell(
     """Shared chrome: gradient backdrop, glass header, padded scroll body."""
     skin = get_active_skin()
     dark = is_dark_mode(page)
+    form_w = clamp_content_width(page, margin=28, max_width=560)
     body_controls = _polish_tree(body)
     if wrap_body:
         panel = card_surface(
@@ -68,7 +68,7 @@ def build_form_shell(
             ft.Container(
                 alignment=ft.Alignment.TOP_CENTER,
                 content=ft.Container(
-                    width=_FORM_MAX_WIDTH,
+                    width=form_w,
                     content=panel,
                 ),
             ),
@@ -79,7 +79,7 @@ def build_form_shell(
             ft.Container(
                 alignment=ft.Alignment.TOP_CENTER,
                 content=ft.Container(
-                    width=_FORM_MAX_WIDTH,
+                    width=form_w,
                     content=ft.Column(spacing=14, tight=True, controls=body_controls),
                 ),
             ),
@@ -90,6 +90,7 @@ def build_form_shell(
         icon=ft.Icons.CLOSE,
         icon_color=ft.Colors.ON_SURFACE,
         tooltip=tr("action.cancel", lang),
+        style=tap_button_style(horizontal=10, vertical=10),
     )
 
     return ft.SafeArea(
@@ -163,6 +164,7 @@ def open_fullscreen_form(
         icon_color=ft.Colors.ON_SURFACE,
         tooltip=tr("action.cancel", lang),
         on_click=lambda _e: _close(),
+        style=tap_button_style(horizontal=10, vertical=10),
     )
 
     overlay = ft.Container(

@@ -309,7 +309,7 @@ class GoalProgress(ft.Container):
                 on_click=lambda _e: alert_handler(goal) if alert_handler else None,
                 style=ft.ButtonStyle(
                     shape=ft.CircleBorder(),
-                    padding=6,
+                    padding=10,
                     bgcolor=ft.Colors.ERROR_CONTAINER,
                 ),
             )
@@ -323,7 +323,7 @@ class GoalProgress(ft.Container):
                 on_click=lambda _e: on_contribute(goal) if on_contribute else None,
                 style=ft.ButtonStyle(
                     shape=ft.CircleBorder(),
-                    padding=6,
+                    padding=10,
                 ),
             )
         else:

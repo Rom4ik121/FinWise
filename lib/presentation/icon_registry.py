@@ -363,6 +363,7 @@ def _icons() -> dict[str, ft.IconData]:
         "synagogue": "SYNAGOGUE",
         "temple_buddhist": "TEMPLE_BUDDHIST",
         "temple_hindu": "TEMPLE_HINDU",
+        "flag": "FLAG",
         "sports": "SPORTS",
     }
     mapping: dict[str, ft.IconData] = {}

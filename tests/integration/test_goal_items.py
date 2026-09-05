@@ -125,6 +125,127 @@ def test_contribution_persists_goal_alloc_tags_and_exact_delete(container) -> No
     run_async(_run())
 
 
+def test_delete_with_corrupt_goal_alloc_tags_preserves_sibling(container) -> None:
+    """Corrupt goal_alloc markers reverse primary-only (no sibling wipe)."""
+
+    async def _run() -> None:
+        from lib.domain.entities.goal import GoalItem
+        from uuid import uuid4
+
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        phone = GoalItem(
+            id=str(uuid4()),
+            name="Phone",
+            target_amount=Decimal("600"),
+            sort_order=0,
+        )
+        case = GoalItem(
+            id=str(uuid4()),
+            name="Case",
+            target_amount=Decimal("100"),
+            sort_order=1,
+        )
+        goal = await container.create_goal.execute(
+            make_goal(name="Gadgets", target="700").model_copy(
+                update={"items": [phone, case]}
+            )
+        )
+        await container.contribute_to_goal.execute(
+            goal.id,
+            Decimal("50"),
+            account_id=acc.id,
+            item_id=case.id,
+        )
+        await container.contribute_to_goal.execute(
+            goal.id,
+            Decimal("650"),
+            account_id=acc.id,
+            item_id=phone.id,
+        )
+        txs = await container.list_transactions.execute(account_id=acc.id)
+        phone_tx = next(
+            t
+            for t in txs
+            if t.goal_id == goal.id and t.goal_item_id == phone.id
+        )
+        # Simulate damaged tags while keeping markers.
+        damaged = phone_tx.model_copy(
+            update={"tags": ["goal_alloc:broken", "goal_alloc::x", "keep-me"]}
+        )
+        await container.transaction_repository.update(damaged)
+
+        assert await container.delete_transaction.execute(phone_tx.id) is True
+        after = await container.goal_repository.get_by_id(goal.id)
+        assert after is not None
+        phone_item = next(i for i in after.items if i.id == phone.id)
+        case_item = next(i for i in after.items if i.id == case.id)
+        assert phone_item.current_amount == Decimal("0.00")
+        assert case_item.current_amount == Decimal("100.00")
+
+    run_async(_run())
+
+
+def test_goal_credit_rolls_back_when_tag_write_fails(container, monkeypatch) -> None:
+    """If tag persistence fails mid-op, goal credit and ledger row roll back."""
+
+    async def _run() -> None:
+        from lib.domain.entities.goal import GoalItem
+        from lib.domain.use_cases.goals import GOAL_ALLOC_TAG_PREFIX
+        from uuid import uuid4
+
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        phone = GoalItem(
+            id=str(uuid4()),
+            name="Phone",
+            target_amount=Decimal("600"),
+            sort_order=0,
+        )
+        case = GoalItem(
+            id=str(uuid4()),
+            name="Case",
+            target_amount=Decimal("100"),
+            sort_order=1,
+        )
+        goal = await container.create_goal.execute(
+            make_goal(name="Gadgets", target="700").model_copy(
+                update={"items": [phone, case]}
+            )
+        )
+        balance_before = (await container.account_repository.get_by_id(acc.id)).balance
+        real_update = container.transaction_repository.update
+
+        async def _fail_on_alloc_tags(tx):
+            if any(
+                str(tag).startswith(GOAL_ALLOC_TAG_PREFIX) for tag in (tx.tags or [])
+            ):
+                raise RuntimeError("simulated tag write failure")
+            return await real_update(tx)
+
+        monkeypatch.setattr(container.transaction_repository, "update", _fail_on_alloc_tags)
+        with pytest.raises(RuntimeError, match="simulated tag write failure"):
+            await container.contribute_to_goal.execute(
+                goal.id,
+                Decimal("100"),
+                account_id=acc.id,
+                item_id=phone.id,
+            )
+
+        after_goal = await container.goal_repository.get_by_id(goal.id)
+        assert after_goal is not None
+        assert after_goal.current_amount == Decimal("0.00")
+        phone_item = next(i for i in after_goal.items if i.id == phone.id)
+        assert phone_item.current_amount == Decimal("0.00")
+
+        after_acc = await container.account_repository.get_by_id(acc.id)
+        assert after_acc is not None
+        assert after_acc.balance == balance_before
+
+        txs = await container.list_transactions.execute(account_id=acc.id)
+        assert not any(t.goal_id == goal.id for t in txs)
+
+    run_async(_run())
+
+
 def test_contribute_to_goal_with_items_requires_item_id(container) -> None:
     async def _run() -> None:
         from lib.domain.entities.goal import GoalItem

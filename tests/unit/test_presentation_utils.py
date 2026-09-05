@@ -115,8 +115,11 @@ def test_user_facing_error_hides_technical_text() -> None:
         RuntimeError('Traceback (most recent call last):\n  File "x.py", line 1'),
         "ru",
     )
-    assert tech == "Произошла ошибка"
+    assert tech == "Что-то пошло не так. Попробуйте ещё раз."
     assert "sqlalchemy" not in user_facing_error(
         Exception("sqlalchemy.exc.OperationalError: disk I/O"), "ru"
     ).lower()
-    assert user_facing_error(ValueError("Account not found: abc"), "ru") == "Произошла ошибка"
+    assert (
+        user_facing_error(ValueError("Account not found: abc"), "ru")
+        == "Что-то пошло не так. Попробуйте ещё раз."
+    )

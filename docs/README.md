@@ -17,7 +17,7 @@
 | [USE_CASES.md](USE_CASES.md) | Бизнес-сценарии и правила денег / FX / переводов |
 | [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, курсы, CCXT, бэкап, PIN/Face ID, push, речь |
 | [PRESENTATION.md](PRESENTATION.md) | UI, вкладки, маршруты, формы, UX (splash, lock, count-up) |
-| [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0021** |
+| [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0026** |
 | [PERFORMANCE.md](PERFORMANCE.md) | Скорость БД, FX, UI на телефонах и десктопе |
 | [TESTING.md](TESTING.md) | pytest, фикстуры, как гонять тесты |
 | [CODEMAGIC.md](CODEMAGIC.md) | Подписанный IPA (iOS) через Codemagic |
@@ -35,7 +35,7 @@ python scripts/migrate.py
 python main.py
 ```
 
-При первом запуске создаются каталог данных, БД, настройки и счёт «Наличные».
+При первом запуске создаются каталог данных, БД и настройки (язык с устройства). Счетов нет — первый счёт создаётся с главного экрана; его валюта становится основной.
 
 **Каталог данных (Windows):**
 
@@ -66,7 +66,7 @@ python -m pytest -q
 | Android | `.\scripts\build_apk.ps1` | этот README + `flet.toml` |
 | iOS | Codemagic workflow `ios-ipa` | [CODEMAGIC.md](CODEMAGIC.md) |
 
-Нативные возможности (**Face ID**, локальные пуши, микрофон, deep link `finwise://voice`) работают только в **упакованном** APK/IPA.  
+Нативные возможности (**Face ID**, локальные пуши) работают только в **упакованном** APK/IPA.  
 `flet run --android` / web — это web-клиент **без** Dart-расширений (так задумано).
 
 После изменений Python-кода плагинов или `extensions/` нужна **новая** сборка.
@@ -83,11 +83,11 @@ python -m pytest -q
 |------|------------|
 | UI | Flet (Flutter) |
 | Домен | Pydantic v2, чистые use cases |
-| Данные | SQLAlchemy 2.0 + SQLite (WAL), Alembic 0001–0021 |
+| Данные | SQLAlchemy 2.0 + SQLite (WAL), Alembic 0001–0026 |
 | Сеть | httpx (open.er-api, CoinGecko, Binance), CCXT |
 | Отчёты | matplotlib, reportlab |
 | Безопасность | PIN (PBKDF), Face ID, AES-GCM secret box для ключей бирж |
-| Плагины | `extensions/flet_local_auth`, `flet_local_notifications`, `flet_speech` |
+| Плагины | `extensions/flet_local_auth`, `flet_local_notifications` |
 
 ---
 
@@ -103,7 +103,7 @@ FinWise/
 │   └── presentation/       # экраны и виджеты Flet
 ├── extensions/             # Flutter-мосты
 ├── assets/                 # icon, splash, icons/crypto|exchanges, currencies.json
-├── migrations/versions/    # Alembic 0001 … 0021
+├── migrations/versions/    # Alembic 0001 … 0026
 ├── scripts/                # migrate, seed, APK, брендинг
 ├── tests/                  # unit + integration
 └── docs/                   # эта документация

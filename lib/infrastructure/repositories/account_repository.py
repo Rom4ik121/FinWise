@@ -34,6 +34,7 @@ def _to_entity(model: AccountModel) -> Account:
         color=model.color,
         is_active=model.is_active,
         include_in_total=bool(getattr(model, "include_in_total", True)),
+        is_corporate=bool(getattr(model, "is_corporate", False)),
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
     )
 
@@ -48,6 +49,7 @@ def _apply_entity(model: AccountModel, entity: Account) -> None:
     model.color = entity.color
     model.is_active = entity.is_active
     model.include_in_total = bool(entity.include_in_total)
+    model.is_corporate = bool(entity.is_corporate)
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
 
 
@@ -77,10 +79,15 @@ class SqlAlchemyAccountRepository(AccountRepository):
             return self._get_by_id_sync(account_id)
         return await asyncio.to_thread(self._get_by_id_sync, account_id)
 
-    async def list(self, *, active_only: bool = False) -> list[Account]:
+    async def list(
+        self,
+        *,
+        active_only: bool = False,
+        corporate: bool | None = None,
+    ) -> list[Account]:
         if in_unit_of_work():
-            return self._list_sync(active_only)
-        return await asyncio.to_thread(self._list_sync, active_only)
+            return self._list_sync(active_only, corporate)
+        return await asyncio.to_thread(self._list_sync, active_only, corporate)
 
     def _create_sync(self, entity: Account) -> Account:
         with session_scope(self._session_factory) as session:
@@ -116,10 +123,16 @@ class SqlAlchemyAccountRepository(AccountRepository):
             model = session.get(AccountModel, account_id)
             return _to_entity(model) if model else None
 
-    def _list_sync(self, active_only: bool) -> list[Account]:
+    def _list_sync(
+        self, active_only: bool, corporate: bool | None = None
+    ) -> list[Account]:
         with session_scope(self._session_factory) as session:
             stmt = select(AccountModel)
             if active_only:
                 stmt = stmt.where(AccountModel.is_active.is_(True))
+            if corporate is True:
+                stmt = stmt.where(AccountModel.is_corporate.is_(True))
+            elif corporate is False:
+                stmt = stmt.where(AccountModel.is_corporate.is_(False))
             stmt = stmt.order_by(AccountModel.name)
             return [_to_entity(r) for r in session.scalars(stmt).all()]

@@ -116,3 +116,31 @@ def test_convert_missing_rate(container) -> None:
             )
 
     run_async(_run())
+
+
+def test_convert_many_one_ratebook_load(container) -> None:
+    async def _run() -> None:
+        await container.update_exchange_rates.execute(
+            rates=[
+                ExchangeRate(
+                    base="USD",
+                    quote="RUB",
+                    rate=Decimal("100"),
+                    updated_at=datetime.now(timezone.utc),
+                )
+            ]
+        )
+        out = await container.convert_currency.execute_many(
+            [
+                (Decimal("1"), "USD", "RUB"),
+                (Decimal("2"), "USD", "RUB"),
+                (Decimal("3"), "RUB", "RUB"),
+            ]
+        )
+        assert out == [
+            Decimal("100.00"),
+            Decimal("200.00"),
+            Decimal("3.00"),
+        ]
+
+    run_async(_run())

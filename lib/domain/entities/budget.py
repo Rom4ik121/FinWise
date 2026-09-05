@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -27,6 +28,8 @@ class Budget(BaseModel):
     amount_limit: Decimal
     spent: Decimal = Decimal("0.00")
     last_alert_level: int = 0
+    # None = personal/global; set = corporate account workspace budget.
+    account_id: Optional[str] = None
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 

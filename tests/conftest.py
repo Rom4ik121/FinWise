@@ -22,6 +22,14 @@ def _disable_os_push(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FINANCE_DISABLE_PUSH", "1")
 
 
+@pytest.fixture(autouse=True)
+def _stable_first_run_locale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep test DBs on ru/RUB so factories match settings (host TZ must not leak)."""
+    monkeypatch.setattr(
+        "lib.infrastructure.services.locale_prefs.detect_language_and_currency",
+        lambda **_kwargs: ("ru", "RUB"),
+    )
+
 @pytest.fixture()
 def container(tmp_path: Path) -> Container:
     """Isolated SQLite-backed DI container per test."""

@@ -98,6 +98,7 @@ class LineItemsEditor(ft.Column):
             icon=ft.Icons.CLOSE,
             tooltip=tr("action.delete", self._lang),
             on_click=lambda _e, row_id=len(self._rows): self._remove_at(row_id),
+            style=ft.ButtonStyle(padding=ft.Padding.all(8)),
         )
         # Capture by object identity instead of stale index.
         remove.on_click = lambda _e, n=name_tf: self._remove_field(n)

@@ -20,7 +20,7 @@ from lib.presentation.dropdown_options import (
     account_dropdown_options,
     icon_dropdown_option,
 )
-from lib.presentation.styles import form_hint, form_section
+from lib.presentation.styles import form_section
 from lib.presentation.utils import (
     bind_dropdown_select,
     format_money,
@@ -42,9 +42,18 @@ def open_transfer(
     state: "AppState",
     *,
     accounts: Sequence[Account] | None = None,
+    default_from_id: str | None = None,
+    default_to_id: str | None = None,
+    include_corporate: bool = True,
     on_saved: Optional[Callable[[], None]] = None,
 ) -> None:
-    """Open a fullscreen form to move money from one account to another."""
+    """Open a fullscreen form to move money from one account to another.
+
+    When ``include_corporate`` is True (default), personal and corporate
+    accounts appear so money can move either way and show up in corporate
+    analytics. Pass ``default_from_id`` to pre-select the source (e.g. from
+    a corporate account card).
+    """
 
     async def _open() -> None:
         lang = state.language
@@ -53,8 +62,11 @@ def open_transfer(
             return
         loaded: list[Account]
         try:
+            corp_filter: bool | None = None if include_corporate else False
             loaded = list(
-                await state.container.list_accounts.execute(active_only=True)
+                await state.container.list_accounts.execute(
+                    active_only=True, corporate=corp_filter
+                )
             )
         except Exception as exc:  # noqa: BLE001
             snack_exception(page, exc, lang=lang)
@@ -64,9 +76,23 @@ def open_transfer(
         if len(loaded) < 2:
             snack(page, tr("transfer.need_two_accounts", lang), error=True)
             return
-        await _show_form(page, state, accounts=loaded, on_saved=on_saved)
+        await _show_form(
+            page,
+            state,
+            accounts=loaded,
+            default_from_id=default_from_id,
+            default_to_id=default_to_id,
+            on_saved=on_saved,
+        )
 
     run_async(page, _open)
+
+
+def _transfer_account_label(account: Account, *, lang: str) -> str:
+    base = f"{account.name} ({account.currency})"
+    if getattr(account, "is_corporate", False):
+        return f"{base} · {tr('account.corporate_badge', lang)}"
+    return base
 
 
 async def _show_form(
@@ -74,20 +100,33 @@ async def _show_form(
     state: "AppState",
     *,
     accounts: Sequence[Account],
+    default_from_id: str | None,
+    default_to_id: str | None,
     on_saved: Optional[Callable[[], None]],
 ) -> None:
     lang = state.language
     book = await load_rate_book(state.container)
-    options = account_dropdown_options(accounts)
+    ids = {a.id for a in accounts}
+    from_id = default_from_id if default_from_id in ids else accounts[0].id
+    # Prefer a different account as destination (not the same as source).
+    if default_to_id in ids and default_to_id != from_id:
+        to_id = default_to_id
+    else:
+        to_id = next((a.id for a in accounts if a.id != from_id), accounts[0].id)
+
+    options = account_dropdown_options(
+        accounts,
+        label_fn=lambda a: _transfer_account_label(a, lang=lang),
+    )
     from_dd = ft.Dropdown(
         label=tr("transfer.from", lang),
-        value=accounts[0].id,
+        value=from_id,
         options=options,
         expand=True,
     )
     to_dd = ft.Dropdown(
         label=tr("transfer.to", lang),
-        value=accounts[1].id,
+        value=to_id,
         options=list(options),
         expand=True,
     )
@@ -104,12 +143,11 @@ async def _show_form(
     )
     fee_account_dd = ft.Dropdown(
         label=tr("transfer.fee_account", lang),
-        value=accounts[0].id,
+        value=from_id,
         options=list(options),
         expand=True,
     )
-    fee_hint = form_hint(tr("field.fee_hint", lang), size=11)
-    convert_hint = form_hint("")
+    convert_hint = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
     comment_tf = ft.TextField(label=tr("field.comment", lang), expand=True)
     from lib.presentation.form_keyboard import configure_field, wire_field_chain
 
@@ -131,7 +169,10 @@ async def _show_form(
             seen.add(account.id)
             ordered.append(account)
         fee_account_dd.options = [
-            account_dropdown_option(a) for a in ordered
+            account_dropdown_option(
+                a, text=_transfer_account_label(a, lang=lang)
+            )
+            for a in ordered
         ]
         if fee_account_dd.value not in seen:
             fee_account_dd.value = source.id
@@ -270,7 +311,7 @@ async def _show_form(
             ),
             form_section(
                 tr("form.section.fee", lang),
-                [fee_tf, fee_account_dd, fee_hint],
+                [fee_tf, fee_account_dd],
                 icon=ft.Icons.RECEIPT_LONG,
             ),
             form_section(

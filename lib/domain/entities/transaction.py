@@ -85,6 +85,8 @@ class Transaction(BaseModel):
     transfer_id: Optional[str] = None
     transfer_peer_account_id: Optional[str] = None
     items: list[TransactionItem] = Field(default_factory=list)
+    # Relative paths under app media/ (receipt photos, etc.).
+    attachments: list[str] = Field(default_factory=list)
 
     @field_validator("amount", "goal_credit_amount", "debt_credit_amount", mode="before")
     @classmethod

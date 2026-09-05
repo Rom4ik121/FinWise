@@ -143,6 +143,7 @@ def budget_list_card(
     sparkline: ft.Control | None = None,
     alert: bool = False,
     on_open: Optional[Callable] = None,
+    compact: bool = False,
 ) -> ft.Control:
     percent = progress.percent
     color = _bar_color(percent)
@@ -155,6 +156,69 @@ def budget_list_card(
         else f"{tr('budgets.remaining', language)}: "
         f"{format_money_compact(leftover, currency)}"
     )
+    if compact:
+        accent = ft.Colors.ERROR if over else color
+        inner: ft.Control = ft.Column(
+            spacing=6,
+            tight=True,
+            controls=[
+                ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        account_icon_badge(
+                            category_icon,
+                            color=category_color,
+                            size=30,
+                            glyph_size=14,
+                            glyph_color="#FFFFFF",
+                        ),
+                        ft.Column(
+                            spacing=1,
+                            tight=True,
+                            expand=True,
+                            controls=[
+                                ft.Text(
+                                    category_name,
+                                    weight=ft.FontWeight.W_700,
+                                    size=13,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                ft.Text(
+                                    f"{format_money_compact(progress.spent, currency)}"
+                                    f" / {format_money_compact(progress.limit, currency)}"
+                                    f" · {leftover_txt}",
+                                    size=10,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                            ],
+                        ),
+                        ft.Container(
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                            border_radius=999,
+                            bgcolor=ft.Colors.with_opacity(0.14, accent),
+                            content=ft.Text(
+                                f"{percent:.0f}%",
+                                size=12,
+                                weight=ft.FontWeight.W_800,
+                                color=accent,
+                            ),
+                        ),
+                    ],
+                ),
+                _budget_spend_bar(percent, color),
+            ],
+        )
+        return card_surface(
+            inner,
+            ink=on_open is not None,
+            on_click=(lambda _e: on_open(progress) if on_open else None),
+            padding=10,
+        )
+
     pace_line: ft.Control | None = None
     if pace is not None:
         daily = format_money_compact(pace.daily_allowance, currency)
@@ -211,7 +275,7 @@ def budget_list_card(
         body.append(pace_line)
     if sparkline is not None:
         body.append(sparkline)
-    inner: ft.Control = ft.Column(spacing=8, tight=True, controls=body)
+    inner = ft.Column(spacing=8, tight=True, controls=body)
     if alert:
         inner = ft.Stack(
             clip_behavior=ft.ClipBehavior.NONE,

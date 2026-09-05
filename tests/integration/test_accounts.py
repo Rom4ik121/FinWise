@@ -10,7 +10,26 @@ from tests.conftest import run_async
 from tests.factories import make_account, make_transaction
 
 
-def test_create_list_update_delete_account(container) -> None:
+def test_first_account_sets_default_currency_once(container) -> None:
+    async def _run() -> None:
+        settings = await container.get_settings.execute()
+        assert settings.default_currency.upper() == "RUB"  # test fixture locale
+
+        first = await container.create_account.execute(
+            make_account(name="USD Wallet", currency="USD")
+        )
+        assert first.currency == "USD"
+        settings = await container.get_settings.execute()
+        assert settings.default_currency.upper() == "USD"
+
+        await container.create_account.execute(
+            make_account(name="EUR Wallet", currency="EUR")
+        )
+        settings = await container.get_settings.execute()
+        assert settings.default_currency.upper() == "USD"
+
+    run_async(_run())
+
     async def _run() -> None:
         created = await container.create_account.execute(make_account(name="Wallet"))
         listed = await container.list_accounts.execute()
@@ -41,6 +60,41 @@ def test_include_in_total_persists(container) -> None:
         loaded = await container.account_repository.get_by_id(created.id)
         assert loaded is not None
         assert loaded.include_in_total is False
+
+    run_async(_run())
+
+
+def test_corporate_account_isolated(container) -> None:
+    async def _run() -> None:
+        personal = await container.create_account.execute(
+            make_account(name="Cash")
+        )
+        corporate = await container.create_account.execute(
+            make_account(name="LLC Wallet").model_copy(
+                update={"is_corporate": True, "include_in_total": True}
+            )
+        )
+        assert corporate.is_corporate is True
+        assert corporate.include_in_total is False
+
+        listed_personal = await container.list_accounts.execute(corporate=False)
+        listed_corp = await container.list_accounts.execute(corporate=True)
+        assert any(a.id == personal.id for a in listed_personal)
+        assert all(not a.is_corporate for a in listed_personal)
+        assert any(a.id == corporate.id for a in listed_corp)
+        assert all(a.is_corporate for a in listed_corp)
+
+        await container.add_transaction.execute(
+            make_transaction(
+                corporate.id,
+                amount="500",
+                tx_type=TransactionType.INCOME,
+                category="Выручка",
+            )
+        )
+        refreshed = await container.account_repository.get_by_id(corporate.id)
+        assert refreshed is not None
+        assert refreshed.balance == Decimal("1500.00")
 
     run_async(_run())
 

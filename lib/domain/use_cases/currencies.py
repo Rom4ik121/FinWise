@@ -99,7 +99,7 @@ class UpdateExchangeRatesUseCase:
         return saved
 
 
-_PIVOTS = ("USD", "USDT", "EUR", "UZS", "RUB", "KZT", "GBP")
+
 
 
 class ConvertCurrencyUseCase:
@@ -107,18 +107,6 @@ class ConvertCurrencyUseCase:
 
     def __init__(self, currencies: CurrencyRepository) -> None:
         self._currencies = currencies
-
-    async def _pair_factor(self, src: str, dst: str) -> Optional[Decimal]:
-        """How many ``dst`` units per 1 ``src``, from a direct or inverse row."""
-        if src == dst:
-            return Decimal("1")
-        rate = await self._currencies.get_rate(src, dst)
-        if rate is not None and rate.rate != 0:
-            return rate.rate
-        inverse = await self._currencies.get_rate(dst, src)
-        if inverse is not None and inverse.rate != 0:
-            return Decimal("1") / inverse.rate
-        return None
 
     async def execute(
         self,
@@ -130,10 +118,11 @@ class ConvertCurrencyUseCase:
     ) -> Decimal:
         """Convert ``amount`` from ``from_currency`` to ``to_currency``.
 
-        Supports direct rates, inverse rates, and a one-hop cross via a
-        pivot (USD / USDT / app-base fiats). Money amounts are quantized
-        to 2 decimals unless ``quantize`` is false (unit-rate display).
+        Uses the process-wide RateBook cache (one SQLite rates load per TTL)
+        so N UI conversions do not issue N rate lookups.
         """
+        from lib.domain.services.rate_cache import get_cached_rate_book
+
         raw_amount = Decimal(str(amount))
         amount = quantize_money(raw_amount) if quantize else raw_amount
         src = from_currency.upper()
@@ -141,22 +130,41 @@ class ConvertCurrencyUseCase:
         if src == dst:
             return amount
 
-        factor = await self._pair_factor(src, dst)
-        if factor is None:
-            for pivot in _PIVOTS:
-                if pivot in {src, dst}:
-                    continue
-                to_pivot = await self._pair_factor(src, pivot)
-                from_pivot = await self._pair_factor(pivot, dst)
-                if to_pivot is not None and from_pivot is not None:
-                    factor = to_pivot * from_pivot
-                    break
-
-        if factor is None:
+        book = await get_cached_rate_book(self._currencies)
+        converted = book.convert(amount, src, dst, quantize=quantize)
+        if converted is None:
             raise ValueError(f"No exchange rate found for {src}/{dst}")
+        return converted
 
-        result = amount * factor
-        return quantize_money(result) if quantize else result
+    async def execute_many(
+        self,
+        items: Sequence[tuple[Decimal, str, str]],
+        *,
+        quantize: bool = True,
+    ) -> list[Decimal]:
+        """Batch-convert ``(amount, from, to)`` rows with one RateBook load.
+
+        Raises ``ValueError`` on the first missing rate (fail-closed).
+        """
+        from lib.domain.services.rate_cache import get_cached_rate_book
+
+        if not items:
+            return []
+        book = await get_cached_rate_book(self._currencies)
+        out: list[Decimal] = []
+        for amount, from_currency, to_currency in items:
+            raw = Decimal(str(amount))
+            value = quantize_money(raw) if quantize else raw
+            src = from_currency.upper()
+            dst = to_currency.upper()
+            if src == dst:
+                out.append(value)
+                continue
+            converted = book.convert(value, src, dst, quantize=quantize)
+            if converted is None:
+                raise ValueError(f"No exchange rate found for {src}/{dst}")
+            out.append(converted)
+        return out
 
 
 class ListCurrenciesUseCase:

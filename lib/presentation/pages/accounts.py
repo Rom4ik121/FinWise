@@ -33,6 +33,7 @@ from lib.presentation.styles import (
     form_section,
     labeled_switch,
     page_header,
+    section_title,
 )
 from lib.presentation.utils import (
     bind_dropdown_select,
@@ -81,6 +82,7 @@ class AccountsPage(ft.Column):
         self._state = state
         self._token = -1
         self._links: dict[str, ExchangeConnection] = {}
+        self._account_count = 0
         self._list = make_v_scroll(spacing=12)
         super().__init__(
             expand=True,
@@ -122,6 +124,9 @@ class AccountsPage(ft.Column):
     def did_mount(self) -> None:
         super().did_mount()
         self._reload_gate.on_mounted()
+        if self._state.pending_open_account_create:
+            self._state.pending_open_account_create = False
+            self._open_editor()
 
     def _on_state(self, state: "AppState") -> None:
         if state.accounts_token != self._token:
@@ -149,6 +154,7 @@ class AccountsPage(ft.Column):
             return
 
         if not accounts:
+            self._account_count = 0
             self._list.controls = [
                 EmptyState(
                     tr("empty.accounts", lang),
@@ -159,11 +165,16 @@ class AccountsPage(ft.Column):
             safe_update(self._list)
             return
 
+        self._account_count = len(accounts)
         base = self._state.base_currency
         book = await load_rate_book(self._state.container)
+        personal = [a for a in accounts if not a.is_corporate]
+        corporate = [a for a in accounts if a.is_corporate]
         cards: list[ft.Control] = []
         fx_ok = True
-        for account in accounts:
+
+        def _append_card(account: Account) -> None:
+            nonlocal fx_ok
             converted = book.convert(
                 account.balance,
                 account.currency,
@@ -186,9 +197,34 @@ class AccountsPage(ft.Column):
                     on_edit=self._open_editor,
                     on_delete=self._confirm_delete,
                     on_sync=self._sync_exchange if link else None,
-                    on_include_in_total=self._set_include_in_total,
+                    on_include_in_total=(
+                        None if account.is_corporate else self._set_include_in_total
+                    ),
                 )
             )
+
+        for account in personal:
+            _append_card(account)
+        if corporate:
+            if personal:
+                cards.append(
+                    ft.Container(height=8, content=ft.Container())
+                )
+            cards.append(section_title(tr("account.corporate_section", lang)))
+            for account in corporate:
+                _append_card(account)
+
+        if not personal and not corporate:
+            self._list.controls = [
+                EmptyState(
+                    tr("empty.accounts", lang),
+                    action_label=tr("action.add", lang),
+                    on_action=lambda _e: self._open_editor(),
+                )
+            ]
+            safe_update(self._list)
+            return
+
         replace_controls(self._list, cards, self._page)
         if animate:
             await play_count_ups(self._list, self._page)
@@ -256,6 +292,21 @@ class AccountsPage(ft.Column):
             on_confirm=_do,
         )
 
+    def _default_new_account_currency(self) -> str:
+        """Device-suggested ticker when creating the very first account."""
+        if self._account_count > 0:
+            return normalize_currency_code(self._state.base_currency)
+        try:
+            from lib.infrastructure.services.locale_prefs import (
+                suggested_currency_for_device,
+            )
+
+            return normalize_currency_code(
+                suggested_currency_for_device(page=self._page)
+            )
+        except Exception:  # noqa: BLE001
+            return normalize_currency_code(self._state.base_currency)
+
     def _open_editor(self, account: Optional[Account] = None) -> None:
         lang = self._state.language
         link = self._links.get(account.id) if account else None
@@ -286,7 +337,9 @@ class AccountsPage(ft.Column):
             lang=lang,
             label=tr("field.currency", lang),
             value=normalize_currency_code(
-                account.currency if account else self._state.base_currency
+                account.currency
+                if account
+                else self._default_new_account_currency()
             ),
             include_crypto=True,
             expand=True,
@@ -334,11 +387,13 @@ class AccountsPage(ft.Column):
             tr("account.exchange.hint", lang),
             size=12,
             color=ft.Colors.ON_SURFACE_VARIANT,
+            visible=False,
         )
         keys_hint = ft.Text(
             tr("account.exchange.keys_hint", lang),
             size=11,
             color=ft.Colors.ON_SURFACE_VARIANT,
+            visible=False,
         )
         provider_title = ft.Text(
             (get_exchange(provider_id["value"]) or EXCHANGES[0]).title,
@@ -393,18 +448,35 @@ class AccountsPage(ft.Column):
         include_sw = ft.Switch(
             value=bool(account.include_in_total) if account else True,
         )
+        corporate_sw = ft.Switch(
+            value=bool(account.is_corporate) if account else False,
+        )
         include_block = ft.Column(
             spacing=4,
             tight=True,
             controls=[
                 labeled_switch(tr("account.include_in_total", lang), include_sw),
-                ft.Text(
-                    tr("account.include_in_total_hint", lang),
-                    size=11,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
             ],
         )
+        corporate_block = ft.Column(
+            spacing=4,
+            tight=True,
+            controls=[
+                labeled_switch(tr("account.corporate", lang), corporate_sw),
+            ],
+        )
+
+        def _sync_corporate_ui(_e: ft.ControlEvent | None = None) -> None:
+            is_corp = bool(corporate_sw.value)
+            if is_corp:
+                include_sw.value = False
+            include_block.visible = not is_corp
+            include_sw.disabled = is_corp
+            safe_update(include_sw)
+            safe_update(include_block)
+
+        corporate_sw.on_change = _sync_corporate_ui
+        _sync_corporate_ui()
 
         icon_preview = ft.Container(
             width=48,
@@ -706,12 +778,10 @@ class AccountsPage(ft.Column):
             tight=True,
             visible=is_exchange["value"],
             controls=[
-                exchange_hint,
                 provider_pick,
                 api_key_tf,
                 secret_tf,
                 passphrase_tf,
-                keys_hint,
             ],
         )
         balance_tf.visible = not is_exchange["value"]
@@ -864,7 +934,12 @@ class AccountsPage(ft.Column):
                 icon=selected_icon["value"],
                 color=selected_color["value"],
                 is_active=account.is_active if account else True,
-                include_in_total=bool(include_sw.value),
+                include_in_total=(
+                    False
+                    if (bool(corporate_sw.value) and not is_exchange["value"])
+                    else bool(include_sw.value)
+                ),
+                is_corporate=bool(corporate_sw.value) and not is_exchange["value"],
                 created_at=account.created_at if account else Account(name="tmp").created_at,
             )
             try:
@@ -905,6 +980,13 @@ class AccountsPage(ft.Column):
                     await self._state.container.update_account.execute(entity)
                 else:
                     await self._state.container.create_account.execute(entity)
+                    get_settings = getattr(self._state.container, "get_settings", None)
+                    if get_settings is not None:
+                        try:
+                            refreshed = await get_settings.execute()
+                            self._state.set_settings(refreshed, notify=False)
+                        except Exception:  # noqa: BLE001
+                            pass
             except Exception as exc:  # noqa: BLE001
                 detail = str(exc).strip()
                 if detail.startswith("error.") or detail == "error.exchange_unavailable":
@@ -941,7 +1023,7 @@ class AccountsPage(ft.Column):
         )
         options_section = form_section(
             tr("form.section.options", lang),
-            [include_block],
+            [corporate_block, include_block],
             icon=ft.Icons.TUNE,
         )
 
@@ -950,10 +1032,20 @@ class AccountsPage(ft.Column):
             main_section.visible = not exchange
             exchange_section.visible = exchange
             appearance_section.visible = not exchange
+            # Corporate workspaces are manual-only (not exchange-linked).
+            corporate_block.visible = not exchange
+            if exchange:
+                corporate_sw.value = False
+                include_block.visible = True
+                include_sw.disabled = False
+            else:
+                _sync_corporate_ui()
             try:
                 safe_update(main_section)
                 safe_update(exchange_section)
                 safe_update(appearance_section)
+                safe_update(corporate_block)
+                safe_update(include_block)
             except Exception:  # noqa: BLE001
                 pass
 

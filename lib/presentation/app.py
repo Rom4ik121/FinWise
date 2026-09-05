@@ -207,12 +207,10 @@ class FinanseApp:
 
         from lib.infrastructure.services.biometric import register_local_auth_service
         from lib.infrastructure.services.push_notifier import register_android_notifications
-        from lib.infrastructure.services.speech import register_speech_service
 
         # Platform is reliable after the first frame; retry native plugins.
         register_local_auth_service(page)
         register_android_notifications(page)
-        register_speech_service(page)
 
         page.controls.clear()
         page.add(self._stage)
@@ -221,18 +219,7 @@ class FinanseApp:
         bind_ui_feedback(page)
         self._render(force=True)
         self._flush_notifications()
-
-        from lib.presentation.voice_shortcut import install_voice_shortcut
-
-        install_voice_shortcut(page, self.state)
         self._install_session_lock()
-        if self.state.pending_voice_capture and self.state.is_unlocked:
-            capture = getattr(self.state, "voice_capture", None)
-            if capture is not None:
-                from lib.presentation.utils import run_async
-
-                self.state.pending_voice_capture = False
-                run_async(page, capture)
 
     def _install_session_lock(self) -> None:
         """Lock after the app stays backgrounded for ``_BACKGROUND_LOCK_SECONDS``."""
@@ -345,7 +332,7 @@ class FinanseApp:
             )
             caption = ft.Text(
                 label,
-                size=10,
+                size=11,
                 weight=ft.FontWeight.W_500,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
@@ -358,7 +345,7 @@ class FinanseApp:
                 expand=True,
                 ink=False,
                 on_click=lambda _e, i=index: self.state.set_tab(i),
-                padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=4, vertical=4),
                 content=ft.Column(
                     spacing=2,
                     tight=True,
@@ -522,13 +509,6 @@ class FinanseApp:
 
     async def _unlock(self) -> None:
         self.state.set_unlocked(True)
-        if self.state.pending_voice_capture:
-            capture = getattr(self.state, "voice_capture", None)
-            if capture is not None:
-                self.state.pending_voice_capture = False
-                from lib.presentation.utils import run_async
-
-                run_async(self.page, capture)
 
     def _render(self, *, force: bool = False) -> None:
         """Swap primary / secondary content based on AppState."""
@@ -549,7 +529,7 @@ class FinanseApp:
                         ft.Text(
                             tr("lock.pin_load_failed", lang),
                             text_align=ft.TextAlign.CENTER,
-                            width=280,
+                            expand=True,
                         ),
                     ],
                 ),

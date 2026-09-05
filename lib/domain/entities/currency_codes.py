@@ -24,7 +24,7 @@ _ALIASES: dict[str, str] = {
 }
 
 
-def normalize_currency_code(code: str | None, *, default: str = "RUB") -> str:
+def normalize_currency_code(code: str | None, *, default: str = "USD") -> str:
     """Return a cleaned uppercase currency code (aliases mapped to ISO)."""
     raw = (code or default).strip().upper().replace(" ", "")
     if not raw:

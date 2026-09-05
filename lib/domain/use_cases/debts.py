@@ -249,11 +249,13 @@ class CreateDebtUseCase:
         accounts: Optional[AccountRepository] = None,
         add_transaction: Optional["AddTransactionUseCase"] = None,
         currencies: Optional[CurrencyRepository] = None,
+        session_factory: object = None,
     ) -> None:
         self._debts = debts
         self._accounts = accounts
         self._add_transaction = add_transaction
         self._currencies = currencies
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -262,61 +264,76 @@ class CreateDebtUseCase:
         account_id: Optional[str] = None,
     ) -> Debt:
         """Persist a debt; if ``account_id`` is set, record principal cash flow."""
-        amount = quantize_money(debt.amount)
-        created = debt.model_copy(
-            update={
-                "amount": amount,
-                "remaining_amount": amount,
-                "status": DebtStatus.ACTIVE,
-                "account_id": (debt.account_id or account_id or "").strip() or None,
-                "accrued_interest": Decimal("0.00"),
-                "created_at": debt.created_at or _utc_now(),
-                "updated_at": _utc_now(),
-                "started_at": debt.started_at or _utc_now(),
-            }
-        )
-        created = await self._debts.create(created)
 
-        cash_account_id = (account_id or "").strip() or None
-        if cash_account_id and self._accounts is not None and self._add_transaction is not None:
-            account = await self._accounts.get_by_id(cash_account_id)
-            if account is None:
-                raise ValueError(f"Account not found: {cash_account_id}")
-            cash_amount = amount
-            if account.currency.upper() != created.currency.upper():
-                if self._currencies is None:
-                    raise ValueError(
-                        f"No exchange rate for {created.currency}/{account.currency}"
-                    )
-                rates = await self._currencies.list_rates()
-                converted = RateBook(rates).convert(
-                    amount, created.currency, account.currency
-                )
-                if converted is None:
-                    raise ValueError(
-                        f"No exchange rate for {created.currency}/{account.currency}"
-                    )
-                cash_amount = quantize_money(converted)
-            tx_type = (
-                TransactionType.INCOME
-                if created.direction == DebtDirection.I_OWE
-                else TransactionType.EXPENSE
+        async def _run() -> Debt:
+            amount = quantize_money(debt.amount)
+            created = debt.model_copy(
+                update={
+                    "amount": amount,
+                    "remaining_amount": amount,
+                    "status": DebtStatus.ACTIVE,
+                    "account_id": (debt.account_id or account_id or "").strip() or None,
+                    "accrued_interest": Decimal("0.00"),
+                    "created_at": debt.created_at or _utc_now(),
+                    "updated_at": _utc_now(),
+                    "started_at": debt.started_at or _utc_now(),
+                }
             )
-            await self._add_transaction.execute(
-                Transaction(
-                    account_id=account.id,
-                    amount=cash_amount,
-                    category=DEBT_PRINCIPAL_CATEGORY,
-                    tags=[DEBT_PRINCIPAL_TAG],
-                    date=_utc_now(),
-                    comment=created.counterparty,
-                    type=tx_type,
-                    currency=account.currency,
-                    debt_id=created.id,
-                    debt_credit_amount=Decimal("0.00"),
+            created = await self._debts.create(created)
+
+            cash_account_id = (account_id or "").strip() or None
+            if (
+                cash_account_id
+                and self._accounts is not None
+                and self._add_transaction is not None
+            ):
+                account = await self._accounts.get_by_id(cash_account_id)
+                if account is None:
+                    raise ValueError(f"Account not found: {cash_account_id}")
+                cash_amount = amount
+                if account.currency.upper() != created.currency.upper():
+                    if self._currencies is None:
+                        raise ValueError(
+                            f"No exchange rate for {created.currency}/{account.currency}"
+                        )
+                    rates = await self._currencies.list_rates()
+                    converted = RateBook(rates).convert(
+                        amount, created.currency, account.currency
+                    )
+                    if converted is None:
+                        raise ValueError(
+                            f"No exchange rate for {created.currency}/{account.currency}"
+                        )
+                    cash_amount = quantize_money(converted)
+                tx_type = (
+                    TransactionType.INCOME
+                    if created.direction == DebtDirection.I_OWE
+                    else TransactionType.EXPENSE
                 )
-            )
-        return created
+                await self._add_transaction.execute(
+                    Transaction(
+                        account_id=account.id,
+                        amount=cash_amount,
+                        category=DEBT_PRINCIPAL_CATEGORY,
+                        tags=[DEBT_PRINCIPAL_TAG],
+                        date=_utc_now(),
+                        comment=created.counterparty,
+                        type=tx_type,
+                        currency=account.currency,
+                        debt_id=created.id,
+                        debt_credit_amount=Decimal("0.00"),
+                    )
+                )
+            return created
+
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
 
 
 class UpdateDebtUseCase:
@@ -409,25 +426,37 @@ class DeleteDebtUseCase:
         debts: DebtRepository,
         transactions: Optional[TransactionRepository] = None,
         delete_transaction: Optional["DeleteTransactionUseCase"] = None,
+        session_factory: object = None,
     ) -> None:
         self._debts = debts
         self._transactions = transactions
         self._delete_transaction = delete_transaction
+        self._session_factory = session_factory
 
     async def execute(self, debt_id: str, *, force: bool = False) -> bool:
-        linked: list[Transaction] = []
-        if self._transactions is not None:
-            linked = await self._transactions.list(debt_id=debt_id)
-            if not force:
-                payments = [tx for tx in linked if not is_debt_principal_tx(tx)]
-                if payments:
-                    raise ValueError(
-                        "Debt has repayments; delete payments first or forgive the debt"
-                    )
-        if self._transactions is not None and self._delete_transaction is not None:
-            for tx in linked:
-                await self._delete_transaction.execute(tx.id)
-        return await self._debts.delete(debt_id)
+        async def _run() -> bool:
+            linked: list[Transaction] = []
+            if self._transactions is not None:
+                linked = await self._transactions.list(debt_id=debt_id)
+                if not force:
+                    payments = [tx for tx in linked if not is_debt_principal_tx(tx)]
+                    if payments:
+                        raise ValueError(
+                            "Debt has repayments; delete payments first or forgive the debt"
+                        )
+            if self._transactions is not None and self._delete_transaction is not None:
+                for tx in linked:
+                    await self._delete_transaction.execute(tx.id)
+            return await self._debts.delete(debt_id)
+
+        if self._session_factory is not None:
+            from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+            if in_unit_of_work():
+                return await _run()
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _run()
+        return await _run()
 
 
 class ListDebtsUseCase:

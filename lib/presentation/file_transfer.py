@@ -55,13 +55,17 @@ def safe_filename(name: str, *, default: str = "restore.bin") -> str:
 
 
 def classify_restore_payload(name: str, payload: bytes) -> str:
-    """Return ``db``, ``json``, or ``unknown`` for a picked restore file."""
+    """Return ``db``, ``json``, ``enc``, or ``unknown`` for a picked restore file."""
     if payload.startswith(SQLITE_MAGIC):
         return "db"
+    if payload.startswith(b"FWEX"):
+        return "enc"
     lowered = (name or "").lower()
     stripped = payload.lstrip()
     if stripped.startswith(b"{") or stripped.startswith(b"[") or lowered.endswith(".json"):
         return "json"
+    if lowered.endswith((".fwexport", ".enc")):
+        return "enc"
     if lowered.endswith((".db", ".sqlite", ".sqlite3")):
         return "db"
     return "unknown"

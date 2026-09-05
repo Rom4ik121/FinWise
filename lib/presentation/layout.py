@@ -6,6 +6,23 @@ from typing import Sequence
 
 import flet as ft
 
+# Re-export responsive primitives so pages can import from one place.
+from lib.presentation.responsive import (  # noqa: F401
+    MIN_TAP,
+    calendar_cell_size,
+    clamp_content_width,
+    compact_chart_size,
+    form_control_width,
+    is_compact,
+    is_wide,
+    page_height,
+    page_width,
+    scale_font,
+    tap_button_style,
+    tap_icon_button,
+    tap_padding,
+)
+
 
 def _hidden_scrollbar() -> ft.Scrollbar:
     return ft.Scrollbar(

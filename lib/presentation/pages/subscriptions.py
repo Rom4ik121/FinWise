@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional
 
 import flet as ft
 
-from lib.core.config import ACCOUNT_COLORS, CATEGORY_ICON_GROUPS
+from lib.core.config import ACCOUNT_COLORS
 from lib.domain.entities.subscription import (
     Periodicity,
     Subscription,
@@ -21,7 +21,7 @@ from lib.domain.use_cases.subscriptions import (
     count_missed_periods,
     monthly_equivalent,
 )
-from lib.presentation.account_icons import account_icon_control, account_icon_groups
+from lib.presentation.account_icons import account_icon_control, entity_icon_groups
 from lib.presentation.dropdown_options import (
     account_dropdown_options,
     icon_dropdown_option,
@@ -112,6 +112,8 @@ class SubscriptionsPage(ft.Column):
         self._due_soon = False
         self._search_query = ""
         self._search_gen = 0
+        self._cached_items: list[Subscription] | None = None
+        self._cache_token: int | None = None
         self._search_tf = ft.TextField(
             hint_text=tr("subscription.search_hint", state.language),
             prefix_icon=ft.Icons.SEARCH,
@@ -327,8 +329,9 @@ class SubscriptionsPage(ft.Column):
         """Reload subscriptions list."""
         self._token = self._state.subscriptions_token
         lang = self._state.language
-        fill_loading(self._list)
-        safe_update(self._list)
+        if self._cached_items is None:
+            fill_loading(self._list)
+            safe_update(self._list)
         self._alert_ids = pending_related_ids(
             self._state.container,
             self._state.settings,
@@ -336,10 +339,13 @@ class SubscriptionsPage(ft.Column):
         )
         # Do not auto-mark alerts read on every reload (badge display only).
         try:
-            self._accounts = await self._state.container.list_accounts.execute(
-                active_only=True
-            )
-            items_all = await self._state.container.list_subscriptions.execute()
+            if self._cached_items is None or self._cache_token != self._token:
+                self._accounts = await self._state.container.list_accounts.execute(active_only=True, corporate=False)
+                items_all = await self._state.container.list_subscriptions.execute()
+                self._cached_items = items_all
+                self._cache_token = self._token
+            else:
+                items_all = self._cached_items
             items = self._apply_list_filters(items_all)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
@@ -521,9 +527,6 @@ class SubscriptionsPage(ft.Column):
     async def _pause(self, sub: Subscription) -> None:
         try:
             await self._state.container.pause_subscription.execute(sub.id)
-            audit = getattr(self._state.container, "append_subscription_audit", None)
-            if audit is not None:
-                await audit.execute(sub.id, "pause")
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             return
@@ -533,9 +536,6 @@ class SubscriptionsPage(ft.Column):
     async def _resume(self, sub: Subscription) -> None:
         try:
             await self._state.container.resume_subscription.execute(sub.id)
-            audit = getattr(self._state.container, "append_subscription_audit", None)
-            if audit is not None:
-                await audit.execute(sub.id, "resume")
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             return
@@ -1079,9 +1079,7 @@ class SubscriptionsPage(ft.Column):
         lang = self._state.language
         if not self._accounts:
             try:
-                self._accounts = await self._state.container.list_accounts.execute(
-                    active_only=True
-                )
+                self._accounts = await self._state.container.list_accounts.execute(active_only=True, corporate=False)
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
                 return
@@ -1285,7 +1283,7 @@ class SubscriptionsPage(ft.Column):
                     on_tap=lambda _e: open_icon_picker(
                         self._page,
                         lang=lang,
-                        groups=CATEGORY_ICON_GROUPS or account_icon_groups(include_exchanges=False),
+                        groups=entity_icon_groups(),
                         selected=selected_icon["value"],
                         on_select=_select_icon,
                         render_icon=lambda key: account_icon_control(

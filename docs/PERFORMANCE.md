@@ -142,7 +142,20 @@
 - paged `list_transactions` (`tx_query` / `transaction_paging`, page=500, cap=25k);
 - `has_debt` filter для sparkline debts.
 
-Остаётся backlog: dashboard in-place mutate, off-screen reload fine-tuning, ListView storms, SQL full-text search, batch ConvertCurrency.
+Остаётся backlog: _(пусто — slice 2026-09-04 закрыт)_.
+
+Закрыто дополнительно (2026-09-04 evening):
+
+- dashboard / debts KPI → `ledger_fx` (единый FX path);
+- `ConvertCurrencyUseCase` через RateBook cache + `execute_many`;
+- ReloadGate: off-screen не drain'ит после первого paint;
+- transaction filter range capped at 365 days.
+
+Закрыто (2026-09-04 night):
+
+- Dashboard in-place mutate (balance/chart/sections slots; soft reload);
+- ListView storms: goals/debts/subs entity cache + no spinner on search filter;
+- SQL FTS5 `transactions_fts` (Alembic **0022** + `database.py` ensure); UI `query=`.
 
 ---
 

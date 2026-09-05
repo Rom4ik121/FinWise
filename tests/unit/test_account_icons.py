@@ -52,6 +52,26 @@ def test_groups_and_validation() -> None:
     assert not is_valid_account_icon("not_a_real_icon_xyz")
 
 
+def test_entity_icon_groups_exclude_crypto_and_exchanges() -> None:
+    from lib.presentation.account_icons import entity_icon_groups, is_valid_entity_icon
+
+    groups = dict(entity_icon_groups())
+    assert "icon_group.crypto" not in groups
+    assert "icon_group.exchanges" not in groups
+    assert "icon_group.fiat" not in groups
+    assert "restaurant" in groups["icon_group.food"]
+    assert "shopping_cart" in groups["icon_group.shopping"]
+    assert is_valid_entity_icon("restaurant")
+    assert is_valid_entity_icon("flag")
+    assert is_valid_entity_icon("savings")
+    assert not is_valid_entity_icon("exch_binance")
+    assert not is_valid_entity_icon("ccy_BTC")
+    flat = [i for icons in groups.values() for i in icons]
+    assert not any(i.startswith("exch_") for i in flat)
+    assert not any(i.startswith("ccy_") for i in flat)
+    assert len(flat) > 80
+
+
 def test_all_catalog_cryptos_have_account_icons() -> None:
     groups = dict(account_icon_groups())
     crypto_keys = set(groups["icon_group.crypto"])

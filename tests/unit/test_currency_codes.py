@@ -20,6 +20,6 @@ def test_normalize_aliases() -> None:
 
 
 def test_normalize_empty_uses_default() -> None:
-    assert normalize_currency_code(None) == "RUB"
-    assert normalize_currency_code("") == "RUB"
+    assert normalize_currency_code(None) == "USD"
+    assert normalize_currency_code("") == "USD"
     assert normalize_currency_code("  ", default="UZS") == "UZS"

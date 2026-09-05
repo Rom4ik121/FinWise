@@ -61,7 +61,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Performance | `test_performance.py` (tags, RateBook, paging, `has_debt`, budget batch) |
 | UI smoke / utils | `test_ui_widgets_smoke.py`, `test_presentation_utils.py`, `test_charts.py` |
 | Файлы / Flet services | `test_file_transfer.py`, `test_flet_services.py` |
-| Голос | `test_voice_parse.py`, `test_voice_capture.py` |
+| Push | `test_push_notifier.py`, `test_notification_service.py` |
 | Пути iOS/Android | `test_config_ios.py` |
 | UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py` |
 

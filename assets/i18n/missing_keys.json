@@ -1,0 +1,990 @@
+{
+ "action.close": {
+  "ru": "Закрыть",
+  "en": "Close"
+ },
+ "analytics.avg_day": {
+  "ru": "В день",
+  "en": "Per day"
+ },
+ "analytics.avg_income_day": {
+  "ru": "В день",
+  "en": "Per day"
+ },
+ "analytics.balance": {
+  "ru": "Все счета",
+  "en": "All accounts"
+ },
+ "analytics.budget_month_hint": {
+  "ru": "Лимиты и траты за текущий календарный месяц",
+  "en": "Limits and spending for the current calendar month"
+ },
+ "analytics.expense": {
+  "ru": "Расход",
+  "en": "Expense"
+ },
+ "analytics.full_amount": {
+  "ru": "Полная сумма",
+  "en": "Full amount"
+ },
+ "analytics.goals_breakdown": {
+  "ru": "По целям",
+  "en": "By goal"
+ },
+ "analytics.goals_count": {
+  "ru": "Целей: {count}",
+  "en": "Goals: {count}"
+ },
+ "analytics.goals_saved_of": {
+  "ru": "из {target}",
+  "en": "of {target}"
+ },
+ "analytics.i_owe": {
+  "ru": "Я должен",
+  "en": "I owe"
+ },
+ "analytics.income": {
+  "ru": "Доход",
+  "en": "Income"
+ },
+ "analytics.income_cats": {
+  "ru": "Доходы по категориям",
+  "en": "Income by category"
+ },
+ "analytics.net": {
+  "ru": "Чистое",
+  "en": "Net"
+ },
+ "analytics.no_subs": {
+  "ru": "Нет данных по подпискам",
+  "en": "No subscription data"
+ },
+ "analytics.ops": {
+  "ru": "Операций",
+  "en": "Operations"
+ },
+ "analytics.owed_to_me": {
+  "ru": "Мне должны",
+  "en": "Owed to me"
+ },
+ "analytics.savings": {
+  "ru": "Сбережения",
+  "en": "Saved"
+ },
+ "analytics.spend_cats": {
+  "ru": "Расходы по категориям",
+  "en": "Spending by category"
+ },
+ "analytics.subscriptions": {
+  "ru": "Подписки",
+  "en": "Subscriptions"
+ },
+ "analytics.subscriptions_active": {
+  "ru": "Активных подписок",
+  "en": "Active subscriptions"
+ },
+ "analytics.subscriptions_breakdown": {
+  "ru": "По подпискам",
+  "en": "By subscription"
+ },
+ "analytics.subscriptions_monthly_cost": {
+  "ru": "Стоимость в месяц",
+  "en": "Monthly cost"
+ },
+ "analytics.subscriptions_spent": {
+  "ru": "Потрачено на подписки",
+  "en": "Spent on subscriptions"
+ },
+ "analytics.subscriptions_top": {
+  "ru": "Топ подписок",
+  "en": "Top subscriptions"
+ },
+ "analytics.tab.budget": {
+  "ru": "Бюджет",
+  "en": "Budget"
+ },
+ "analytics.tab.debts": {
+  "ru": "Долги",
+  "en": "Debts"
+ },
+ "analytics.tab.flow": {
+  "ru": "Доходы и расходы",
+  "en": "Income & spend"
+ },
+ "analytics.tab.goals": {
+  "ru": "Цели",
+  "en": "Goals"
+ },
+ "analytics.tab.income": {
+  "ru": "Доходы",
+  "en": "Income"
+ },
+ "analytics.tab.more": {
+  "ru": "Ещё",
+  "en": "More"
+ },
+ "analytics.tab.spend": {
+  "ru": "Расходы",
+  "en": "Spending"
+ },
+ "analytics.tab.subscriptions": {
+  "ru": "Подписки",
+  "en": "Subscriptions"
+ },
+ "analytics.tab.trend": {
+  "ru": "График",
+  "en": "Trend"
+ },
+ "analytics.tap_hint": {
+  "ru": "Нажмите на сумму, чтобы увидеть её полностью",
+  "en": "Tap an amount to see the full figure"
+ },
+ "notifications.budget_100": {
+  "ru": "Бюджет категории {category} превышен! Потрачено: {spent} из {limit} {currency}",
+  "en": "Budget for \"{category}\" exceeded! Spent {spent} of {limit} {currency}"
+ },
+ "notifications.budget_50": {
+  "ru": "Бюджет категории {category} израсходован наполовину. Осталось: {remaining} {currency}",
+  "en": "Budget for \"{category}\" is 50% used. Remaining: {remaining} {currency}"
+ },
+ "notifications.budget_80": {
+  "ru": "Бюджет категории {category} израсходован на 80%. Осталось: {remaining} {currency}",
+  "en": "Budget for \"{category}\" is 80% used. Remaining: {remaining} {currency}"
+ },
+ "notify.budget_100_title": {
+  "ru": "Бюджет превышен",
+  "en": "Budget exceeded"
+ },
+ "notify.budget_50_title": {
+  "ru": "Половина бюджета",
+  "en": "Half the budget used"
+ },
+ "notify.budget_80_title": {
+  "ru": "Бюджет почти исчерпан",
+  "en": "Budget nearly used up"
+ },
+ "notify.debt_due": {
+  "ru": "Скоро срок погашения долга",
+  "en": "Debt due soon"
+ },
+ "notify.debt_idle_body": {
+  "ru": "По долгу \"{name}\" не было платежей более 30 дней",
+  "en": "No payments on debt \"{name}\" for over 30 days"
+ },
+ "notify.debt_idle_title": {
+  "ru": "Нет платежей по долгу",
+  "en": "No debt payments lately"
+ },
+ "notify.debt_overdue_body": {
+  "ru": "Долг \"{name}\" просрочен. Остаток: {amount}",
+  "en": "Debt \"{name}\" is overdue. Remaining: {amount}"
+ },
+ "notify.debt_overdue_title": {
+  "ru": "Долг просрочен",
+  "en": "Debt overdue"
+ },
+ "notify.goal_off_track_body": {
+  "ru": "Цель \"{name}\" отстаёт от графика. Требуется вносить по {amount} в месяц",
+  "en": "Goal \"{name}\" is behind schedule. Contribute about {amount} per month"
+ },
+ "notify.goal_off_track_title": {
+  "ru": "Цель отстаёт от графика",
+  "en": "Goal behind schedule"
+ },
+ "notify.goal_reached": {
+  "ru": "Цель достигнута!",
+  "en": "Goal reached!"
+ },
+ "notify.subscription_due": {
+  "ru": "Скоро списание подписки",
+  "en": "Subscription billing soon"
+ },
+ "notify.subscription_due_body": {
+  "ru": "Подписка \"{name}\" будет списана {amount} {currency} со счёта \"{account}\" через {days} дн.",
+  "en": "Subscription \"{name}\" will charge {amount} {currency} from \"{account}\" in {days} day(s)."
+ },
+ "notify.subscription_expired": {
+  "ru": "Подписка завершена",
+  "en": "Subscription expired"
+ },
+ "notify.subscription_expired_body": {
+  "ru": "Подписка \"{name}\" истекла (дата окончания или лимит платежей).",
+  "en": "Subscription \"{name}\" expired (end date or payment limit)."
+ },
+ "notify.subscription_insufficient": {
+  "ru": "На счету недостаточно средств!",
+  "en": "Insufficient account balance!"
+ },
+ "notify.subscription_skipped": {
+  "ru": "Подписка не списана",
+  "en": "Subscription charge skipped"
+ },
+ "notify.subscription_skipped_body": {
+  "ru": "Недостаточно средств для подписки \"{name}\" ({amount} {currency}) на счёте \"{account}\".",
+  "en": "Insufficient funds for \"{name}\" ({amount} {currency}) on account \"{account}\"."
+ },
+ "picker.choose_color": {
+  "ru": "Выбрать цвет",
+  "en": "Choose color"
+ },
+ "picker.choose_icon": {
+  "ru": "Выбрать иконку",
+  "en": "Choose icon"
+ },
+ "picker.close": {
+  "ru": "Свернуть",
+  "en": "Collapse"
+ },
+ "picker.color_title": {
+  "ru": "Выбор цвета",
+  "en": "Choose color"
+ },
+ "picker.icon_catalog": {
+  "ru": "Каталог иконок",
+  "en": "Icon catalog"
+ },
+ "push.ready": {
+  "ru": "Уведомления включены. Напоминание придёт даже при закрытом приложении.",
+  "en": "Notifications are on. Reminders will arrive even when the app is closed."
+ },
+ "settings.appearance": {
+  "ru": "Внешний вид",
+  "en": "Appearance"
+ },
+ "settings.backup_restore": {
+  "ru": "Резервные копии",
+  "en": "Backups"
+ },
+ "settings.basics": {
+  "ru": "Основные",
+  "en": "Basics"
+ },
+ "settings.biometric": {
+  "ru": "Face ID",
+  "en": "Face ID"
+ },
+ "settings.biometric_confirmed": {
+  "ru": "Face ID подтверждён",
+  "en": "Face ID confirmed"
+ },
+ "settings.biometric_hint_missing": {
+  "ru": "Face ID недоступен. Настройте разблокировку по лицу в системе",
+  "en": "Face ID unavailable. Enroll face unlock in device settings"
+ },
+ "settings.biometric_hint_ok": {
+  "ru": "Face ID готов — можно входить по лицу",
+  "en": "Face ID is ready for unlock"
+ },
+ "settings.biometric_hint_unconfigured": {
+  "ru": "Добавьте Face ID в настройках устройства, затем включите снова",
+  "en": "Enroll Face ID in device settings, then enable again"
+ },
+ "settings.biometric_need_pin": {
+  "ru": "Сначала установите PIN — Face ID работает вместе с ним",
+  "en": "Set a PIN first — Face ID works together with it"
+ },
+ "settings.biometric_unsupported": {
+  "ru": "Face ID на этом устройстве недоступен",
+  "en": "Face ID isn’t available on this device"
+ },
+ "settings.budget_alerts": {
+  "ru": "Уведомления о бюджетах",
+  "en": "Budget alerts"
+ },
+ "settings.check_balance_before_subscription": {
+  "ru": "Проверять баланс перед списанием подписки",
+  "en": "Check balance before subscription charge"
+ },
+ "settings.clear_pin": {
+  "ru": "Сбросить PIN",
+  "en": "Clear PIN"
+ },
+ "settings.currency_hint": {
+  "ru": "Валюта для итогов на экране. Сами операции по-прежнему идут в валюте выбранного счёта",
+  "en": "Currency for on-screen totals. Transactions still use the selected account’s currency"
+ },
+ "settings.daily_backup_hint": {
+  "ru": "Раз в день приложение само обновляет резервную копию (один и тот же файл).",
+  "en": "Once a day the app refreshes your automatic backup (same file, not a new one)."
+ },
+ "settings.danger": {
+  "ru": "Опасная зона",
+  "en": "Danger zone"
+ },
+ "settings.data": {
+  "ru": "Данные",
+  "en": "Data"
+ },
+ "settings.debt_reminders": {
+  "ru": "Напоминания о долгах",
+  "en": "Debt reminders"
+ },
+ "settings.default_currency": {
+  "ru": "Валюта по умолчанию",
+  "en": "Default currency"
+ },
+ "settings.delete_all_confirm": {
+  "ru": "Будут удалены все счета, операции, цели, долги, подписки, курсы и PIN. Это нельзя отменить.",
+  "en": "This will delete all accounts, transactions, goals, debts, subscriptions, rates, and PIN. This cannot be undone."
+ },
+ "settings.delete_all_data": {
+  "ru": "Удалить все данные",
+  "en": "Delete all data"
+ },
+ "settings.delete_all_done": {
+  "ru": "Все данные удалены",
+  "en": "All data deleted"
+ },
+ "settings.exchange_interval": {
+  "ru": "Интервал обновления курсов (мин)",
+  "en": "Exchange update interval (min)"
+ },
+ "settings.export": {
+  "ru": "Экспорт",
+  "en": "Export"
+ },
+ "settings.export_confirm": {
+  "ru": "Файл с полным учётом будет сохранён на устройстве. Продолжить?",
+  "en": "A file with your full ledger will be saved on this device. Continue?"
+ },
+ "settings.export_csv": {
+  "ru": "Экспорт CSV",
+  "en": "Export CSV"
+ },
+ "settings.export_hint": {
+  "ru": "Сохраните данные в защищённый паролем файл на устройстве.",
+  "en": "Save your data to a password-protected file on this device."
+ },
+ "settings.export_json": {
+  "ru": "Экспорт JSON",
+  "en": "Export JSON"
+ },
+ "settings.export_json_encrypted": {
+  "ru": "Экспорт JSON (пароль)",
+  "en": "Export JSON (password)"
+ },
+ "settings.export_password": {
+  "ru": "Пароль экспорта",
+  "en": "Export password"
+ },
+ "settings.export_password_short": {
+  "ru": "Пароль слишком короткий (мин. 4)",
+  "en": "Password too short (min 4)"
+ },
+ "settings.export_pdf": {
+  "ru": "Экспорт PDF",
+  "en": "Export PDF"
+ },
+ "settings.file_cancelled": {
+  "ru": "Сохранение отменено",
+  "en": "Save cancelled"
+ },
+ "settings.file_denied": {
+  "ru": "Нельзя писать в системные Загрузки. Сохраните файл через «Поделиться».",
+  "en": "The system Downloads folder is not writable. Save the file via Share."
+ },
+ "settings.file_ready": {
+  "ru": "{kind} сохранён. Файл: {path}",
+  "en": "{kind} saved. File: {path}"
+ },
+ "settings.file_shared": {
+  "ru": "{kind} готов. Сохраните через «Поделиться»: Файлы, Диск или мессенджер.",
+  "en": "{kind} is ready. Save it via Share: Files, Drive, or a messenger."
+ },
+ "settings.goal_milestones": {
+  "ru": "Уведомления о целях",
+  "en": "Goal milestone alerts"
+ },
+ "settings.language": {
+  "ru": "Язык",
+  "en": "Language"
+ },
+ "settings.no_backups": {
+  "ru": "Нет резервных копий",
+  "en": "No backups found"
+ },
+ "settings.notifications": {
+  "ru": "Уведомления",
+  "en": "Notifications"
+ },
+ "settings.notifications_alerts": {
+  "ru": "Оповещения",
+  "en": "Alerts"
+ },
+ "settings.notifications_enable": {
+  "ru": "Включить уведомления",
+  "en": "Enable notifications"
+ },
+ "settings.notifications_reminders": {
+  "ru": "Напоминания",
+  "en": "Reminders"
+ },
+ "settings.notifications_schedule": {
+  "ru": "Расписание",
+  "en": "Schedule"
+ },
+ "settings.pin": {
+  "ru": "PIN-код",
+  "en": "PIN code"
+ },
+ "settings.pin_cleared": {
+  "ru": "PIN сброшен",
+  "en": "PIN cleared"
+ },
+ "settings.pin_hint": {
+  "ru": "При запуске приложение попросит PIN, если он установлен",
+  "en": "On launch the app asks for your PIN when one is set"
+ },
+ "settings.pin_min": {
+  "ru": "PIN: минимум 4 символа",
+  "en": "PIN: at least 4 digits"
+ },
+ "settings.pin_saved": {
+  "ru": "PIN сохранён",
+  "en": "PIN saved"
+ },
+ "settings.rates": {
+  "ru": "Курсы валют",
+  "en": "Exchange rates"
+ },
+ "settings.reminder_days": {
+  "ru": "Напоминать о подписках за N дней",
+  "en": "Remind about subscriptions N days ahead"
+ },
+ "settings.reminder_days_invalid": {
+  "ru": "Число дней напоминания — от 0 до 365",
+  "en": "Reminder days must be between 0 and 365"
+ },
+ "settings.reminder_time": {
+  "ru": "Время напоминаний (ЧЧ:ММ)",
+  "en": "Reminder time (HH:MM)"
+ },
+ "settings.reminder_time_invalid": {
+  "ru": "Время напоминания: часы и минуты, например 09:30",
+  "en": "Enter reminder time as hours and minutes, for example 09:30"
+ },
+ "settings.restore_bad_file": {
+  "ru": "Этот файл нельзя восстановить",
+  "en": "This file cannot be restored"
+ },
+ "settings.restore_confirm": {
+  "ru": "Текущие данные будут заменены последней резервной копией. Продолжить?",
+  "en": "Current data will be replaced with the latest backup. Continue?"
+ },
+ "settings.restore_done": {
+  "ru": "Данные восстановлены",
+  "en": "Data restored"
+ },
+ "settings.restore_need_db": {
+  "ru": "Для восстановления выберите файл резервной копии, а не обычный экспорт",
+  "en": "To restore, pick a backup file, not a regular export"
+ },
+ "settings.sections": {
+  "ru": "Разделы",
+  "en": "Sections"
+ },
+ "settings.sections_hint": {
+  "ru": "Быстрый переход к разделам приложения",
+  "en": "Quick links to app sections"
+ },
+ "settings.security": {
+  "ru": "Безопасность",
+  "en": "Security"
+ },
+ "settings.security_biometric": {
+  "ru": "Биометрия",
+  "en": "Biometrics"
+ },
+ "settings.security_pin": {
+  "ru": "Блокировка PIN",
+  "en": "PIN lock"
+ },
+ "settings.set_pin": {
+  "ru": "Установить PIN",
+  "en": "Set PIN"
+ },
+ "settings.style": {
+  "ru": "Стиль интерфейса",
+  "en": "Interface style"
+ },
+ "settings.style.classic": {
+  "ru": "Классика",
+  "en": "Classic"
+ },
+ "settings.style.hint": {
+  "ru": "Меняет цвета и оформление всего приложения. Светлую или тёмную тему выберите отдельно ниже",
+  "en": "Changes colors and look for the whole app. Pick light or dark separately below"
+ },
+ "settings.style.neon": {
+  "ru": "Неон",
+  "en": "Neon"
+ },
+ "settings.subscription_reminders": {
+  "ru": "Напоминания о подписках",
+  "en": "Subscription reminders"
+ },
+ "settings.theme": {
+  "ru": "Тема",
+  "en": "Theme"
+ },
+ "settings.theme.dark": {
+  "ru": "Тёмная",
+  "en": "Dark"
+ },
+ "settings.theme.light": {
+  "ru": "Светлая",
+  "en": "Light"
+ },
+ "settings.theme.system": {
+  "ru": "Системная",
+  "en": "System"
+ },
+ "subscription.audit": {
+  "ru": "История изменений",
+  "en": "Change history"
+ },
+ "subscription.audit.cancel": {
+  "ru": "Отменена",
+  "en": "Cancelled"
+ },
+ "subscription.audit.catchup": {
+  "ru": "Догон пропущенных",
+  "en": "Catch-up charges"
+ },
+ "subscription.audit.charge": {
+  "ru": "Списание",
+  "en": "Charged"
+ },
+ "subscription.audit.create": {
+  "ru": "Подписка создана",
+  "en": "Subscription created"
+ },
+ "subscription.audit.duplicate": {
+  "ru": "Продублирована",
+  "en": "Duplicated"
+ },
+ "subscription.audit.pause": {
+  "ru": "На паузе",
+  "en": "Paused"
+ },
+ "subscription.audit.resume": {
+  "ru": "Возобновлена",
+  "en": "Resumed"
+ },
+ "subscription.audit.skip": {
+  "ru": "Период пропущен",
+  "en": "Period skipped"
+ },
+ "subscription.audit.update": {
+  "ru": "Подписка обновлена",
+  "en": "Subscription updated"
+ },
+ "subscription.auto_charge": {
+  "ru": "Автосписание",
+  "en": "Auto-charge"
+ },
+ "subscription.auto_charge_off": {
+  "ru": "без автосписания",
+  "en": "manual only"
+ },
+ "subscription.biweekly": {
+  "ru": "Раз в 2 недели",
+  "en": "Biweekly"
+ },
+ "subscription.cancel": {
+  "ru": "Отменить подписку",
+  "en": "Cancel subscription"
+ },
+ "subscription.cancel_via_action": {
+  "ru": "Отмените подписку кнопкой на карточке",
+  "en": "Cancel the subscription with the button on its card"
+ },
+ "subscription.cancelled_block": {
+  "ru": "Подписка отменена",
+  "en": "Subscription is cancelled"
+ },
+ "subscription.cannot_charge": {
+  "ru": "Эту подписку нельзя списать",
+  "en": "This subscription cannot be charged"
+ },
+ "subscription.catchup_all": {
+  "ru": "Списать все пропущенные",
+  "en": "Charge all missed"
+ },
+ "subscription.catchup_body": {
+  "ru": "Пропущено списаний: {count}",
+  "en": "Missed charges: {count}"
+ },
+ "subscription.catchup_none": {
+  "ru": "Списать не удалось — проверьте баланс и курс",
+  "en": "Nothing charged — check balance and exchange rate"
+ },
+ "subscription.catchup_one": {
+  "ru": "Списать один период",
+  "en": "Charge one period"
+ },
+ "subscription.catchup_skip": {
+  "ru": "Пропустить пропущенные",
+  "en": "Skip missed periods"
+ },
+ "subscription.catchup_title": {
+  "ru": "Пропущенные периоды",
+  "en": "Missed periods"
+ },
+ "subscription.charge_history": {
+  "ru": "История списаний",
+  "en": "Charge history"
+ },
+ "subscription.charge_now": {
+  "ru": "Списать сейчас",
+  "en": "Charge now"
+ },
+ "subscription.copy_suffix": {
+  "ru": " (копия)",
+  "en": " (copy)"
+ },
+ "subscription.custom": {
+  "ru": "Свой интервал",
+  "en": "Custom interval"
+ },
+ "subscription.custom_interval": {
+  "ru": "Интервал (дней)",
+  "en": "Interval (days)"
+ },
+ "subscription.custom_interval_required": {
+  "ru": "Укажите интервал в днях для своего расписания",
+  "en": "Enter the interval in days for a custom schedule"
+ },
+ "subscription.daily": {
+  "ru": "Ежедневно",
+  "en": "Daily"
+ },
+ "subscription.delete_charge_hint": {
+  "ru": "Списание удалится, остаток на счёте и дата следующего платежа откатятся",
+  "en": "The charge is removed; account balance and next billing date roll back"
+ },
+ "subscription.delete_hint": {
+  "ru": "Удалить «{name}»? Списания останутся в операциях",
+  "en": "Delete “{name}”? Charges stay in transactions"
+ },
+ "subscription.due_this_week": {
+  "ru": "На этой неделе: {count}",
+  "en": "This week: {count}"
+ },
+ "subscription.duplicate": {
+  "ru": "Дублировать",
+  "en": "Duplicate"
+ },
+ "subscription.end_date": {
+  "ru": "Дата окончания",
+  "en": "End date"
+ },
+ "subscription.ended_block": {
+  "ru": "Подписка истекла",
+  "en": "Subscription has ended"
+ },
+ "subscription.filter.active": {
+  "ru": "Активные",
+  "en": "Active"
+ },
+ "subscription.filter.all": {
+  "ru": "Все",
+  "en": "All"
+ },
+ "subscription.filter.all_periods": {
+  "ru": "Все периоды",
+  "en": "All periods"
+ },
+ "subscription.filter.cancelled": {
+  "ru": "Отменённые",
+  "en": "Cancelled"
+ },
+ "subscription.filter.expired": {
+  "ru": "Истекшие",
+  "en": "Expired"
+ },
+ "subscription.filter.paused": {
+  "ru": "Пауза",
+  "en": "Paused"
+ },
+ "subscription.filter_auto_only": {
+  "ru": "Только автосписание",
+  "en": "Auto-charge only"
+ },
+ "subscription.filter_auto_only_hint": {
+  "ru": "Скрыть подписки без автосписания",
+  "en": "Hide subscriptions without auto-charge"
+ },
+ "subscription.filter_due_soon": {
+  "ru": "Скоро списать",
+  "en": "Due soon"
+ },
+ "subscription.filter_due_soon_hint": {
+  "ru": "Следующие 7 дней",
+  "en": "Next 7 days"
+ },
+ "subscription.filter_period": {
+  "ru": "Период",
+  "en": "Period"
+ },
+ "subscription.filter_sort": {
+  "ru": "Сортировка",
+  "en": "Sort"
+ },
+ "subscription.filter_status": {
+  "ru": "Статус",
+  "en": "Status"
+ },
+ "subscription.filter_status_hint": {
+  "ru": "По умолчанию только активные",
+  "en": "Active only by default"
+ },
+ "subscription.insufficient_funds": {
+  "ru": "Недостаточно средств на счёте",
+  "en": "Insufficient account balance"
+ },
+ "subscription.limit_reached": {
+  "ru": "Достигнут лимит списаний",
+  "en": "Payment limit reached"
+ },
+ "subscription.max_payments": {
+  "ru": "Макс. платежей",
+  "en": "Max payments"
+ },
+ "subscription.max_payments_hint": {
+  "ru": "Сколько раз списывать. Оставьте пустым — без ограничения",
+  "en": "How many times to charge. Leave empty for no limit"
+ },
+ "subscription.monthly": {
+  "ru": "Ежемесячно",
+  "en": "Monthly"
+ },
+ "subscription.next_billing": {
+  "ru": "Следующее списание: {date}",
+  "en": "Next billing: {date}"
+ },
+ "subscription.pause": {
+  "ru": "Приостановить",
+  "en": "Pause"
+ },
+ "subscription.quarterly": {
+  "ru": "Ежеквартально",
+  "en": "Quarterly"
+ },
+ "subscription.resume": {
+  "ru": "Возобновить",
+  "en": "Resume"
+ },
+ "subscription.resume_cancelled": {
+  "ru": "Отменённую подписку нельзя возобновить — создайте новую",
+  "en": "A cancelled subscription cannot be resumed — create a new one"
+ },
+ "subscription.search_hint": {
+  "ru": "Поиск по названию",
+  "en": "Search by name"
+ },
+ "subscription.section_due_soon": {
+  "ru": "Скоро",
+  "en": "Due soon"
+ },
+ "subscription.section_other": {
+  "ru": "Остальные",
+  "en": "Others"
+ },
+ "subscription.semi_annual": {
+  "ru": "Раз в полгода",
+  "en": "Semi-annual"
+ },
+ "subscription.skip_period": {
+  "ru": "Пропустить период",
+  "en": "Skip period"
+ },
+ "subscription.sort.amount": {
+  "ru": "По сумме",
+  "en": "By amount"
+ },
+ "subscription.sort.monthly": {
+  "ru": "По месячной стоимости",
+  "en": "By monthly cost"
+ },
+ "subscription.sort.name": {
+  "ru": "По имени",
+  "en": "By name"
+ },
+ "subscription.sort.next_billing": {
+  "ru": "По дате списания",
+  "en": "By billing date"
+ },
+ "subscription.start_date": {
+  "ru": "Дата начала",
+  "en": "Start date"
+ },
+ "subscription.status.active": {
+  "ru": "Активна",
+  "en": "Active"
+ },
+ "subscription.status.cancelled": {
+  "ru": "Отменена",
+  "en": "Cancelled"
+ },
+ "subscription.status.expired": {
+  "ru": "Истекла",
+  "en": "Expired"
+ },
+ "subscription.status.paused": {
+  "ru": "На паузе",
+  "en": "Paused"
+ },
+ "subscription.status_locked_hint": {
+  "ru": "Чтобы сменить статус, нажмите «Пауза» или «Отменить» на карточке подписки",
+  "en": "To change status, use Pause or Cancel on the subscription card"
+ },
+ "subscription.template.cloud": {
+  "ru": "Облако",
+  "en": "Cloud"
+ },
+ "subscription.template.custom": {
+  "ru": "Своя",
+  "en": "Custom"
+ },
+ "subscription.template.gym": {
+  "ru": "Спортзал",
+  "en": "Gym"
+ },
+ "subscription.template.insurance": {
+  "ru": "Страховка",
+  "en": "Insurance"
+ },
+ "subscription.template.internet": {
+  "ru": "Интернет",
+  "en": "Internet"
+ },
+ "subscription.template.mobile": {
+  "ru": "Связь",
+  "en": "Mobile"
+ },
+ "subscription.template.netflix": {
+  "ru": "Netflix",
+  "en": "Netflix"
+ },
+ "subscription.template.rent": {
+  "ru": "Аренда",
+  "en": "Rent"
+ },
+ "subscription.template.spotify": {
+  "ru": "Spotify",
+  "en": "Spotify"
+ },
+ "subscription.template.youtube": {
+  "ru": "YouTube",
+  "en": "YouTube"
+ },
+ "subscription.tx_not_linked": {
+  "ru": "Операция не связана с этой подпиской",
+  "en": "This transaction isn’t linked to this subscription"
+ },
+ "subscription.weekly": {
+  "ru": "Еженедельно",
+  "en": "Weekly"
+ },
+ "subscription.yearly": {
+  "ru": "Ежегодно",
+  "en": "Yearly"
+ },
+ "subscriptions.active_count": {
+  "ru": "Активных: {count}",
+  "en": "Active: {count}"
+ },
+ "subscriptions.calendar": {
+  "ru": "Календарь списаний",
+  "en": "Billing calendar"
+ },
+ "subscriptions.monthly_hint": {
+  "ru": "Средняя стоимость активных подписок",
+  "en": "Average cost of active subscriptions"
+ },
+ "subscriptions.monthly_total": {
+  "ru": "В месяц (активные)",
+  "en": "Monthly (active)"
+ },
+ "subscriptions.per_month_short": {
+  "ru": "мес",
+  "en": "/mo"
+ },
+ "subscriptions.yearly_total": {
+  "ru": "В год (активные)",
+  "en": "Yearly (active)"
+ },
+ "tags.hint": {
+  "ru": "еда, такси",
+  "en": "food, taxi"
+ },
+ "transaction.expense": {
+  "ru": "Расход",
+  "en": "Expense"
+ },
+ "transaction.income": {
+  "ru": "Доход",
+  "en": "Income"
+ },
+ "transaction.transfer": {
+  "ru": "Перевод",
+  "en": "Transfer"
+ },
+ "transfer.delete_pair": {
+  "ru": "Будут удалены обе стороны перевода",
+  "en": "Both sides of the transfer will be deleted"
+ },
+ "transfer.edit_blocked": {
+  "ru": "У перевода можно изменить только комментарий",
+  "en": "You can only edit the comment on a transfer"
+ },
+ "transfer.edit_hint": {
+  "ru": "Сумму и счета перевода менять нельзя — только комментарий. Удаление уберёт обе стороны перевода",
+  "en": "You can’t change the amount or accounts — only the comment. Deleting removes both sides of the transfer"
+ },
+ "transfer.fee_account": {
+  "ru": "Счёт комиссии",
+  "en": "Fee account"
+ },
+ "transfer.from": {
+  "ru": "Откуда",
+  "en": "From"
+ },
+ "transfer.insufficient": {
+  "ru": "Недостаточно средств на счёте списания",
+  "en": "Insufficient funds on the source account"
+ },
+ "transfer.need_two_accounts": {
+  "ru": "Нужны минимум два активных счёта",
+  "en": "You need at least two active accounts"
+ },
+ "transfer.no_rate": {
+  "ru": "Нет курса для этой пары валют",
+  "en": "No exchange rate for this currency pair"
+ },
+ "transfer.same_account": {
+  "ru": "Выберите разные счета",
+  "en": "Choose two different accounts"
+ },
+ "transfer.to": {
+  "ru": "Куда",
+  "en": "To"
+ },
+ "transfer.will_credit": {
+  "ru": "Зачислится {amount} на «{account}»",
+  "en": "{amount} will be credited to “{account}”"
+ },
+ "transfer.will_debit": {
+  "ru": "Со счёта списания уйдёт {total}",
+  "en": "{total} will leave the source account"
+ },
+ "transfer.will_fee": {
+  "ru": "Комиссия {amount} со счёта «{account}»",
+  "en": "Fee {amount} from “{account}”"
+ },
+ "transfers.title": {
+  "ru": "Перевод между счетами",
+  "en": "Transfer between accounts"
+ }
+}

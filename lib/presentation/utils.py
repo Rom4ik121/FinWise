@@ -91,6 +91,7 @@ _DOMAIN_ERROR_KEYS: dict[str, str] = {
     "Subscription has ended": "subscription.ended_block",
     "Subscription is cancelled": "subscription.cancelled_block",
     "Subscription cannot be charged": "subscription.cannot_charge",
+    "Subscription cannot be paused": "subscription.cannot_pause",
     "Subscription payment limit reached": "subscription.limit_reached",
     "Cancelled subscription cannot be resumed": "subscription.resume_cancelled",
     "Cancel a subscription from the detail screen": "subscription.cancel_via_action",
@@ -335,12 +336,9 @@ def try_convert_amount(
     base: str,
 ) -> Decimal | None:
     """Convert ``amount`` to ``base``, or ``None`` when the rate is missing."""
-    value = Decimal(str(amount))
-    src = normalize_currency_code(currency or base)
-    dst = normalize_currency_code(base)
-    if src == dst:
-        return value
-    return book.convert(value, src, dst)
+    from lib.domain.services.ledger_fx import amount_to_base
+
+    return amount_to_base(book, Decimal(str(amount)), currency, base)
 
 
 def run_async(
