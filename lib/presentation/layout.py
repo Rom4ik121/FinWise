@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Sequence
 
 import flet as ft
@@ -18,6 +19,8 @@ from lib.presentation.responsive import (  # noqa: F401
     page_height,
     page_width,
     scale_font,
+    swipe_action_strip_width,
+    swipe_reveal_offset,
     tap_button_style,
     tap_icon_button,
     tap_padding,
@@ -34,24 +37,39 @@ def _hidden_scrollbar() -> ft.Scrollbar:
 
 
 def _prevent_h_scroll_reset(control: ft.Control) -> None:
-    """Keep a horizontal strip at the end instead of snapping back to the start."""
+    """Keep a horizontal strip at the end instead of snapping back to the start.
+
+    Only corrects non-user jumps (layout rebuild). Never fights intentional
+    flings — that caused vertical/horizontal «teleport» on phones.
+    """
     last = [0.0]
     restoring = [False]
 
     def _on_scroll(e: ft.OnScrollEvent) -> None:
         if restoring[0]:
             return
-        px = float(getattr(e, "pixels", 0) or 0)
-        max_ext = float(getattr(e, "max_scroll_extent", 0) or 0)
+        try:
+            px = float(getattr(e, "pixels", 0) or 0)
+            max_ext = float(getattr(e, "max_scroll_extent", 0) or 0)
+        except (TypeError, ValueError):
+            return
         et = getattr(e, "event_type", None)
         et_name = str(getattr(et, "value", et) or "").lower()
-        jumped = last[0] > 28 and px < 6 and last[0] >= max(24.0, max_ext * 0.45)
-        if jumped and "user" not in et_name:
+        # Only auto-restore when Flutter resets to ~0 without a user gesture.
+        jumped = (
+            last[0] > 48
+            and px < 4
+            and last[0] >= max(40.0, max_ext * 0.55)
+            and "user" not in et_name
+            and "update" not in et_name
+        )
+        if jumped:
             restoring[0] = True
             target = last[0]
 
             async def _restore() -> None:
                 try:
+                    await asyncio.sleep(0.02)
                     await control.scroll_to(offset=target, duration=0)
                 except Exception:  # noqa: BLE001
                     pass

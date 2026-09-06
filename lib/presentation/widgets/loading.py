@@ -20,17 +20,22 @@ def fill_loading(host: ft.Control, *, message: str = "") -> None:
 
 
 def loading_indicator(*, message: str = "") -> ft.Control:
-    """Compact centered progress ring with optional caption."""
+    """Compact centered progress ring with optional caption.
+
+    Do not use ``expand=True`` here — ListView children with expand collapse
+    to zero height and the home screen looks blank while loading.
+    """
     controls: list[ft.Control] = [ft.ProgressRing()]
     if message:
         controls.append(ft.Text(message, color=ft.Colors.ON_SURFACE_VARIANT))
     return ft.Container(
-        expand=True,
+        height=180,
         alignment=ft.Alignment.CENTER,
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=12,
+            tight=True,
             controls=controls,
         ),
     )

@@ -62,6 +62,7 @@ from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.layout import h_chip_row, make_v_scroll
+from lib.presentation.responsive import scale_font
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.summary_card import SummaryCard
 from lib.presentation.widgets.transaction_tile import TransactionTile
@@ -452,14 +453,26 @@ class AccountDetailPage(ft.Column):
                             ),
                         ],
                     ),
-                    mark_money_text(
-                        ft.Text(
-                            format_money(balance, currency),
-                            size=28,
-                            weight=ft.FontWeight.W_700,
-                        ),
-                        balance,
-                        currency=currency,
+                    ft.Row(
+                        spacing=8,
+                        tight=True,
+                        wrap=False,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            mark_money_text(
+                                ft.Text(
+                                    format_money(balance, currency).rsplit(" ", 1)[0],
+                                    size=scale_font(28, self._page, maximum=32),
+                                    weight=ft.FontWeight.W_700,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                    no_wrap=True,
+                                ),
+                                balance,
+                                currency=currency,
+                            ),
+                            muted_text(currency, size=14),
+                        ],
                     ),
                     *(
                         [muted_text(base_line, size=12)]
@@ -486,9 +499,7 @@ class AccountDetailPage(ft.Column):
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
         if not items:
-            rows.append(
-                muted_text(tr("account.corporate_budgets_empty", lang), size=12)
-            )
+            rows = []
         for progress in items:
             rows.append(
                 budget_list_card(
@@ -742,6 +753,43 @@ class AccountDetailPage(ft.Column):
             )
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=lang)
+
+    def _edit_tx_from_detail(self, tx) -> None:
+        """Leave account detail and open the transaction editor on Operations."""
+        self._state.pending_edit_transaction_id = getattr(tx, "id", None)
+        self._state.close_secondary()
+        self._state.set_tab(self._state.TAB_TRANSACTIONS)
+
+    def _confirm_delete_tx(self, tx) -> None:
+        lang = self._state.language
+
+        async def _do() -> None:
+            try:
+                await self._state.container.delete_transaction.execute(tx.id)
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
+            self._state.bump_refresh(
+                "dashboard", "transactions", "accounts", "budgets"
+            )
+            snack(self._page, tr("action.saved", lang))
+            self._reload_gate.request(True)
+
+        confirm_dialog(
+            self._page,
+            title=tr("action.confirm_delete", lang),
+            message=(
+                tr("transfer.delete_pair", lang)
+                if tx.is_transfer
+                else (
+                    f"{localize_category_name(tx.category, lang)} · "
+                    f"{format_money(tx.amount, tx.currency)}"
+                )
+            ),
+            confirm_text=tr("action.delete", lang),
+            cancel_text=tr("action.cancel", lang),
+            on_confirm=_do,
+        )
 
     def _open_tx_detail(self, tx) -> None:
         """Read-only detail with attachments (same idea as transactions page)."""
@@ -1243,6 +1291,8 @@ class AccountDetailPage(ft.Column):
                     tx,
                     language=lang,
                     on_open=self._open_tx_detail,
+                    on_edit=self._edit_tx_from_detail,
+                    on_delete=self._confirm_delete_tx,
                 )
             )
         replace_controls(self._body, controls, self._page)

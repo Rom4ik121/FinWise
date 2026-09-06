@@ -147,6 +147,12 @@ def flash_refresh(page: ft.Page | None) -> None:
 
 def flash_saved(page: ft.Page | None, message: str) -> bool:
     """Show floating save chip. Returns False if feedback is not bound."""
+    try:
+        from lib.presentation.haptics import haptic
+
+        haptic("success")
+    except Exception:  # noqa: BLE001
+        pass
     fb = get_ui_feedback(page)
     if fb is None:
         return False

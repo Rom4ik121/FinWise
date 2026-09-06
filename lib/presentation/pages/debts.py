@@ -1430,6 +1430,7 @@ class DebtsPage(ft.Column):
                 controls_main.append(known_dd)
             controls_main.extend(
                 [
+                    appearance_row,
                     name_tf,
                     amount_tf,
                     currency_picker,
@@ -1490,7 +1491,7 @@ class DebtsPage(ft.Column):
                 interval_tf,
                 form_hint(tr("debt.payment_interval_hint", lang), size=11),
             ]
-            detail_bits: list[ft.Control] = [comment_tf, appearance_row]
+            detail_bits: list[ft.Control] = [comment_tf]
 
             body_sections: list[ft.Control] = []
             if debt is None:

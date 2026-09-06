@@ -91,6 +91,7 @@ class DashboardPage(ft.Column):
         self._animate_charts = False
         # Stable slots for in-place toggle mutate (avoid full ListView rebuild).
         self._balance_label: ft.Text | None = None
+        self._balance_code_label: ft.Text | None = None
         self._eye_btn: ft.IconButton | None = None
         self._chart_btn: ft.IconButton | None = None
         self._today_row: ft.Row | None = None
@@ -122,7 +123,8 @@ class DashboardPage(ft.Column):
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
-        self._reload_gate.request(True)
+        # First paint without entrance animation — animate only on manual refresh.
+        self._reload_gate.request(False)
 
     def did_mount(self) -> None:
         super().did_mount()
@@ -359,9 +361,16 @@ class DashboardPage(ft.Column):
                 if isinstance(data, dict):
                     data.pop("count_up", None)
             else:
-                self._balance_label.value = format_money(total, base)
-                mark_money_text(self._balance_label, total, currency=base)
+                figure = format_money(total, base).rsplit(" ", 1)[0]
+                self._balance_label.value = figure
+                mark_money_text(
+                    self._balance_label, total, currency=base, figure_only=True
+                )
             safe_update(self._balance_label)
+        if getattr(self, "_balance_code_label", None) is not None:
+            self._balance_code_label.value = "" if hidden else base
+            self._balance_code_label.visible = not hidden
+            safe_update(self._balance_code_label)
 
         if self._eye_btn is not None:
             self._eye_btn.icon = (
@@ -524,21 +533,31 @@ class DashboardPage(ft.Column):
     ) -> ft.Control:
         skin = get_active_skin()
         hidden = self._hide_balance
-        balance_txt = _HIDDEN_MONEY if hidden else format_money(total, base)
+        figure = _HIDDEN_MONEY if hidden else format_money(total, base).rsplit(" ", 1)[0]
         eye_icon = ft.Icons.VISIBILITY_OFF if hidden else ft.Icons.VISIBILITY
         zeros = [Decimal("0")] * max(len(incomes), 1)
         balance_label = ft.Text(
-            balance_txt,
+            figure,
             size=scale_font(20, self._page, minimum=17, maximum=24),
             weight=ft.FontWeight.W_700,
             color=skin.text_hex(dark=True),
-            expand=True,
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
+            no_wrap=True,
+        )
+        balance_code = ft.Text(
+            "" if hidden else base,
+            size=13,
+            weight=ft.FontWeight.W_600,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+            visible=not hidden,
         )
         if not hidden:
-            mark_money_text(balance_label, total, currency=base)
+            mark_money_text(
+                balance_label, total, currency=base, figure_only=True
+            )
         self._balance_label = balance_label
+        self._balance_code_label = balance_code
         eye_btn = ft.IconButton(
             icon=eye_icon,
             icon_size=20,
@@ -619,10 +638,13 @@ class DashboardPage(ft.Column):
                 ],
             ),
             ft.Row(
-                spacing=4,
+                spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                wrap=False,
                 controls=[
                     balance_label,
+                    balance_code,
+                    ft.Container(expand=True),
                     chart_btn,
                 ],
             ),
@@ -982,9 +1004,21 @@ class DashboardPage(ft.Column):
                     "incomes": incomes,
                     "expenses": expenses,
                 }
-                replace_controls(self._body, _build(), self._page)
-                self._slots_ready = True
-            if animate:
+                try:
+                    controls = _build()
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
+                    controls = [
+                        EmptyState(
+                            tr("error.generic", lang),
+                            icon=ft.Icons.ERROR_OUTLINE,
+                        )
+                    ]
+                    self._slots_ready = False
+                else:
+                    self._slots_ready = True
+                replace_controls(self._body, controls, self._page)
+            if animate and self._slots_ready:
                 await play_count_ups(self._body, self._page)
         finally:
             await flush_chart_draws()

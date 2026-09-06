@@ -25,9 +25,8 @@ from lib.presentation.utils import (
 
 # Uniform card size across phones / tablets / desktop list widths.
 _TILE_HEIGHT = 56
-_AMOUNT_WIDTH = 96
+_AMOUNT_WIDTH = 88
 _ICON = 36
-_ACTION_STRIP_WIDTH = 140  # width revealed when swiped
 _SLIDE_DURATION = 200
 
 # Module-level ref to the currently open tile so we can auto-close it.
@@ -279,11 +278,37 @@ class TransactionTile(ft.Container):
             content=front_row,
         )
 
-        # --- Back layer (action buttons) ---
-        _btn_style = ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=8),
-            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        # --- Back layer (action buttons) — sized to fit narrow phones ---
+        from lib.presentation.responsive import (
+            swipe_action_strip_width,
+            swipe_reveal_offset,
         )
+
+        action_count = sum(1 for h in (on_edit, on_delete) if h is not None)
+        strip_w = swipe_action_strip_width(None, buttons=max(action_count, 1))
+        self._reveal_frac = swipe_reveal_offset(
+            None, strip_width=strip_w, buttons=max(action_count, 1)
+        )
+        btn_w = max(44.0, (strip_w - 8) / max(action_count, 1))
+
+        def _action_chip(
+            *,
+            icon: str,
+            label: str,
+            fg: str,
+            on_click,
+        ) -> ft.Control:
+            return ft.Container(
+                width=btn_w,
+                height=_TILE_HEIGHT - 8,
+                bgcolor=ft.Colors.with_opacity(0.14, fg),
+                border_radius=10,
+                ink=True,
+                tooltip=label,
+                on_click=on_click,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Icon(icon, size=18, color=fg),
+            )
 
         def _edit_click(_e: ft.ControlEvent) -> None:
             self._close()
@@ -295,42 +320,40 @@ class TransactionTile(ft.Container):
             if on_delete:
                 on_delete(transaction)
 
+        action_controls: list[ft.Control] = []
+        if on_edit is not None:
+            action_controls.append(
+                _action_chip(
+                    icon=ft.Icons.EDIT_OUTLINED,
+                    label=tr("action.edit", language),
+                    fg=ft.Colors.PRIMARY,
+                    on_click=_edit_click,
+                )
+            )
+        if on_delete is not None:
+            action_controls.append(
+                _action_chip(
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    label=tr("action.delete", language),
+                    fg=ft.Colors.ERROR,
+                    on_click=_delete_click,
+                )
+            )
+
         back = ft.Container(
             height=_TILE_HEIGHT,
             border_radius=12,
-            padding=ft.Padding.only(right=8),
+            padding=ft.Padding.only(right=6),
             alignment=ft.Alignment.CENTER_RIGHT,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.END,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=4,
-                tight=True,
-                controls=[
-                    ft.TextButton(
-                        content=ft.Row(
-                            spacing=4,
-                            tight=True,
-                            controls=[
-                                ft.Icon(ft.Icons.EDIT_OUTLINED, size=16),
-                                ft.Text(tr("action.edit", language), size=12),
-                            ],
-                        ),
-                        style=_btn_style,
-                        on_click=_edit_click,
-                    ),
-                    ft.TextButton(
-                        content=ft.Row(
-                            spacing=4,
-                            tight=True,
-                            controls=[
-                                ft.Icon(ft.Icons.DELETE_OUTLINE, size=16, color=ft.Colors.ERROR),
-                                ft.Text(tr("action.delete", language), size=12, color=ft.Colors.ERROR),
-                            ],
-                        ),
-                        style=_btn_style,
-                        on_click=_delete_click,
-                    ),
-                ],
+            content=ft.Container(
+                width=strip_w,
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.END,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=4,
+                    tight=True,
+                    controls=action_controls,
+                ),
             ),
         )
 
@@ -376,7 +399,20 @@ class TransactionTile(ft.Container):
             _currently_open._close()
         _currently_open = self
         self._revealed = True
-        self._front.offset = ft.Offset(-0.65, 0)
+        from lib.presentation.haptics import haptic
+        from lib.presentation.responsive import swipe_reveal_offset
+
+        try:
+            haptic("selection")
+        except Exception:  # noqa: BLE001
+            pass
+        frac = getattr(self, "_reveal_frac", None)
+        if frac is None:
+            frac = swipe_reveal_offset(getattr(self, "page", None), buttons=2)
+        else:
+            # Recompute with live page width when mounted.
+            frac = swipe_reveal_offset(getattr(self, "page", None), buttons=2)
+        self._front.offset = ft.Offset(-frac, 0)
         self._arrow_container.rotate = ft.Rotate(pi)
         self._front.update()
         self._arrow_container.update()

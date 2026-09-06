@@ -82,12 +82,14 @@ def goal_item_ring_tile(
         if closed
         else get_active_skin().primary_hex(dark=True)
     )
+    # Single-line ellipsis — avoids mid-word wraps like «Футболк» / «-».
+    name = (item.name or "").strip()
     tile = ft.Container(
-        width=84,
-        padding=ft.Padding.only(top=4, right=4),
+        width=76,
+        padding=ft.Padding.only(top=4, right=2),
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=6,
+            spacing=4,
             tight=True,
             controls=[
                 circular_progress_badge(
@@ -97,12 +99,14 @@ def goal_item_ring_tile(
                     color=ring_color,
                 ),
                 ft.Text(
-                    item.name,
-                    size=11,
+                    name,
+                    size=10,
                     weight=ft.FontWeight.W_600,
                     text_align=ft.TextAlign.CENTER,
-                    max_lines=2,
+                    max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS,
+                    no_wrap=True,
+                    tooltip=name if len(name) > 10 else None,
                 ),
             ],
         ),

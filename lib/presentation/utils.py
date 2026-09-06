@@ -508,7 +508,7 @@ def snack(
         try:
             from lib.presentation.haptics import haptic
 
-            haptic("light")
+            haptic("success")
         except Exception:  # noqa: BLE001
             pass
         try:

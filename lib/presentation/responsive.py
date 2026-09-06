@@ -58,6 +58,33 @@ def is_wide(page: ft.Page | None) -> bool:
     return page_width(page) >= WIDE_MIN
 
 
+def swipe_action_strip_width(
+    page: ft.Page | None = None,
+    *,
+    buttons: int = 2,
+) -> float:
+    """Width (px) for Edit/Delete (and optional Sync) reveal strip."""
+    w = page_width(page)
+    # Compact phones: icon-only-ish buttons; wider screens: icon+label.
+    per = 52.0 if w < 360 else (64.0 if w < COMPACT_MAX else 72.0)
+    return min(w * 0.55, max(96.0, per * max(1, buttons) + 8.0))
+
+
+def swipe_reveal_offset(
+    page: ft.Page | None = None,
+    *,
+    strip_width: float | None = None,
+    buttons: int = 2,
+) -> float:
+    """Fraction of card width to slide left so the action strip is fully visible."""
+    w = page_width(page)
+    strip = strip_width if strip_width is not None else swipe_action_strip_width(
+        page, buttons=buttons
+    )
+    # Slightly more than strip so buttons aren't clipped at the edge.
+    return min(0.92, max(0.32, (strip + 12.0) / max(w, 280.0)))
+
+
 def scale_font(
     base: float,
     page: ft.Page | None = None,

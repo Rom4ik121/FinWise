@@ -44,6 +44,7 @@ class AppState:
         self.is_loading: bool = False
         self.is_unlocked: bool = True
         self.pending_open_account_create: bool = False
+        self.pending_edit_transaction_id: Optional[str] = None
         self.pending_notifications: list[str] = []
         self.view_rebuild_token: int = 0
         self._listeners: list[Listener] = []

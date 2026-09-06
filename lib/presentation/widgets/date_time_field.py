@@ -24,6 +24,24 @@ def _as_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _local_now() -> datetime:
+    """Device-local 'now' (phone timezone)."""
+    return datetime.now().astimezone()
+
+
+def _from_local_calendar(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0,
+) -> datetime:
+    """Interpret picker fields as local wall time, store as UTC."""
+    local_tz = _local_now().tzinfo or timezone.utc
+    local_dt = datetime(year, month, day, hour, minute, tzinfo=local_tz)
+    return local_dt.astimezone(timezone.utc)
+
+
 def _display_text(
     value: Optional[datetime],
     *,
@@ -338,30 +356,38 @@ class DateTimeField(ft.Column):
 
     def open_picker(self) -> None:
         """Expand the inline calendar (safe inside an open AlertDialog)."""
-        initial = (self._value or datetime.now(timezone.utc)).date()
+        local_now = _local_now()
+        if self._value is not None:
+            local_value = self._value.astimezone()
+            initial = local_value.date()
+            hour = local_value.hour
+            minute = local_value.minute
+        else:
+            initial = local_now.date()
+            hour = local_now.hour
+            minute = local_now.minute
         if initial < self._first_date:
             initial = self._first_date
         if initial > self._last_date:
             initial = self._last_date
-        now = self._value or datetime.now(timezone.utc)
         self._pick_state = {
             "year": initial.year,
             "month": initial.month,
             "day": initial.day,
-            "hour": now.hour,
-            "minute": now.minute,
+            "hour": hour,
+            "minute": minute,
         }
-        self._hour_dd.value = f"{now.hour:02d}"
-        minute = now.minute - (now.minute % 5) if now.minute % 5 else now.minute
-        if self._with_time and now.minute % 5 != 0:
-            key = f"{now.minute:02d}"
+        self._hour_dd.value = f"{hour:02d}"
+        minute_q = minute - (minute % 5) if minute % 5 else minute
+        if self._with_time and minute % 5 != 0:
+            key = f"{minute:02d}"
             if not any(opt.key == key for opt in self._minute_dd.options or []):
                 self._minute_dd.options = list(self._minute_dd.options or []) + [
                     ft.DropdownOption(key=key, text=key)
                 ]
             self._minute_dd.value = key
         else:
-            self._minute_dd.value = f"{minute:02d}"
+            self._minute_dd.value = f"{minute_q:02d}"
         self._picker_open = True
         self._render_grid()
         self._sync_ui()
@@ -379,13 +405,13 @@ class DateTimeField(ft.Column):
         minute = (
             int(self._minute_dd.value or state["minute"]) if self._with_time else 0
         )
-        chosen = datetime(
+        # Date/time the user sees = phone local wall clock (unless they change it).
+        chosen = _from_local_calendar(
             state["year"],
             state["month"],
             state["day"],
             hour,
             minute,
-            tzinfo=timezone.utc,
         )
         self._picker_open = False
         self._pick_state = None

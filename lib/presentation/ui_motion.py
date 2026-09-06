@@ -16,6 +16,7 @@ _ANIMATE: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 _SCROLL_ATTR = "_fw_scroll"
 _RESTORING_ATTR = "_fw_restoring"
+_RESTORE_GEN = "_fw_restore_gen"
 
 
 def is_ui_animating() -> bool:
@@ -57,36 +58,58 @@ def remember_scroll(control: ft.ListView) -> ft.ListView:
         return control
     setattr(control, "_fw_scroll_bound", True)
     setattr(control, _SCROLL_ATTR, 0.0)
+    setattr(control, _RESTORE_GEN, 0)
 
     def _on_scroll(e: ft.OnScrollEvent) -> None:
         if getattr(control, _RESTORING_ATTR, False):
             return
         try:
-            setattr(control, _SCROLL_ATTR, float(getattr(e, "pixels", 0) or 0))
+            px = float(getattr(e, "pixels", 0) or 0)
         except (TypeError, ValueError):
-            pass
+            return
+        # Ignore tiny noise / rubber-band that causes restore jumps.
+        prev = snapshot_scroll(control)
+        if abs(px - prev) < 1.5 and px > 0:
+            return
+        setattr(control, _SCROLL_ATTR, px)
 
     control.on_scroll = _on_scroll
     return control
 
 
 async def restore_scroll(control: ft.Control, offset: float) -> None:
-    """Jump a ListView back after its children were replaced."""
+    """Jump a ListView back after its children were replaced.
+
+    Single settle + one scroll_to (no multi-shot yank). Skips tiny offsets
+    and cancels if a newer replace started meanwhile.
+    """
     target = float(offset or 0)
-    if target <= 8:
+    if target <= 24:
+        setattr(control, _RESTORING_ATTR, False)
         return
+    gen = int(getattr(control, _RESTORE_GEN, 0) or 0) + 1
+    setattr(control, _RESTORE_GEN, gen)
     setattr(control, _RESTORING_ATTR, True)
     try:
-        for delay in (0.03, 0.1, 0.22):
-            await asyncio.sleep(delay)
-            try:
-                await control.scroll_to(offset=target, duration=0)
-                setattr(control, _SCROLL_ATTR, target)
-                return
-            except Exception:  # noqa: BLE001
-                continue
+        await asyncio.sleep(0.06)
+        if int(getattr(control, _RESTORE_GEN, 0) or 0) != gen:
+            return
+        try:
+            max_ext = float(getattr(control, "max_scroll_extent", 0) or 0)
+        except (TypeError, ValueError):
+            max_ext = 0.0
+        if max_ext > 0:
+            target = min(target, max_ext)
+        try:
+            await control.scroll_to(offset=target, duration=1)
+            setattr(control, _SCROLL_ATTR, target)
+        except Exception:  # noqa: BLE001
+            pass
+        # Let the scroll settle before recording user gestures again.
+        await asyncio.sleep(0.12)
     finally:
-        setattr(control, _RESTORING_ATTR, False)
+        if int(getattr(control, _RESTORE_GEN, 0) or 0) == gen:
+            setattr(control, _RESTORING_ATTR, False)
 
 
 def replace_controls(
@@ -99,7 +122,7 @@ def replace_controls(
     setattr(host, _RESTORING_ATTR, True)
     host.controls = list(controls)
     safe_update(host)
-    if page is not None and offset > 8:
+    if page is not None and offset > 24:
         run_async(page, restore_scroll, host, offset)
     else:
         setattr(host, _RESTORING_ATTR, False)

@@ -16,7 +16,12 @@ from lib.presentation.account_icons import (
 from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
-from lib.presentation.utils import format_money
+from lib.presentation.utils import format_money, format_money_parts
+from lib.presentation.responsive import (
+    scale_font,
+    swipe_action_strip_width,
+    swipe_reveal_offset,
+)
 
 _SLIDE_DURATION = 200
 _currently_open: Optional["AccountCard"] = None
@@ -43,7 +48,6 @@ class AccountCard(ft.Container):
         from lib.presentation.utils import tr
 
         self._revealed = False
-        native = format_money(account.balance, account.currency)
         accent = account.color or get_active_skin().primary_hex(dark=True)
         converted_line: list[ft.Control] = []
         if (
@@ -150,6 +154,33 @@ class AccountCard(ft.Container):
             ),
         )
 
+        figure, code = format_money_parts(account.balance, account.currency)
+        # Prefer full figure when it fits; parts already compact for huge values.
+        full_native = format_money(account.balance, account.currency)
+        full_figure = full_native.rsplit(" ", 1)[0] if " " in full_native else full_native
+        balance_figure = full_figure if len(full_figure) <= 14 else figure
+        balance_row = ft.Row(
+            spacing=6,
+            tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            wrap=False,
+            controls=[
+                mark_money_text(
+                    ft.Text(
+                        balance_figure,
+                        size=scale_font(20),
+                        weight=ft.FontWeight.W_700,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        no_wrap=True,
+                    ),
+                    account.balance,
+                    currency=account.currency,
+                ),
+                muted_text(code, size=13),
+            ],
+        )
+
         body = ft.Column(
             spacing=12,
             tight=True,
@@ -163,17 +194,7 @@ class AccountCard(ft.Container):
                     spacing=4,
                     tight=True,
                     controls=[
-                        mark_money_text(
-                            ft.Text(
-                                native,
-                                size=20,
-                                weight=ft.FontWeight.W_700,
-                                max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                            ),
-                            account.balance,
-                            currency=account.currency,
-                        ),
+                        balance_row,
                         *converted_line,
                     ],
                 ),
@@ -186,7 +207,15 @@ class AccountCard(ft.Container):
         # Glass fill is translucent — swipe layers must be opaque or the
         # card "shows through" onto the action buttons.
         _opaque = ft.Colors.SURFACE_CONTAINER
-        _action_width = 112
+        action_count = sum(
+            1 for h in (on_sync, on_edit, on_delete) if h is not None
+        )
+        strip_w = swipe_action_strip_width(None, buttons=max(action_count, 1))
+        # Account cards stack actions vertically — keep a modest column width.
+        _action_width = min(96.0, max(72.0, strip_w / max(action_count, 1) + 24))
+        self._reveal_frac = swipe_reveal_offset(
+            None, strip_width=_action_width + 8, buttons=1
+        )
 
         def _action_tile(
             *,
@@ -204,20 +233,23 @@ class AccountCard(ft.Container):
                 ink=True,
                 on_click=on_click,
                 alignment=ft.Alignment.CENTER,
+                tooltip=label,
                 content=ft.Column(
-                    spacing=4,
+                    spacing=2,
                     tight=True,
                     alignment=ft.MainAxisAlignment.CENTER,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Icon(icon, color=fg, size=22),
+                        ft.Icon(icon, color=fg, size=20),
                         ft.Text(
                             label,
-                            size=12,
+                            size=10,
                             weight=ft.FontWeight.W_700,
                             color=fg,
                             text_align=ft.TextAlign.CENTER,
                             max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            no_wrap=True,
                         ),
                     ],
                 ),
@@ -339,7 +371,21 @@ class AccountCard(ft.Container):
             _currently_open._close()
         _currently_open = self
         self._revealed = True
-        self._front.offset = ft.Offset(-0.38, 0)
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("selection")
+        except Exception:  # noqa: BLE001
+            pass
+        frac = swipe_reveal_offset(
+            getattr(self, "page", None),
+            strip_width=100,
+            buttons=1,
+        )
+        stored = getattr(self, "_reveal_frac", None)
+        if isinstance(stored, (int, float)) and stored > 0:
+            frac = max(frac, float(stored))
+        self._front.offset = ft.Offset(-frac, 0)
         self._arrow_container.rotate = ft.Rotate(pi)
         self._front.update()
         self._arrow_container.update()

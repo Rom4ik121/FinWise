@@ -681,6 +681,22 @@ class TransactionsPage(ft.Column):
             return
 
         self._render_list(self._shown, lang=lang)
+        pending_id = getattr(self._state, "pending_edit_transaction_id", None)
+        if pending_id:
+            self._state.pending_edit_transaction_id = None
+            target = next((t for t in self._shown if t.id == pending_id), None)
+            if target is None:
+                repo = getattr(c, "transaction_repository", None)
+                if repo is not None:
+                    try:
+                        target = await repo.get_by_id(pending_id)
+                    except Exception:  # noqa: BLE001
+                        target = None
+            if target is not None:
+                # Align day filter to the transaction so the list stays coherent.
+                self._selected_date = self._tx_local_date(target)
+                self._range_mode = False
+                run_async(self._page, self._open_editor_async, target)
         if animate:
             await play_count_ups(self._list, self._page)
 

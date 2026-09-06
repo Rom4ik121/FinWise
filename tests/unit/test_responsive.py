@@ -11,6 +11,8 @@ from lib.presentation.responsive import (
     is_compact,
     is_wide,
     scale_font,
+    swipe_action_strip_width,
+    swipe_reveal_offset,
 )
 
 
@@ -45,3 +47,14 @@ def test_form_and_calendar_fit_narrow() -> None:
     w, h = compact_chart_size(se)  # type: ignore[arg-type]
     assert w <= 320
     assert 100 <= h <= 180
+
+
+def test_swipe_strip_shrinks_on_narrow_phones() -> None:
+    narrow = swipe_action_strip_width(_FakePage(320), buttons=2)  # type: ignore[arg-type]
+    wide = swipe_action_strip_width(_FakePage(430), buttons=2)  # type: ignore[arg-type]
+    assert narrow <= wide
+    assert narrow >= 96
+    frac = swipe_reveal_offset(_FakePage(320), strip_width=narrow, buttons=2)  # type: ignore[arg-type]
+    assert 0.32 <= frac <= 0.92
+    # Revealed width roughly covers the strip.
+    assert frac * 320 >= narrow * 0.85
