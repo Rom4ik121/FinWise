@@ -31,10 +31,19 @@ class Category(BaseModel):
     icon: str = "category"
     color: str = "#00897B"
     kind: CategoryKind = CategoryKind.BOTH
+    # Empty string = personal (shared) ledger; set for corporate account scopes.
+    account_id: str = ""
     is_system: bool = False
     is_active: bool = True
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("account_id", mode="before")
+    @classmethod
+    def _normalize_account_id(cls, value: object) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
 
     @field_validator("name")
     @classmethod

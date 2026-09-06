@@ -201,12 +201,22 @@ def allocate_goal_contribution_credit(
 
         credit_left = _credit_item(item_id, credit_left)
         if credit_left > 0:
-            for item in sorted(goal.items, key=lambda i: i.sort_order):
-                if item.id == item_id or item.is_closed:
-                    continue
+            # Spill to the next open items in sort order (wrap around), so
+            # excess on position N fills N+1, N+2… before dumping leftover.
+            ordered = sorted(
+                goal.items, key=lambda i: (int(i.sort_order), i.id)
+            )
+            start = next(
+                (idx for idx, it in enumerate(ordered) if it.id == item_id),
+                0,
+            )
+            for offset in range(1, len(ordered)):
                 if credit_left <= 0:
                     break
-                credit_left = _credit_item(item.id, credit_left)
+                sibling = ordered[(start + offset) % len(ordered)]
+                if sibling.id == item_id or sibling.is_closed:
+                    continue
+                credit_left = _credit_item(sibling.id, credit_left)
         if credit_left > 0:
             primary = updated[item_id]
             updated[item_id] = primary.model_copy(
@@ -736,26 +746,66 @@ class GetGoalProjectionUseCase:
                 now=now,
             )
 
-        lookback_start = now - timedelta(days=self._lookback_months * 30.4375)
-        txs = await self._transactions.list(goal_id=goal.id, date_from=lookback_start)
-        from lib.domain.use_cases.goal_insights import net_goal_credit_flow
+        from lib.domain.use_cases.goal_insights import days_between, net_goal_credit_flow
 
-        net_flow = net_goal_credit_flow(txs)
-        divisor = _pace_divisor_months(
-            now, self._lookback_months, goal.created_at
+        days_left = (
+            days_between(now, goal.deadline) if goal.deadline is not None else None
         )
-        avg = quantize_money(net_flow / divisor) if net_flow > 0 else Decimal("0.00")
-        projection.average_monthly_contribution = avg
-
-        if avg > 0:
-            months_needed = float(remaining / avg)
-            projection.projected_completion_date = _add_months(now, months_needed)
+        # Short horizons: use recent daily pace instead of a 6-month average.
+        short_horizon = days_left is not None and 0 < days_left <= 45
+        if short_horizon:
+            lookback_days = max(7.0, min(float(days_left) * 2.0, 30.0))
+            lookback_start = now - timedelta(days=lookback_days)
+            txs = await self._transactions.list(
+                goal_id=goal.id, date_from=lookback_start
+            )
+            net_flow = net_goal_credit_flow(txs)
+            created = goal.created_at
+            if created is not None:
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                age_days = max(days_between(created, now), 1.0 / 24.0)
+                lookback_days = min(lookback_days, age_days)
+            avg_daily = (
+                quantize_money(net_flow / Decimal(str(lookback_days)))
+                if net_flow > 0
+                else Decimal("0.00")
+            )
+            projection.average_monthly_contribution = quantize_money(
+                avg_daily * Decimal("30.4375")
+            )
+            if avg_daily > 0:
+                days_needed = float(remaining / avg_daily)
+                projection.projected_completion_date = now + timedelta(
+                    days=max(days_needed, 0.0)
+                )
+            else:
+                projection.projected_completion_date = None
         else:
-            projection.projected_completion_date = None
+            lookback_start = now - timedelta(days=self._lookback_months * 30.4375)
+            txs = await self._transactions.list(
+                goal_id=goal.id, date_from=lookback_start
+            )
+            net_flow = net_goal_credit_flow(txs)
+            divisor = _pace_divisor_months(
+                now, self._lookback_months, goal.created_at
+            )
+            avg = (
+                quantize_money(net_flow / divisor)
+                if net_flow > 0
+                else Decimal("0.00")
+            )
+            projection.average_monthly_contribution = avg
+
+            if avg > 0:
+                months_needed = float(remaining / avg)
+                projection.projected_completion_date = _add_months(now, months_needed)
+            else:
+                projection.projected_completion_date = None
 
         if goal.deadline is None:
             projection.is_on_track = None
-        elif _months_between(now, goal.deadline) <= 0:
+        elif days_left is not None and days_left <= 0:
             projection.is_on_track = False
         elif projection.projected_completion_date is None:
             projection.is_on_track = False

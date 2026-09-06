@@ -168,6 +168,12 @@ async def _show_form(
         page,
         state,
         tx_type=default_type.value,
+        account_id=(
+            locked_account.id
+            if locked_account is not None
+            and bool(getattr(locked_account, "is_corporate", False))
+            else ""
+        ),
     )
     await category_picker.reload()
     if category_picker.is_empty:
@@ -234,6 +240,11 @@ async def _show_form(
                     if tx_type == TransactionType.INCOME
                     else CategoryKind.EXPENSE
                 ),
+                account_id=(
+                    account.id
+                    if bool(getattr(account, "is_corporate", False))
+                    else ""
+                ),
             )
 
         line_items = items_editor.collect(default_category=category_name)
@@ -291,6 +302,11 @@ async def _show_form(
                             FEE_CATEGORY,
                             kind=CategoryKind.EXPENSE,
                             icon="receipt_long",
+                            account_id=(
+                                account.id
+                                if bool(getattr(account, "is_corporate", False))
+                                else ""
+                            ),
                         )
                     await state.container.add_transaction.execute(
                         make_fee_expense(

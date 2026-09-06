@@ -100,7 +100,6 @@ class UiFeedback:
             self._banner.opacity = 1
             try:
                 safe_update(self._banner)
-                safe_update(self.page)
             except Exception:  # noqa: BLE001
                 pass
             await asyncio.sleep(_BANNER_MS / 1000)
@@ -153,6 +152,22 @@ def flash_saved(page: ft.Page | None, message: str) -> bool:
         haptic("success")
     except Exception:  # noqa: BLE001
         pass
+    fb = get_ui_feedback(page)
+    if fb is None:
+        return False
+    fb.show(message)
+    return True
+
+
+def flash_message(page: ft.Page | None, message: str, *, haptic_kind: str | None = "selection") -> bool:
+    """Top toast without ``page.update()`` — keeps ListView scroll position."""
+    if haptic_kind:
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic(haptic_kind)
+        except Exception:  # noqa: BLE001
+            pass
     fb = get_ui_feedback(page)
     if fb is None:
         return False

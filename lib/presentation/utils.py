@@ -265,11 +265,14 @@ def tappable_compact_money(
     color: str | None = None,
     text_align: ft.TextAlign = ft.TextAlign.START,
     max_lines: int = 1,
+    compact: bool = True,
 ) -> ft.Control:
-    """Compact money label; tap shows the full amount when abbreviated."""
-    display = format_money_compact(amount, currency, signed=signed)
+    """Money label; when compact, tap shows the full amount if abbreviated."""
     full = format_money(amount, currency, signed=signed)
-    abbreviated = display != full
+    display = (
+        format_money_compact(amount, currency, signed=signed) if compact else full
+    )
+    abbreviated = compact and display != full
     label = ft.Text(
         display,
         size=size,
@@ -286,25 +289,25 @@ def tappable_compact_money(
         label,
         amount,
         currency=currency,
-        compact=True,
+        compact=compact,
         signed=signed,
     )
 
     def _on_tap(e: ft.ControlEvent | None = None) -> None:
         if not abbreviated:
             return
-        try:
-            from lib.presentation.haptics import haptic
-
-            haptic("selection")
-        except Exception:  # noqa: BLE001
-            pass
         target = page
         if target is None and e is not None:
             target = getattr(e, "page", None) or control_page(getattr(e, "control", None))
         if target is None:
             return
-        snack(target, full)
+        # Overlay toast only — never snack()/page.update() (resets ListView scroll).
+        from lib.presentation.ui_feedback import flash_message
+
+        if not flash_message(target, full, haptic_kind="selection"):
+            # Last resort: expand label in place (still no page.update).
+            label.value = full
+            safe_update(label)
 
     tip = tr("money.tap_full", language) if abbreviated else full
     return ft.Container(
@@ -506,12 +509,6 @@ def snack(
         message = _sanitize_error_text(message)
     if not error:
         try:
-            from lib.presentation.haptics import haptic
-
-            haptic("success")
-        except Exception:  # noqa: BLE001
-            pass
-        try:
             from lib.presentation.ui_feedback import flash_saved
 
             if flash_saved(page, message):
@@ -534,6 +531,12 @@ def snack(
         # Prefer non-dialog API when present.
         page.snack_bar = bar  # type: ignore[attr-defined]
         page.snack_bar.open = True  # type: ignore[attr-defined]
+        # Update snack host only when possible — full page.update() resets ListView scroll.
+        try:
+            safe_update(page.snack_bar)  # type: ignore[attr-defined]
+            return
+        except Exception:  # noqa: BLE001
+            pass
         page.update()
         return
     except Exception:  # noqa: BLE001

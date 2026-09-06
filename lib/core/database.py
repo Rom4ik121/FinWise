@@ -195,6 +195,9 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
             ("account_id", "VARCHAR(36) NOT NULL DEFAULT ''"),
         ],
+        "categories": [
+            ("account_id", "VARCHAR(36) NOT NULL DEFAULT ''"),
+        ],
         "transactions": [
             ("debt_id", "VARCHAR(36)"),
             ("goal_credit_amount", "NUMERIC(18, 2)"),
@@ -267,6 +270,173 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
                 "WHEN is_active = 1 THEN 'active' ELSE 'paused' END "
                 "WHERE status IS NULL OR status = ''"
             )
+        _migrate_categories_account_scope(conn)
+
+
+def _migrate_categories_account_scope(conn) -> None:
+    """Ensure categories uniqueness is (name, account_id); drop budgets FK.
+
+    SQLite autoindexes for table UNIQUE/PK cannot be DROPped — rebuild instead.
+    """
+    cat_cols = {
+        row[1]
+        for row in conn.exec_driver_sql("PRAGMA table_info(categories)").fetchall()
+    }
+    if not cat_cols:
+        return
+    if "account_id" not in cat_cols:
+        conn.exec_driver_sql(
+            "ALTER TABLE categories ADD COLUMN account_id "
+            "VARCHAR(36) NOT NULL DEFAULT ''"
+        )
+        logger.info("Added column categories.account_id")
+        cat_cols.add("account_id")
+
+    unique_sets: list[list[str]] = []
+    for row in conn.exec_driver_sql("PRAGMA index_list(categories)").fetchall():
+        if not bool(row[2]) or not row[1]:
+            continue
+        cols = [
+            c[2]
+            for c in conn.exec_driver_sql(f'PRAGMA index_info("{row[1]}")').fetchall()
+        ]
+        unique_sets.append(cols)
+
+    needs_category_rebuild = ["name"] in unique_sets
+    budget_cols = {
+        row[1]
+        for row in conn.exec_driver_sql("PRAGMA table_info(budgets)").fetchall()
+    }
+    needs_budget_rebuild = False
+    if budget_cols:
+        fks = conn.exec_driver_sql("PRAGMA foreign_key_list(budgets)").fetchall()
+        needs_budget_rebuild = any(fk[2] == "categories" for fk in fks)
+
+    if not needs_category_rebuild and not needs_budget_rebuild:
+        conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_categories_name_account "
+            "ON categories (name, account_id)"
+        )
+        return
+
+    conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+    try:
+        if needs_budget_rebuild:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE budgets__new (
+                    id VARCHAR(36) NOT NULL PRIMARY KEY,
+                    category_id VARCHAR(128) NOT NULL,
+                    month INTEGER NOT NULL,
+                    year INTEGER NOT NULL,
+                    amount_limit NUMERIC(18, 2) NOT NULL,
+                    spent NUMERIC(18, 2) NOT NULL,
+                    last_alert_level INTEGER NOT NULL DEFAULT 0,
+                    account_id VARCHAR(36) NOT NULL DEFAULT '',
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    UNIQUE (category_id, month, year, account_id)
+                )
+                """
+            )
+            src_cols = [
+                c
+                for c in (
+                    "id",
+                    "category_id",
+                    "month",
+                    "year",
+                    "amount_limit",
+                    "spent",
+                    "last_alert_level",
+                    "account_id",
+                    "created_at",
+                    "updated_at",
+                )
+                if c in budget_cols
+            ]
+            col_csv = ", ".join(src_cols)
+            conn.exec_driver_sql(
+                f"INSERT INTO budgets__new ({col_csv}) SELECT {col_csv} FROM budgets"
+            )
+            conn.exec_driver_sql("DROP TABLE budgets")
+            conn.exec_driver_sql("ALTER TABLE budgets__new RENAME TO budgets")
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_budgets_month_year "
+                "ON budgets (month, year)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_budgets_category_month "
+                "ON budgets (category_id, month, year)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_budgets_account_month "
+                "ON budgets (account_id, month, year)"
+            )
+            logger.info("Rebuilt budgets table without categories.name foreign key")
+
+        if needs_category_rebuild:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE categories__new (
+                    id VARCHAR(36) NOT NULL PRIMARY KEY,
+                    name VARCHAR(128) NOT NULL,
+                    icon VARCHAR(64) NOT NULL,
+                    color VARCHAR(16) NOT NULL,
+                    kind VARCHAR(16) NOT NULL,
+                    account_id VARCHAR(36) NOT NULL DEFAULT '',
+                    is_system BOOLEAN NOT NULL,
+                    is_active BOOLEAN NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    UNIQUE (name, account_id)
+                )
+                """
+            )
+            insert_cols = [
+                c
+                for c in (
+                    "id",
+                    "name",
+                    "icon",
+                    "color",
+                    "kind",
+                    "account_id",
+                    "is_system",
+                    "is_active",
+                    "created_at",
+                    "updated_at",
+                )
+                if c in cat_cols or c == "account_id"
+            ]
+            select_parts = [
+                "''" if c == "account_id" and "account_id" not in cat_cols else c
+                for c in insert_cols
+            ]
+            conn.exec_driver_sql(
+                f"INSERT INTO categories__new ({', '.join(insert_cols)}) "
+                f"SELECT {', '.join(select_parts)} FROM categories"
+            )
+            conn.exec_driver_sql("DROP TABLE categories")
+            conn.exec_driver_sql("ALTER TABLE categories__new RENAME TO categories")
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_categories_name ON categories (name)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_categories_kind ON categories (kind)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_categories_account_id "
+                "ON categories (account_id)"
+            )
+            logger.info("Rebuilt categories table with UNIQUE(name, account_id)")
+        else:
+            conn.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_categories_name_account "
+                "ON categories (name, account_id)"
+            )
+    finally:
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
 
 
 def _ensure_sqlite_indexes(engine: Engine) -> None:

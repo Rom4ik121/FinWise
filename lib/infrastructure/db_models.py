@@ -342,13 +342,19 @@ class CategoryModel(Base):
     """Persisted user / system transaction category."""
 
     __tablename__ = "categories"
-    __table_args__ = (UniqueConstraint("name", name="uq_categories_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", "account_id", name="uq_categories_name_account"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     icon: Mapped[str] = mapped_column(String(64), nullable=False, default="category")
     color: Mapped[str] = mapped_column(String(16), nullable=False, default="#00897B")
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="both", index=True)
+    # Empty string = personal ledger; corporate account id otherwise.
+    account_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, default="", server_default="", index=True
+    )
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -423,9 +429,10 @@ class BudgetModel(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Soft reference to category name (scoped by budgets.account_id in app logic).
+    # Not a SQL FK: categories are unique on (name, account_id), not name alone.
     category_id: Mapped[str] = mapped_column(
         String(128),
-        ForeignKey("categories.name", ondelete="CASCADE", onupdate="CASCADE"),
         nullable=False,
         index=True,
     )

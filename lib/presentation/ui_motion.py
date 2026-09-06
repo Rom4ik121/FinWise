@@ -84,14 +84,14 @@ async def restore_scroll(control: ft.Control, offset: float) -> None:
     and cancels if a newer replace started meanwhile.
     """
     target = float(offset or 0)
-    if target <= 24:
+    if target <= 40:
         setattr(control, _RESTORING_ATTR, False)
         return
     gen = int(getattr(control, _RESTORE_GEN, 0) or 0) + 1
     setattr(control, _RESTORE_GEN, gen)
     setattr(control, _RESTORING_ATTR, True)
     try:
-        await asyncio.sleep(0.06)
+        await asyncio.sleep(0.04)
         if int(getattr(control, _RESTORE_GEN, 0) or 0) != gen:
             return
         try:
@@ -101,12 +101,12 @@ async def restore_scroll(control: ft.Control, offset: float) -> None:
         if max_ext > 0:
             target = min(target, max_ext)
         try:
-            await control.scroll_to(offset=target, duration=1)
+            # duration=0 avoids animated scroll bounce that feels like jitter.
+            await control.scroll_to(offset=target, duration=0)
             setattr(control, _SCROLL_ATTR, target)
         except Exception:  # noqa: BLE001
             pass
-        # Let the scroll settle before recording user gestures again.
-        await asyncio.sleep(0.12)
+        await asyncio.sleep(0.08)
     finally:
         if int(getattr(control, _RESTORE_GEN, 0) or 0) == gen:
             setattr(control, _RESTORING_ATTR, False)
@@ -122,7 +122,7 @@ def replace_controls(
     setattr(host, _RESTORING_ATTR, True)
     host.controls = list(controls)
     safe_update(host)
-    if page is not None and offset > 24:
+    if page is not None and offset > 40:
         run_async(page, restore_scroll, host, offset)
     else:
         setattr(host, _RESTORING_ATTR, False)

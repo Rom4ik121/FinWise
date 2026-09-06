@@ -28,12 +28,17 @@ class CategoryRepository(ABC):
         """Fetch by id."""
 
     @abstractmethod
-    async def get_by_name(self, name: str) -> Optional[Category]:
-        """Fetch by unique name (case-insensitive)."""
+    async def get_by_name(
+        self,
+        name: str,
+        *,
+        account_id: str = "",
+    ) -> Optional[Category]:
+        """Fetch by unique name within an account scope (case-insensitive)."""
 
     @abstractmethod
     async def find_or_create(self, category: Category) -> Category:
-        """Return existing category by name, or create ``category`` if missing."""
+        """Return existing category by name+scope, or create ``category`` if missing."""
 
     @abstractmethod
     async def list(
@@ -41,5 +46,10 @@ class CategoryRepository(ABC):
         *,
         kind: Optional[CategoryKind] = None,
         active_only: bool = True,
+        account_id: Optional[str] = None,
     ) -> list[Category]:
-        """List categories, optionally filtered by kind."""
+        """List categories, optionally filtered by kind and account scope.
+
+        ``account_id=None`` → personal (empty scope) only.
+        ``account_id=<id>`` → that corporate account's categories only.
+        """

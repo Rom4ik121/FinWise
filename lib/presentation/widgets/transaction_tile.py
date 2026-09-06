@@ -21,6 +21,7 @@ from lib.presentation.utils import (
     format_money,
     format_money_compact,
     is_money_abbreviated,
+    safe_update,
 )
 
 # Uniform card size across phones / tablets / desktop list widths.
@@ -206,11 +207,11 @@ class TransactionTile(ft.Container):
             if page is None:
                 return
             try:
-                from lib.presentation.haptics import haptic
-                from lib.presentation.utils import snack
+                from lib.presentation.ui_feedback import flash_message
 
-                haptic("selection")
-                snack(page, _full)
+                if not flash_message(page, _full, haptic_kind="selection"):
+                    amount_label.value = _full
+                    safe_update(amount_label)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -414,8 +415,8 @@ class TransactionTile(ft.Container):
             frac = swipe_reveal_offset(getattr(self, "page", None), buttons=2)
         self._front.offset = ft.Offset(-frac, 0)
         self._arrow_container.rotate = ft.Rotate(pi)
-        self._front.update()
-        self._arrow_container.update()
+        safe_update(self._front)
+        safe_update(self._arrow_container)
 
     def _close(self) -> None:
         global _currently_open
@@ -424,5 +425,5 @@ class TransactionTile(ft.Container):
         self._revealed = False
         self._front.offset = ft.Offset(0, 0)
         self._arrow_container.rotate = ft.Rotate(0)
-        self._front.update()
-        self._arrow_container.update()
+        safe_update(self._front)
+        safe_update(self._arrow_container)

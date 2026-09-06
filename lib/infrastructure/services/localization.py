@@ -509,6 +509,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Category",
         "uz": "Kategoriya",
     },
+    "category.delete": {
+        "ru": "Удалить категорию",
+        "en": "Delete category",
+        "uz": "Kategoriyani o‘chirish",
+    },
+    "category.delete_confirm": {
+        "ru": "Удалить «{name}»? Бюджеты по ней тоже будут удалены.",
+        "en": "Delete “{name}”? Related budgets will be removed too.",
+        "uz": "«{name}» o‘chirilsinmi? Bog‘liq byudjetlar ham o‘chadi.",
+    },
+    "category.deleted": {
+        "ru": "Категория удалена",
+        "en": "Category deleted",
+        "uz": "Kategoriya o‘chirildi",
+    },
+    "category.system_locked": {
+        "ru": "Системную категорию нельзя удалить",
+        "en": "System categories cannot be deleted",
+        "uz": "Tizim kategoriyasini o‘chirib bo‘lmaydi",
+    },
     "category.other": {
         "ru": "Прочее",
         "en": "Other",
@@ -768,6 +788,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Итог · {period}",
         "en": "Net · {period}",
         "uz": "Yakun · {period}",
+    },
+    "dashboard.net": {
+        "ru": "Итог",
+        "en": "Net",
+        "uz": "Yakun",
     },
     "dashboard.period_summary": {
         "ru": "Сводка · {period}",
@@ -1896,15 +1921,55 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Per month",
         "uz": "Oyiga",
     },
+    "goal.required_daily": {
+        "ru": "В день",
+        "en": "Per day",
+        "uz": "Kuniga",
+    },
+    "goal.required_weekly": {
+        "ru": "В неделю",
+        "en": "Per week",
+        "uz": "Haftasiga",
+    },
+    "goal.required_now": {
+        "ru": "Нужно сейчас",
+        "en": "Needed now",
+        "uz": "Hozir kerak",
+    },
     "goal.required_monthly_short": {
         "ru": "≈ {amount}/мес",
         "en": "≈ {amount}/mo",
         "uz": "≈ {amount}/oy",
     },
+    "goal.required_daily_short": {
+        "ru": "≈ {amount}/день",
+        "en": "≈ {amount}/day",
+        "uz": "≈ {amount}/kun",
+    },
+    "goal.required_weekly_short": {
+        "ru": "≈ {amount}/нед",
+        "en": "≈ {amount}/wk",
+        "uz": "≈ {amount}/hafta",
+    },
+    "goal.required_now_short": {
+        "ru": "сейчас ≈ {amount}",
+        "en": "now ≈ {amount}",
+        "uz": "hozir ≈ {amount}",
+    },
     "goal.overfund_warn": {
         "ru": "Больше остатка ({remaining})",
         "en": "Exceeds remaining ({remaining})",
         "uz": "Qolganidan ko‘p ({remaining})",
+    },
+    "goal.spillover_hint": {
+        "ru": "лишние ≈ {amount} → следующие позиции",
+        "en": "≈ {amount} spills to next items",
+        "uz": "ortiqcha ≈ {amount} → keyingi pozitsiyalar",
+    },
+    "goal.spillover_done": {
+        "ru": "Лишнее распределено по следующим позициям",
+        "en": "Extra amount went to the next open items",
+        "uz": "Ortiqcha keyingi ochiq pozitsiyalarga o‘tdi",
     },
     "goal.archived_block": {
         "ru": "Цель в архиве — взнос невозможен",
@@ -2215,6 +2280,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "К сроку: ≈ {amount}/мес",
         "en": "By deadline: ≈ {amount}/mo",
         "uz": "Muddatga: ≈ {amount}/oy",
+    },
+    "goal.pace_hint_daily": {
+        "ru": "К сроку: ≈ {amount}/день",
+        "en": "By deadline: ≈ {amount}/day",
+        "uz": "Muddatga: ≈ {amount}/kun",
+    },
+    "goal.pace_hint_weekly": {
+        "ru": "К сроку: ≈ {amount}/нед",
+        "en": "By deadline: ≈ {amount}/wk",
+        "uz": "Muddatga: ≈ {amount}/hafta",
+    },
+    "goal.pace_hint_now": {
+        "ru": "Срок прошёл — нужно ≈ {amount}",
+        "en": "Deadline passed — need ≈ {amount}",
+        "uz": "Muddat o‘tgan — ≈ {amount} kerak",
     },
     "goal.projected_from_plan": {
         "ru": "По плану: до {date}",

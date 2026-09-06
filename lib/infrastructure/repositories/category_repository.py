@@ -23,6 +23,10 @@ from lib.infrastructure.repositories._base import (
 logger = logging.getLogger("finanse.infrastructure.repositories.category")
 
 
+def _scope(account_id: str | None) -> str:
+    return (account_id or "").strip()
+
+
 def _to_entity(model: CategoryModel) -> Category:
     return Category(
         id=model.id,
@@ -30,6 +34,7 @@ def _to_entity(model: CategoryModel) -> Category:
         icon=model.icon,
         color=model.color,
         kind=CategoryKind(model.kind),
+        account_id=_scope(getattr(model, "account_id", None)),
         is_system=bool(model.is_system),
         is_active=bool(model.is_active),
         created_at=ensure_utc(model.created_at) or datetime.now(timezone.utc),
@@ -43,6 +48,7 @@ def _apply_entity(model: CategoryModel, entity: Category) -> None:
     model.icon = entity.icon
     model.color = entity.color
     model.kind = entity.kind.value if isinstance(entity.kind, CategoryKind) else str(entity.kind)
+    model.account_id = _scope(entity.account_id)
     model.is_system = entity.is_system
     model.is_active = entity.is_active
     model.created_at = ensure_utc(entity.created_at) or datetime.now(timezone.utc)
@@ -80,10 +86,17 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
             return self._get_by_id_sync(category_id)
         return await asyncio.to_thread(self._get_by_id_sync, category_id)
 
-    async def get_by_name(self, name: str) -> Optional[Category]:
+    async def get_by_name(
+        self,
+        name: str,
+        *,
+        account_id: str = "",
+    ) -> Optional[Category]:
         if in_unit_of_work():
-            return self._get_by_name_sync(name)
-        return await asyncio.to_thread(self._get_by_name_sync, name)
+            return self._get_by_name_sync(name, account_id=account_id)
+        return await asyncio.to_thread(
+            self._get_by_name_sync, name, account_id=account_id
+        )
 
     async def find_or_create(self, category: Category) -> Category:
         if in_unit_of_work():
@@ -95,10 +108,13 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
         *,
         kind: Optional[CategoryKind] = None,
         active_only: bool = True,
+        account_id: Optional[str] = None,
     ) -> list[Category]:
         if in_unit_of_work():
-            return self._list_sync(kind, active_only)
-        return await asyncio.to_thread(self._list_sync, kind, active_only)
+            return self._list_sync(kind, active_only, account_id)
+        return await asyncio.to_thread(
+            self._list_sync, kind, active_only, account_id
+        )
 
     def _create_sync(self, entity: Category) -> Category:
         try:
@@ -111,7 +127,9 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
                 return _to_entity(model)
         except IntegrityError:
             # Duplicate name (race or Unicode case): return the existing row.
-            existing = self._get_by_name_sync(entity.name)
+            existing = self._get_by_name_sync(
+                entity.name, account_id=_scope(entity.account_id)
+            )
             if existing is not None:
                 return existing
             raise
@@ -139,13 +157,20 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
             model = session.get(CategoryModel, category_id)
             return _to_entity(model) if model else None
 
-    def _get_by_name_sync(self, name: str) -> Optional[Category]:
+    def _get_by_name_sync(
+        self,
+        name: str,
+        *,
+        account_id: str = "",
+    ) -> Optional[Category]:
         needle = (name or "").strip()
         if not needle:
             return None
+        scope = _scope(account_id)
         with session_scope(self._session_factory) as session:
-            # Prefer exact match, then Unicode-aware casefold (SQLite LOWER is ASCII-only).
-            rows = session.execute(select(CategoryModel)).scalars().all()
+            rows = session.execute(
+                select(CategoryModel).where(CategoryModel.account_id == scope)
+            ).scalars().all()
             exact = next((row for row in rows if row.name == needle), None)
             if exact is not None:
                 return _to_entity(exact)
@@ -156,7 +181,9 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
             return _to_entity(folded) if folded is not None else None
 
     def _find_or_create_sync(self, entity: Category) -> Category:
-        existing = self._get_by_name_sync(entity.name)
+        existing = self._get_by_name_sync(
+            entity.name, account_id=_scope(entity.account_id)
+        )
         if existing is not None:
             return existing
         return self._create_sync(entity)
@@ -165,9 +192,11 @@ class SqlAlchemyCategoryRepository(CategoryRepository):
         self,
         kind: Optional[CategoryKind],
         active_only: bool,
+        account_id: Optional[str],
     ) -> list[Category]:
+        scope = _scope(account_id)
         with session_scope(self._session_factory) as session:
-            stmt = select(CategoryModel)
+            stmt = select(CategoryModel).where(CategoryModel.account_id == scope)
             if active_only:
                 stmt = stmt.where(CategoryModel.is_active.is_(True))
             if kind is not None:

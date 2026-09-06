@@ -103,7 +103,8 @@
 
 ### `categories`
 
-`name` UNIQUE, `icon`, `color`, `kind`, `is_system`, `is_active`.
+`name` + `account_id` UNIQUE (`account_id` пустая строка = личный ledger; UUID = корпоративный счёт),  
+`icon`, `color`, `kind`, `is_system`, `is_active`.
 
 ### `settings` (строка `id=default`)
 
@@ -117,7 +118,7 @@
 
 ### `budgets`
 
-`category_id` → `categories.name` (CASCADE), `month`, `year`, `amount_limit`, `spent`,  
+`category_id` → имя категории (мягкая ссылка; CASCADE в use case), `month`, `year`, `amount_limit`, `spent`,  
 `last_alert_level`, `account_id` (пустая строка = личный; UUID = корпоративный счёт), timestamps,  
 UNIQUE(category_id, month, year, account_id).
 
@@ -129,7 +130,7 @@ UNIQUE(category_id, month, year, account_id).
 
 ## 6. Alembic (`migrations/versions/`)
 
-Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0026**:
+Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0027**:
 
 | Rev | Суть |
 |-----|------|
@@ -159,8 +160,9 @@ UNIQUE(category_id, month, year, account_id).
 | 0024 | `accounts.is_corporate` |
 | 0025 | `budgets.account_id` (corporate-scoped budgets) |
 | 0026 | `transactions.attachments` JSON (receipt photos) |
+| 0027 | `categories.account_id` + UNIQUE(name, account_id) |
 
-Head: **0026**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
+Head: **0027**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
 
 ---
 

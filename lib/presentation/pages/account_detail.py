@@ -43,12 +43,12 @@ from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
     format_date,
     format_money,
-    format_money_compact,
     load_rate_book,
     run_async,
     safe_update,
     snack,
     snack_exception,
+    tappable_compact_money,
     tr,
     user_facing_error,
 )
@@ -376,14 +376,13 @@ class AccountDetailPage(ft.Column):
                                 muted_text(f"{amount.normalize()} {asset}", size=11),
                             ],
                         ),
-                        mark_money_text(
-                            ft.Text(
-                                format_money(value, currency),
-                                size=13,
-                                weight=ft.FontWeight.W_600,
-                            ),
+                        tappable_compact_money(
+                            self._page,
                             value,
-                            currency=currency,
+                            currency,
+                            language=lang,
+                            size=13,
+                            weight=ft.FontWeight.W_600,
                         ),
                     ],
                 )
@@ -398,7 +397,8 @@ class AccountDetailPage(ft.Column):
         color: str,
         icon: str,
         balance: Decimal,
-        base_line: str | None,
+        base_currency: str,
+        base_converted: Decimal | None,
         lang: str,
         is_corporate: bool = False,
     ) -> ft.Control:
@@ -419,6 +419,27 @@ class AccountDetailPage(ft.Column):
             if is_corporate
             else []
         )
+        base_row: list[ft.Control] = []
+        if base_converted is not None:
+            base_row.append(
+                ft.Row(
+                    spacing=4,
+                    tight=True,
+                    controls=[
+                        muted_text("≈", size=12),
+                        tappable_compact_money(
+                            self._page,
+                            base_converted,
+                            base_currency,
+                            language=lang,
+                            size=12,
+                            weight=ft.FontWeight.W_500,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            compact=False,
+                        ),
+                    ],
+                )
+            )
         return card_surface(
             ft.Column(
                 spacing=10,
@@ -459,26 +480,18 @@ class AccountDetailPage(ft.Column):
                         wrap=False,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            mark_money_text(
-                                ft.Text(
-                                    format_money(balance, currency).rsplit(" ", 1)[0],
-                                    size=scale_font(28, self._page, maximum=32),
-                                    weight=ft.FontWeight.W_700,
-                                    max_lines=1,
-                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                    no_wrap=True,
-                                ),
+                            tappable_compact_money(
+                                self._page,
                                 balance,
-                                currency=currency,
+                                currency,
+                                language=lang,
+                                size=scale_font(28, self._page, maximum=32),
+                                weight=ft.FontWeight.W_700,
+                                compact=False,
                             ),
-                            muted_text(currency, size=14),
                         ],
                     ),
-                    *(
-                        [muted_text(base_line, size=12)]
-                        if base_line
-                        else []
-                    ),
+                    *base_row,
                 ],
             ),
             padding=16,
@@ -609,6 +622,7 @@ class AccountDetailPage(ft.Column):
             self._state,
             tx_type=TransactionType.EXPENSE.value,
             initial_name=budget.category_id if budget else None,
+            account_id=account.id,
         )
         await picker.reload()
         limit_tf = make_amount_field(
@@ -917,12 +931,12 @@ class AccountDetailPage(ft.Column):
         self._sync_btn.tooltip = tr("account.sync.now", lang)
         safe_update(self._sync_btn)
         base = self._state.base_currency
-        base_line = None
+        base_converted: Decimal | None = None
         if currency.upper() != base.upper():
             book = await load_rate_book(c)
             converted = book.convert(account.balance, currency, base)
             if converted is not None:
-                base_line = f"≈ {format_money(converted, base)}"
+                base_converted = converted
 
         stats = aggregate_account_period(txs, period_cfg.group_by)
         self._last_txs = list(txs)
@@ -948,7 +962,8 @@ class AccountDetailPage(ft.Column):
                     account.icon, link.provider if link else ""
                 ),
                 balance=account.balance,
-                base_line=base_line,
+                base_currency=base,
+                base_converted=base_converted,
                 lang=lang,
                 is_corporate=account.is_corporate,
             ),
@@ -998,7 +1013,7 @@ class AccountDetailPage(ft.Column):
                 spacing=10,
                 controls=[
                     SummaryCard(
-                        title=tr("dashboard.period_income", lang, period=period_label),
+                        title=tr("transaction.income", lang),
                         value=format_money(kpi_income, currency),
                         icon=ft.Icons.TRENDING_UP,
                         accent=amount_color(True, dark=dark),
@@ -1006,9 +1021,12 @@ class AccountDetailPage(ft.Column):
                         dark=dark,
                         amount=kpi_income,
                         currency=currency,
+                        compact=False,
+                        page=self._page,
+                        language=lang,
                     ),
                     SummaryCard(
-                        title=tr("dashboard.period_expense", lang, period=period_label),
+                        title=tr("transaction.expense", lang),
                         value=format_money(kpi_expense, currency),
                         icon=ft.Icons.TRENDING_DOWN,
                         accent=amount_color(False, dark=dark),
@@ -1016,35 +1034,37 @@ class AccountDetailPage(ft.Column):
                         dark=dark,
                         amount=kpi_expense,
                         currency=currency,
+                        compact=False,
+                        page=self._page,
+                        language=lang,
                     ),
                 ],
             ),
             card_surface(
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=8,
+                    wrap=False,
                     controls=[
                         ft.Column(
                             spacing=2,
                             tight=True,
+                            expand=True,
                             controls=[
                                 muted_text(
-                                    tr(
-                                        "dashboard.period_net",
-                                        lang,
-                                        period=period_label,
-                                    ),
+                                    tr("dashboard.net", lang),
                                     size=12,
                                 ),
-                                mark_money_text(
-                                    ft.Text(
-                                        format_money(net, currency),
-                                        size=16,
-                                        weight=ft.FontWeight.W_700,
-                                        color=net_accent,
-                                    ),
+                                tappable_compact_money(
+                                    self._page,
                                     net,
-                                    currency=currency,
+                                    currency,
                                     signed=True,
+                                    language=lang,
+                                    size=16,
+                                    color=net_accent,
+                                    compact=False,
                                 ),
                             ],
                         ),
@@ -1079,23 +1099,13 @@ class AccountDetailPage(ft.Column):
                                         tr("account.stats.transfer_in", lang),
                                         size=11,
                                     ),
-                                    mark_money_text(
-                                        ft.Text(
-                                            format_money_compact(
-                                                stats.transfer_in, currency
-                                            ),
-                                            weight=ft.FontWeight.W_700,
-                                            size=13,
-                                            max_lines=2,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                            color=amount_color(True, dark=dark),
-                                            tooltip=format_money(
-                                                stats.transfer_in, currency
-                                            ),
-                                        ),
+                                    tappable_compact_money(
+                                        self._page,
                                         stats.transfer_in,
-                                        currency=currency,
-                                        compact=True,
+                                        currency,
+                                        language=lang,
+                                        size=13,
+                                        color=amount_color(True, dark=dark),
                                     ),
                                 ],
                             ),
@@ -1109,24 +1119,14 @@ class AccountDetailPage(ft.Column):
                                         tr("account.stats.transfer_out", lang),
                                         size=11,
                                     ),
-                                    mark_money_text(
-                                        ft.Text(
-                                            format_money_compact(
-                                                stats.transfer_out, currency
-                                            ),
-                                            weight=ft.FontWeight.W_700,
-                                            size=13,
-                                            max_lines=2,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                            text_align=ft.TextAlign.END,
-                                            color=amount_color(False, dark=dark),
-                                            tooltip=format_money(
-                                                stats.transfer_out, currency
-                                            ),
-                                        ),
+                                    tappable_compact_money(
+                                        self._page,
                                         stats.transfer_out,
-                                        currency=currency,
-                                        compact=True,
+                                        currency,
+                                        language=lang,
+                                        size=13,
+                                        color=amount_color(False, dark=dark),
+                                        text_align=ft.TextAlign.END,
                                     ),
                                 ],
                             ),
@@ -1229,13 +1229,27 @@ class AccountDetailPage(ft.Column):
                                 ),
                             ],
                         ),
-                        ft.Text(
-                            f"{format_money(amount, currency)}  ({share:.0f}%)",
-                            size=11,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                            weight=ft.FontWeight.W_600,
-                            no_wrap=True,
-                            max_lines=1,
+                        ft.Row(
+                            spacing=4,
+                            tight=True,
+                            controls=[
+                                tappable_compact_money(
+                                    self._page,
+                                    amount,
+                                    currency,
+                                    language=lang,
+                                    size=11,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                                ft.Text(
+                                    f"({share:.0f}%)",
+                                    size=11,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    weight=ft.FontWeight.W_600,
+                                    no_wrap=True,
+                                ),
+                            ],
                         ),
                     ],
                 )

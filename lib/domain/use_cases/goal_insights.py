@@ -1,10 +1,10 @@
-"""Goal analytics helpers: sparkline buckets, streak, monthly math."""
+"""Goal analytics helpers: sparkline buckets, streak, flexible pace math."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import ROUND_CEILING, Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,15 @@ from lib.domain.use_cases.goals import goal_credit_amount
 
 if TYPE_CHECKING:
     from lib.domain.entities.transaction import Transaction
+
+PaceUnit = Literal["day", "week", "month", "total"]
+
+
+class GoalPaceNeed(NamedTuple):
+    """Required contribution amount for a display/calendar unit."""
+
+    amount: Decimal
+    unit: PaceUnit
 
 
 def _utc_now() -> datetime:
@@ -28,6 +37,13 @@ def fractional_months_between(start: datetime, end: datetime) -> float:
     return max(days / 30.4375, 0.0)
 
 
+def days_between(start: datetime, end: datetime) -> float:
+    """Fractional days from ``start`` to ``end`` (0 when end is not later)."""
+    if end <= start:
+        return 0.0
+    return (end - start).total_seconds() / 86400.0
+
+
 def months_between(start: datetime, end: datetime) -> int:
     """Whole calendar months from start to end (minimum 1 when end is after start)."""
     if end <= start:
@@ -38,22 +54,60 @@ def months_between(start: datetime, end: datetime) -> int:
     return max(1, months)
 
 
+def required_pace_for_goal(
+    remaining: Decimal,
+    deadline: datetime | None,
+    *,
+    now: datetime | None = None,
+) -> GoalPaceNeed | None:
+    """Required contribution paced to the deadline horizon.
+
+    Short deadlines use day/week units so a 3-day goal is not shown as a
+    huge “per month” figure.
+    """
+    if remaining <= 0:
+        return GoalPaceNeed(Decimal("0.00"), "month")
+    if deadline is None:
+        return None
+    ref = now or _utc_now()
+    days = days_between(ref, deadline)
+    if days <= 0:
+        return GoalPaceNeed(quantize_money(remaining), "total")
+    if days <= 7:
+        return GoalPaceNeed(
+            quantize_money(remaining / Decimal(str(max(days, 1.0 / 24)))),
+            "day",
+        )
+    if days <= 45:
+        weeks = max(days / 7.0, 1.0 / 7.0)
+        return GoalPaceNeed(
+            quantize_money(remaining / Decimal(str(weeks))),
+            "week",
+        )
+    months = max(days / 30.4375, 1.0 / 30.4375)
+    return GoalPaceNeed(
+        quantize_money(remaining / Decimal(str(months))),
+        "month",
+    )
+
+
 def required_monthly_for_goal(
     remaining: Decimal,
     deadline: datetime | None,
     *,
     now: datetime | None = None,
 ) -> Decimal | None:
-    """How much per month is needed to finish by deadline."""
-    if remaining <= 0:
-        return Decimal("0.00")
-    if deadline is None:
+    """Monthly-equivalent pace (for caches / reminders)."""
+    pace = required_pace_for_goal(remaining, deadline, now=now)
+    if pace is None:
         return None
-    ref = now or _utc_now()
-    left = fractional_months_between(ref, deadline)
-    if left <= 0:
-        return quantize_money(remaining)
-    return quantize_money(remaining / Decimal(str(left)))
+    if pace.unit == "day":
+        return quantize_money(pace.amount * Decimal("30.4375"))
+    if pace.unit == "week":
+        return quantize_money(pace.amount * Decimal("4.348125"))
+    if pace.unit == "total":
+        return quantize_money(pace.amount)
+    return pace.amount
 
 
 def net_goal_credit_flow(transactions: list["Transaction"]) -> Decimal:

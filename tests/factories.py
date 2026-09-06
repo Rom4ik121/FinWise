@@ -118,6 +118,7 @@ def make_category(
     name: str = "Custom",
     kind: CategoryKind = CategoryKind.BOTH,
     is_system: bool = False,
+    account_id: str = "",
 ) -> Category:
     return Category(
         name=name,
@@ -125,4 +126,5 @@ def make_category(
         icon="category",
         color="#00897B",
         is_system=is_system,
+        account_id=account_id,
     )

@@ -12,7 +12,7 @@ from lib.presentation.account_icons import account_icon_badge
 from lib.presentation.layout import h_scroll
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
-from lib.presentation.utils import format_date, format_money, format_money_compact, tr
+from lib.presentation.utils import format_date, format_money_compact, tr
 
 
 def circular_progress_badge(
@@ -151,54 +151,66 @@ def goal_item_progress_card(
         trailing.append(
             ft.IconButton(
                 icon=ft.Icons.CHECK_CIRCLE_OUTLINE,
+                icon_size=20,
                 tooltip=tr("goal.close_item", language),
                 icon_color=get_active_skin().primary_hex(dark=True),
+                style=ft.ButtonStyle(padding=6),
                 on_click=lambda _e: on_close(),
             )
         )
     can_contribute = on_contribute is not None and not closed
+    name = (item.name or "").strip()
     return card_surface(
         ft.Row(
-            spacing=14,
+            spacing=10,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 circular_progress_badge(
                     ratio,
                     label,
-                    size=72,
+                    size=52,
                     color=ring_color,
                 ),
                 ft.Column(
-                    spacing=4,
+                    spacing=2,
                     tight=True,
                     expand=True,
                     controls=[
                         ft.Text(
-                            item.name,
+                            name,
                             weight=ft.FontWeight.W_700,
-                            size=15,
-                            max_lines=2,
+                            size=13,
+                            max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS,
+                            no_wrap=True,
                         ),
                         ft.Text(
                             tr(
                                 "goal.item_progress",
                                 language,
-                                saved=format_money(item.current_amount, currency),
-                                target=format_money(item.target_amount, currency),
+                                saved=format_money_compact(
+                                    item.current_amount, currency
+                                ),
+                                target=format_money_compact(
+                                    item.target_amount, currency
+                                ),
                             ),
-                            size=12,
+                            size=11,
                             color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            no_wrap=True,
                         ),
-                        muted_text(status_txt),
+                        muted_text(status_txt, size=10),
                     ],
                 ),
                 *trailing,
             ],
         ),
-        padding=14,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         ink=can_contribute,
         on_click=lambda _e: on_contribute() if can_contribute else None,
+        animate=False,
     )
 
 
@@ -213,6 +225,8 @@ class GoalProgress(ft.Container):
         language: str = "ru",
         alert: bool = False,
         required_monthly: Optional[Decimal] = None,
+        required_pace_amount: Optional[Decimal] = None,
+        required_pace_unit: Optional[str] = None,
         is_on_track: Optional[bool] = None,
         on_click: Optional[Callable[[Goal], None]] = None,
         on_contribute: Optional[Callable[[Goal], None]] = None,
@@ -334,12 +348,22 @@ class GoalProgress(ft.Container):
             action_btn = ft.Container(width=0, height=0)
 
         footer_bits = [deadline]
-        if required_monthly is not None and status == GoalStatus.ACTIVE:
+        pace_amount = required_pace_amount
+        pace_unit = required_pace_unit
+        if pace_amount is None and required_monthly is not None:
+            pace_amount = required_monthly
+            pace_unit = "month"
+        if pace_amount is not None and status == GoalStatus.ACTIVE:
+            unit_key = {
+                "day": "goal.required_daily_short",
+                "week": "goal.required_weekly_short",
+                "total": "goal.required_now_short",
+            }.get(pace_unit or "month", "goal.required_monthly_short")
             footer_bits.append(
                 tr(
-                    "goal.required_monthly_short",
+                    unit_key,
                     language,
-                    amount=format_money_compact(required_monthly, currency),
+                    amount=format_money_compact(pace_amount, currency),
                 )
             )
 
@@ -463,6 +487,7 @@ class GoalProgress(ft.Container):
             padding=16,
             ink=on_click is not None,
             on_click=lambda _e: on_click(goal) if on_click else None,
+            animate=False,
         )
         super().__init__(
             padding=card.padding,

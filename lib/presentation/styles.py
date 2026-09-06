@@ -45,6 +45,7 @@ def card_surface(
     ink: bool = False,
     on_click: Optional[ft.ControlEventHandler] = None,
     expand: Optional[bool] = None,
+    animate: bool = True,
 ) -> ft.Container:
     """Elevated card with readable border in both themes."""
     skin = get_active_skin()
@@ -53,23 +54,25 @@ def card_surface(
         if skin.glass
         else ft.Colors.OUTLINE_VARIANT
     )
-    return ft.Container(
-        content=content,
-        padding=padding,
-        border_radius=skin.card_radius,
-        border=ft.Border.all(1, border_color),
-        shadow=ft.BoxShadow(
+    kwargs: dict = {
+        "content": content,
+        "padding": padding,
+        "border_radius": skin.card_radius,
+        "border": ft.Border.all(1, border_color),
+        "shadow": ft.BoxShadow(
             spread_radius=0,
             blur_radius=skin.card_blur,
             color=skin.glow,
             offset=ft.Offset(0, 6),
         ),
-        ink=ink,
-        on_click=on_click,
-        expand=expand,
-        animate=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+        "ink": ink,
+        "on_click": on_click,
+        "expand": expand,
         **glass_layer(),
-    )
+    }
+    if animate:
+        kwargs["animate"] = ft.Animation(220, ft.AnimationCurve.EASE_OUT)
+    return ft.Container(**kwargs)
 
 
 def hero_card(

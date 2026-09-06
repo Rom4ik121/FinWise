@@ -30,7 +30,6 @@ from lib.presentation.styles import (
 )
 from lib.presentation.utils import (
     format_money,
-    format_money_compact,
     load_rate_book,
     run_async,
     safe_update,
@@ -443,14 +442,6 @@ class DashboardPage(ft.Column):
             )
             safe_update(self._sections_chevron)
 
-    @staticmethod
-    def _abbrev_today_amount(amount: Decimal, currency: str) -> tuple[str, str, bool]:
-        """Return (display, full, abbreviated) for the today KPI boxes."""
-        full = format_money(amount, currency)
-        if abs(amount) >= Decimal("10000") or len(full) > 14:
-            return format_money_compact(amount, currency), full, True
-        return full, full, False
-
     def _today_box(
         self,
         *,
@@ -462,24 +453,10 @@ class DashboardPage(ft.Column):
     ) -> ft.Control:
         if hidden:
             display = _HIDDEN_SMALL
-            on_tap = None
             tip = None
         else:
-            display, full, abbreviated = self._abbrev_today_amount(amount, currency)
-
-            def on_tap(_e: ft.ControlEvent | None = None, *, _full: str = full) -> None:
-                from lib.presentation.haptics import haptic
-
-                haptic("selection")
-                snack(self._page, _full)
-
-            tip = (
-                tr("dashboard.today_amount_tap", self._state.language)
-                if abbreviated
-                else full
-            )
-            if not abbreviated:
-                on_tap = None
+            display = format_money(amount, currency)
+            tip = display
         amount_label = ft.Text(
             display,
             size=13,
@@ -493,12 +470,10 @@ class DashboardPage(ft.Column):
                 amount_label,
                 amount,
                 currency=currency,
-                compact=True,
+                compact=False,
             )
         return ft.Container(
             expand=True,
-            ink=on_tap is not None,
-            on_click=on_tap,
             tooltip=tip,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             border_radius=12,

@@ -16,7 +16,7 @@ from lib.presentation.account_icons import (
 from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
-from lib.presentation.utils import format_money, format_money_parts
+from lib.presentation.utils import format_money, format_money_parts, safe_update
 from lib.presentation.responsive import (
     scale_font,
     swipe_action_strip_width,
@@ -387,8 +387,8 @@ class AccountCard(ft.Container):
             frac = max(frac, float(stored))
         self._front.offset = ft.Offset(-frac, 0)
         self._arrow_container.rotate = ft.Rotate(pi)
-        self._front.update()
-        self._arrow_container.update()
+        safe_update(self._front)
+        safe_update(self._arrow_container)
 
     def _close(self) -> None:
         global _currently_open
@@ -397,5 +397,5 @@ class AccountCard(ft.Container):
         self._revealed = False
         self._front.offset = ft.Offset(0, 0)
         self._arrow_container.rotate = ft.Rotate(0)
-        self._front.update()
-        self._arrow_container.update()
+        safe_update(self._front)
+        safe_update(self._arrow_container)

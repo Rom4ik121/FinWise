@@ -15,7 +15,7 @@ from lib.domain.entities.money import quantize_money
 from lib.core.config import ACCOUNT_COLORS, normalize_savings_category
 from lib.domain.use_cases.goal_insights import (
     projected_date_from_planned,
-    required_monthly_for_goal,
+    required_pace_for_goal,
 )
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.account_icons import (
@@ -364,22 +364,17 @@ class GoalsPage(ft.Column):
 
     def _goal_card(self, goal: Goal) -> ft.Control:
         cache = goal.cached_projection or {}
-        required_raw = cache.get("required_monthly_contribution")
-        required: Decimal | None = None
-        if required_raw not in (None, ""):
-            try:
-                required = Decimal(str(required_raw))
-            except Exception:  # noqa: BLE001
-                required = None
         on_track = cache.get("is_on_track")
         if on_track is not None and not isinstance(on_track, bool):
             on_track = None
+        pace = required_pace_for_goal(goal.remaining_amount, goal.deadline)
         card = GoalProgress(
             goal,
             currency=goal.currency or self._state.base_currency,
             language=self._state.language,
             alert=goal.id in self._alert_ids,
-            required_monthly=required,
+            required_pace_amount=pace.amount if pace else None,
+            required_pace_unit=pace.unit if pace else None,
             is_on_track=on_track,
             on_click=self._open_detail,
             on_alert=self._open_detail,
@@ -540,11 +535,34 @@ class GoalsPage(ft.Column):
                     )
                     convert_hint.color = ft.Colors.ERROR
                 else:
-                    convert_hint.value = tr(
-                        "goal.converted_amount",
-                        lang,
-                        amount=format_money(converted, goal.currency),
-                    )
+                    parts = [
+                        tr(
+                            "goal.converted_amount",
+                            lang,
+                            amount=format_money(converted, goal.currency),
+                        )
+                    ]
+                    if item_dd is not None and open_items:
+                        selected = next(
+                            (i for i in open_items if i.id == item_dd.value),
+                            open_items[0],
+                        )
+                        room = quantize_money(
+                            max(
+                                Decimal("0"),
+                                selected.target_amount - selected.current_amount,
+                            )
+                        )
+                        if room > 0 and converted > room:
+                            spill = quantize_money(converted - room)
+                            parts.append(
+                                tr(
+                                    "goal.spillover_hint",
+                                    lang,
+                                    amount=format_money(spill, goal.currency),
+                                )
+                            )
+                    convert_hint.value = " · ".join(parts)
                     convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
                 safe_update(convert_hint)
 
@@ -552,6 +570,8 @@ class GoalsPage(ft.Column):
                 amount_tf, lang, extra_on_change=_refresh_conversion
             )
             bind_dropdown_select(account_dd, _refresh_conversion)
+            if item_dd is not None:
+                bind_dropdown_select(item_dd, _refresh_conversion)
 
             async def _save() -> None:
                 try:
@@ -595,23 +615,41 @@ class GoalsPage(ft.Column):
                 try:
                     old_ratio = float(goal.progress_ratio)
                     old_item_ratios = {i.id: float(i.progress_ratio) for i in goal.items}
+                    selected_item_id = (
+                        item_dd.value if item_dd is not None else None
+                    )
+                    item_room = Decimal("0")
+                    if selected_item_id and open_items:
+                        selected = next(
+                            (i for i in open_items if i.id == selected_item_id),
+                            None,
+                        )
+                        if selected is not None:
+                            item_room = quantize_money(
+                                max(
+                                    Decimal("0"),
+                                    selected.target_amount - selected.current_amount,
+                                )
+                            )
                     updated = await self._state.container.contribute_to_goal.execute(
                         goal.id,
                         amount,
                         account_id=account_id,
-                        item_id=item_dd.value if item_dd is not None else None,
+                        item_id=selected_item_id,
                     )
                 except Exception as exc:  # noqa: BLE001
                     snack_exception(self._page, exc, lang=lang)
                     return
                 close()
                 self._state.bump_refresh("dashboard", "accounts", "transactions", "goals")
+                if item_room > 0 and converted > item_room:
+                    snack(self._page, tr("goal.spillover_done", lang))
                 self._notify_milestones(
                     goal,
                     updated,
                     old_ratio=old_ratio,
                     old_item_ratios=old_item_ratios,
-                    item_id=item_dd.value if item_dd is not None else None,
+                    item_id=selected_item_id,
                 )
                 await self.reload()
                 if close_holder is not None:
@@ -766,11 +804,19 @@ class GoalsPage(ft.Column):
             proj_rows: list[ft.Control] = [
                 ft.Text(tr("goal.projection", lang), weight=ft.FontWeight.W_700),
             ]
-            if projection.required_monthly_contribution is not None:
+            pace = required_pace_for_goal(
+                projection.remaining_amount, goal_obj.deadline
+            )
+            if pace is not None and pace.amount > 0:
+                pace_label = {
+                    "day": "goal.required_daily",
+                    "week": "goal.required_weekly",
+                    "total": "goal.required_now",
+                }.get(pace.unit, "goal.required_monthly")
                 proj_rows.append(
                     ft.Text(
-                        f"{tr('goal.required_monthly', lang)}: "
-                        f"{format_money(projection.required_monthly_contribution, goal_obj.currency)}"
+                        f"{tr(pace_label, lang)}: "
+                        f"{format_money(pace.amount, goal_obj.currency)}"
                     )
                 )
             if projection.projected_completion_date is not None:
@@ -1510,13 +1556,18 @@ class GoalsPage(ft.Column):
             current = goal.current_amount if goal else Decimal("0")
             remaining = quantize_money(max(Decimal("0"), target - current))
             parts: list[str] = []
-            req = required_monthly_for_goal(remaining, deadline_field.value)
-            if req is not None and req > 0:
+            pace = required_pace_for_goal(remaining, deadline_field.value)
+            if pace is not None and pace.amount > 0:
+                hint_key = {
+                    "day": "goal.pace_hint_daily",
+                    "week": "goal.pace_hint_weekly",
+                    "total": "goal.pace_hint_now",
+                }.get(pace.unit, "goal.monthly_hint_required")
                 parts.append(
                     tr(
-                        "goal.monthly_hint_required",
+                        hint_key,
                         lang,
-                        amount=format_money(req, ccy),
+                        amount=format_money(pace.amount, ccy),
                     )
                 )
             try:

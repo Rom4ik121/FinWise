@@ -203,34 +203,39 @@ class AnalyticsPage(ft.Column):
         *,
         signed: bool = False,
     ) -> None:
-        lang = self._state.language
-        dialog = ft.CupertinoAlertDialog(
-            modal=True,
-            title=ft.Text(
-                label or tr("analytics.full_amount", lang),
-                size=13,
-                text_align=ft.TextAlign.CENTER,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-            ),
-            content=ft.Container(
-                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                content=ft.Text(
-                    format_money(amount, currency, signed=signed),
-                    size=17,
-                    weight=ft.FontWeight.W_800,
+        from lib.presentation.ui_feedback import flash_message
+
+        full = format_money(amount, currency, signed=signed)
+        if not flash_message(self._page, full, haptic_kind="selection"):
+            # Fallback dialog only if toast overlay is missing.
+            lang = self._state.language
+            dialog = ft.CupertinoAlertDialog(
+                modal=True,
+                title=ft.Text(
+                    label or tr("analytics.full_amount", lang),
+                    size=13,
                     text_align=ft.TextAlign.CENTER,
-                    selectable=True,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
-            ),
-            actions=[
-                ft.CupertinoDialogAction(
-                    tr("action.close", lang),
-                    default=True,
-                    on_click=lambda _e: self._page.pop_dialog(),
+                content=ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    content=ft.Text(
+                        full,
+                        size=17,
+                        weight=ft.FontWeight.W_800,
+                        text_align=ft.TextAlign.CENTER,
+                        selectable=True,
+                    ),
                 ),
-            ],
-        )
-        self._page.show_dialog(dialog)
+                actions=[
+                    ft.CupertinoDialogAction(
+                        tr("action.close", lang),
+                        default=True,
+                        on_click=lambda _e: self._page.pop_dialog(),
+                    ),
+                ],
+            )
+            self._page.show_dialog(dialog)
 
     def _money(
         self,

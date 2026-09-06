@@ -33,11 +33,13 @@ class CategoryPicker(ft.Column):
         *,
         tx_type: str = TransactionType.EXPENSE.value,
         initial_name: str | None = None,
+        account_id: str | None = None,
         on_changed: Optional[Callable[[], None]] = None,
     ) -> None:
         self._page = page
         self._state = state
         self._tx_type = tx_type
+        self._account_id = (account_id or "").strip()
         self._on_changed = on_changed
         self._categories: list[Category] = []
         self._selected_name = initial_name or ""
@@ -139,6 +141,14 @@ class CategoryPicker(ft.Column):
         self._tx_type = tx_type
         run_async(self._page, self.reload)
 
+    def set_account_id(self, account_id: str | None) -> None:
+        """Scope categories to a corporate account (or personal when empty)."""
+        scope = (account_id or "").strip()
+        if scope == self._account_id:
+            return
+        self._account_id = scope
+        run_async(self._page, self.reload)
+
     def _selected_category(self) -> Category | None:
         name = self.selected_name
         if not name:
@@ -168,13 +178,16 @@ class CategoryPicker(ft.Column):
         safe_update(self._icon_badge)
 
     async def reload(self) -> None:
-        """Load categories for the current transaction type."""
+        """Load categories for the current transaction type and account scope."""
         lang = self._state.language
         uc = self._state.container.list_categories
         if uc is None:
             self._categories = []
         else:
-            self._categories = await uc.execute(for_type=self._tx_type)
+            self._categories = await uc.execute(
+                for_type=self._tx_type,
+                account_id=self._account_id or None,
+            )
 
         if self._selected_name and any(
             c.name == self._selected_name for c in self._categories
@@ -235,6 +248,31 @@ class CategoryPicker(ft.Column):
 
         def _tile(category: Category) -> ft.Control:
             selected = category.name == self.selected_name
+            can_edit = not category.is_system
+            trailing: list[ft.Control] = []
+            if can_edit:
+                trailing.append(
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT_OUTLINED,
+                        icon_size=18,
+                        tooltip=tr("category.edit", lang),
+                        on_click=lambda _e, n=category.name: (
+                            _close(),
+                            self._open_editor(existing_name=n),
+                        ),
+                    )
+                )
+            trailing.append(
+                ft.Icon(
+                    ft.Icons.CHECK_CIRCLE if selected else ft.Icons.CHEVRON_RIGHT,
+                    size=20,
+                    color=(
+                        ft.Colors.PRIMARY
+                        if selected
+                        else ft.Colors.ON_SURFACE_VARIANT
+                    ),
+                )
+            )
             return ft.Container(
                 border_radius=14,
                 bgcolor=(
@@ -273,15 +311,7 @@ class CategoryPicker(ft.Column):
                             overflow=ft.TextOverflow.ELLIPSIS,
                             max_lines=1,
                         ),
-                        ft.Icon(
-                            ft.Icons.CHECK_CIRCLE if selected else ft.Icons.CHEVRON_RIGHT,
-                            size=20,
-                            color=(
-                                ft.Colors.PRIMARY
-                                if selected
-                                else ft.Colors.ON_SURFACE_VARIANT
-                            ),
-                        ),
+                        *trailing,
                     ],
                 ),
             )
@@ -568,6 +598,7 @@ class CategoryPicker(ft.Column):
                             icon=selected_icon["value"],
                             color=selected_color["value"],
                             kind=kind,
+                            account_id=self._account_id,
                         )
                     )
                     self._selected_name = created.name
@@ -579,6 +610,7 @@ class CategoryPicker(ft.Column):
                                 "icon": selected_icon["value"],
                                 "color": selected_color["value"],
                                 "kind": kind,
+                                "account_id": self._account_id or existing.account_id,
                             }
                         )
                     )
@@ -595,6 +627,60 @@ class CategoryPicker(ft.Column):
                 self._on_changed()
             snack(self._page, tr("action.saved", lang))
 
+        body_controls: list[ft.Control] = [
+            name_tf,
+            kind_dd,
+            icon_toggle,
+            color_toggle,
+        ]
+        if existing is not None and not existing.is_system:
+            from lib.presentation.widgets.confirm_dialog import confirm_dialog
+
+            def _confirm_delete() -> None:
+                async def _do_delete() -> None:
+                    uc = getattr(self._state.container, "delete_category", None)
+                    if uc is None:
+                        return
+                    try:
+                        await uc.execute(existing.id)
+                    except Exception as exc:  # noqa: BLE001
+                        snack_exception(
+                            self._page, exc, lang=self._state.language
+                        )
+                        return
+                    close()
+                    if self._selected_name == existing.name:
+                        self._selected_name = ""
+                    self._state.bump_refresh(
+                        "transactions", "budgets", "analytics", "dashboard"
+                    )
+                    await self.reload()
+                    if self._on_changed:
+                        self._on_changed()
+                    snack(self._page, tr("category.deleted", lang))
+
+                confirm_dialog(
+                    self._page,
+                    title=tr("category.delete", lang),
+                    message=tr(
+                        "category.delete_confirm",
+                        lang,
+                        name=localize_category_name(existing.name, lang),
+                    ),
+                    confirm_text=tr("action.delete", lang),
+                    cancel_text=tr("action.cancel", lang),
+                    on_confirm=_do_delete,
+                )
+
+            body_controls.append(
+                ft.TextButton(
+                    tr("category.delete", lang),
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    style=ft.ButtonStyle(color=ft.Colors.ERROR),
+                    on_click=lambda _e: _confirm_delete(),
+                )
+            )
+
         close = open_fullscreen_form(
             self._page,
             title=(
@@ -604,11 +690,6 @@ class CategoryPicker(ft.Column):
             ),
             lang=lang,
             overlay_key="category_editor",
-            body=[
-                name_tf,
-                kind_dd,
-                icon_toggle,
-                color_toggle,
-            ],
+            body=body_controls,
             on_save=_save,
         )
