@@ -41,6 +41,37 @@ def test_account_card_builds() -> None:
     assert synced is not None
 
 
+def test_transaction_tile_uses_category_icon() -> None:
+    from lib.domain.entities.category import Category
+    from lib.presentation.utils import category_icon
+
+    tx = Transaction(
+        account_id="corp-1",
+        amount=Decimal("20"),
+        category="Еда",
+        date=datetime.now(timezone.utc),
+        type=TransactionType.EXPENSE,
+        currency="UZS",
+    )
+    category = Category(name="Еда", icon="restaurant", color="#E11D48")
+    with_cat = TransactionTile(tx, category=category, language="ru")
+    fallback = TransactionTile(tx, language="ru")
+    with_icons = _find_icons(with_cat)
+    fallback_icons = _find_icons(fallback)
+    assert category_icon("restaurant") in with_icons
+    assert ft.Icons.NORTH_EAST in fallback_icons
+    assert category_icon("restaurant") not in fallback_icons
+
+
+def test_lookup_account_category_is_case_insensitive() -> None:
+    from lib.domain.entities.category import Category
+    from lib.presentation.pages.account_detail import _lookup_category
+
+    cat = Category(name="Еда", icon="restaurant")
+    assert _lookup_category({"Еда": cat}, "еда") is cat
+    assert _lookup_category({"Еда": cat}, "Такси") is None
+
+
 def test_transaction_tile_builds() -> None:
     tx = Transaction(
         account_id="a1",
@@ -106,6 +137,22 @@ def test_charts_empty_and_with_data() -> None:
         language="en",
     )
     assert isinstance(line, ft.Container)
+
+
+def _find_icons(ctrl: ft.Control) -> list:
+    found: list = []
+    stack = [ctrl]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, ft.Icon):
+            found.append(getattr(cur, "icon", None) or getattr(cur, "name", None))
+        content = getattr(cur, "content", None)
+        if content is not None:
+            stack.append(content)
+        controls = getattr(cur, "controls", None)
+        if controls:
+            stack.extend(controls)
+    return found
 
 
 def _find_canvases(ctrl: ft.Control) -> list:

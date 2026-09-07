@@ -17,6 +17,8 @@ _ANIMATE: contextvars.ContextVar[bool] = contextvars.ContextVar(
 _SCROLL_ATTR = "_fw_scroll"
 _RESTORING_ATTR = "_fw_restoring"
 _RESTORE_GEN = "_fw_restore_gen"
+# Restore any meaningful scroll — previously 40px left mid-page jumps unrestored.
+_RESTORE_MIN = 1.0
 
 
 def is_ui_animating() -> bool:
@@ -67,8 +69,18 @@ def remember_scroll(control: ft.ListView) -> ft.ListView:
             px = float(getattr(e, "pixels", 0) or 0)
         except (TypeError, ValueError):
             return
-        # Ignore tiny noise / rubber-band that causes restore jumps.
         prev = snapshot_scroll(control)
+        et = getattr(e, "event_type", None)
+        et_name = str(getattr(et, "value", et) or "").lower()
+        # Overlay dismiss / page.update() often snaps ListView to 0 without a
+        # user gesture — ignore that so reload can still restore the old offset.
+        if (
+            prev >= 8
+            and px < 4
+            and "user" not in et_name
+        ):
+            return
+        # Ignore tiny noise / rubber-band that causes restore jumps.
         if abs(px - prev) < 1.5 and px > 0:
             return
         setattr(control, _SCROLL_ATTR, px)
@@ -80,33 +92,37 @@ def remember_scroll(control: ft.ListView) -> ft.ListView:
 async def restore_scroll(control: ft.Control, offset: float) -> None:
     """Jump a ListView back after its children were replaced.
 
-    Single settle + one scroll_to (no multi-shot yank). Skips tiny offsets
-    and cancels if a newer replace started meanwhile.
+    Immediate scroll_to + one layout retry. Cancels if a newer replace started.
     """
     target = float(offset or 0)
-    if target <= 40:
+    if target < _RESTORE_MIN:
         setattr(control, _RESTORING_ATTR, False)
         return
     gen = int(getattr(control, _RESTORE_GEN, 0) or 0) + 1
     setattr(control, _RESTORE_GEN, gen)
     setattr(control, _RESTORING_ATTR, True)
-    try:
-        await asyncio.sleep(0.04)
-        if int(getattr(control, _RESTORE_GEN, 0) or 0) != gen:
-            return
+
+    async def _apply(pos: float) -> None:
         try:
             max_ext = float(getattr(control, "max_scroll_extent", 0) or 0)
         except (TypeError, ValueError):
             max_ext = 0.0
-        if max_ext > 0:
-            target = min(target, max_ext)
+        aim = min(pos, max_ext) if max_ext > 0 else pos
         try:
-            # duration=0 avoids animated scroll bounce that feels like jitter.
-            await control.scroll_to(offset=target, duration=0)
-            setattr(control, _SCROLL_ATTR, target)
+            await control.scroll_to(offset=aim, duration=0)
+            setattr(control, _SCROLL_ATTR, aim)
         except Exception:  # noqa: BLE001
             pass
-        await asyncio.sleep(0.08)
+
+    try:
+        # First shot ASAP — reduce visible flash to top.
+        await _apply(target)
+        await asyncio.sleep(0.05)
+        if int(getattr(control, _RESTORE_GEN, 0) or 0) != gen:
+            return
+        # Second shot after layout knows max_scroll_extent.
+        await _apply(target)
+        await asyncio.sleep(0.05)
     finally:
         if int(getattr(control, _RESTORE_GEN, 0) or 0) == gen:
             setattr(control, _RESTORING_ATTR, False)
@@ -120,9 +136,11 @@ def replace_controls(
     """Assign ``host.controls`` and keep the previous scroll offset."""
     offset = snapshot_scroll(host)
     setattr(host, _RESTORING_ATTR, True)
+    # Keep remembered offset across rebuild so late scroll events don't wipe it.
+    setattr(host, _SCROLL_ATTR, offset)
     host.controls = list(controls)
     safe_update(host)
-    if page is not None and offset > 40:
+    if page is not None and offset >= _RESTORE_MIN:
         run_async(page, restore_scroll, host, offset)
     else:
         setattr(host, _RESTORING_ATTR, False)

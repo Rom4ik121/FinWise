@@ -915,9 +915,23 @@ class TransactionsPage(ft.Column):
         else:
             default_account_id = tx.account_id
             _, frequent_id = await prepare_tx_account_choices(self._state, accounts)
-            # Keep edit order stable; only mark the frequent account in labels.
             if default_account_id not in {a.id for a in accounts}:
-                default_account_id = accounts[0].id
+                # Never silently remap a corporate (or missing) account to personal.
+                try:
+                    owned = await self._state.container.account_repository.get_by_id(
+                        default_account_id
+                    )
+                except Exception:  # noqa: BLE001
+                    owned = None
+                if owned is not None:
+                    accounts = [owned, *accounts]
+                else:
+                    snack(
+                        self._page,
+                        tr("error.no_accounts", lang),
+                        error=True,
+                    )
+                    return
 
         type_dd = ft.Dropdown(
             label=tr("field.type", lang),
@@ -977,11 +991,21 @@ class TransactionsPage(ft.Column):
                 ),
             ),
         )
+        edit_account = next(
+            (a for a in accounts if a.id == default_account_id), None
+        )
+        category_scope = (
+            edit_account.id
+            if edit_account is not None
+            and bool(getattr(edit_account, "is_corporate", False))
+            else ""
+        )
         category_picker = CategoryPicker(
             self._page,
             self._state,
             tx_type=(tx.type.value if tx else TransactionType.EXPENSE.value),
             initial_name=tx.category if tx else None,
+            account_id=category_scope,
         )
         await category_picker.reload()
         if category_picker.is_empty:
@@ -1052,6 +1076,11 @@ class TransactionsPage(ft.Column):
                 snack(self._page, tr("field.category", lang), error=True)
                 return
             tx_type = TransactionType(type_dd.value or TransactionType.EXPENSE.value)
+            cat_scope = (
+                account.id
+                if bool(getattr(account, "is_corporate", False))
+                else ""
+            )
             if (
                 self._state.container.find_or_create_category is not None
                 and not category_picker.has_category(category)
@@ -1063,6 +1092,7 @@ class TransactionsPage(ft.Column):
                         if tx_type == TransactionType.INCOME
                         else CategoryKind.EXPENSE
                     ),
+                    account_id=cat_scope,
                 )
             goal_id = goal_dd.value or None
             if goal_id == "":
@@ -1118,6 +1148,7 @@ class TransactionsPage(ft.Column):
                                 FEE_CATEGORY,
                                 kind=CategoryKind.EXPENSE,
                                 icon="receipt_long",
+                                account_id=cat_scope,
                             )
                         await self._state.container.add_transaction.execute(
                             make_fee_expense(
@@ -1138,6 +1169,7 @@ class TransactionsPage(ft.Column):
                                     FEE_CATEGORY,
                                     kind=CategoryKind.EXPENSE,
                                     icon="receipt_long",
+                                    account_id=cat_scope,
                                 )
                             await self._state.container.add_transaction.execute(
                                 make_fee_expense(

@@ -107,7 +107,8 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 Карточки счетов / операций / целей / долгов / подписок;  
 `QuickAddSheet` (в т.ч. микрофон); `TransferSheet`; `CategoryPicker`; `CurrencyTickerPicker`;  
 `DateTimeField`; `LockScreen`; Splash; Charts (пончик, линия);  
-`DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor`.
+`DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor`;  
+`pdf_export_sheet` — период, счета и разделы PDF-отчёта.
 
 Клавиатура форм: `form_keyboard.py`. Ввод сумм: `money_input.py`.
 

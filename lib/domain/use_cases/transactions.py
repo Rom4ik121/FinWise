@@ -519,6 +519,11 @@ class UpdateTransactionUseCase:
         existing = await self._transactions.get_by_id(transaction.id)
         if existing is None:
             raise ValueError(f"Transaction not found: {transaction.id}")
+        # Corporate workspace txs stay on their account (no silent personal remap).
+        if transaction.account_id != existing.account_id:
+            old_acc = await self._accounts.get_by_id(existing.account_id)
+            if old_acc is not None and bool(getattr(old_acc, "is_corporate", False)):
+                raise ValueError("Corporate transactions cannot change account")
         if existing.transfer_id:
             if (
                 transaction.amount != existing.amount

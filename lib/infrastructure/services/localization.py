@@ -212,6 +212,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Wait until account stats finish loading",
         "uz": "Avval hisob statistikasi yuklanishini kuting",
     },
+    "account.export_pdf_title": {
+        "ru": "Отчёт по счёту",
+        "en": "Account report",
+        "uz": "Hisob hisoboti",
+    },
     "field.exchange": {
         "ru": "Биржа",
         "en": "Exchange",
@@ -743,6 +748,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "3 месяца",
         "en": "3 months",
         "uz": "3 oy",
+    },
+    "dashboard.period.custom": {
+        "ru": "Свои даты",
+        "en": "Custom",
+        "uz": "Boshqa sanalar",
     },
     "dashboard.period.all": {
         "ru": "Всё время",
@@ -3554,9 +3564,119 @@ STRINGS: dict[str, dict[str, str]] = {
         "uz": "Jadval",
     },
     "settings.export_hint": {
-        "ru": "Сохраните данные в защищённый паролем файл на устройстве.",
-        "en": "Save your data to a password-protected file on this device.",
-        "uz": "Ma’lumotlarni parol bilan himoyalangan faylga saqlang.",
+        "ru": "Соберите PDF-отчёт: период, счета и нужные разделы.",
+        "en": "Build a PDF report: pick a period, accounts, and sections.",
+        "uz": "PDF hisobot: davr, hisoblar va bo‘limlarni tanlang.",
+    },
+    "settings.export_pdf_title": {
+        "ru": "PDF-отчёт",
+        "en": "PDF report",
+        "uz": "PDF hisobot",
+    },
+    "settings.export_pdf_open": {
+        "ru": "Настроить PDF-отчёт",
+        "en": "Set up PDF report",
+        "uz": "PDF hisobotni sozlash",
+    },
+    "settings.export_period": {
+        "ru": "Период",
+        "en": "Period",
+        "uz": "Davr",
+    },
+    "settings.export_date_from": {
+        "ru": "С даты",
+        "en": "From date",
+        "uz": "Sanadan",
+    },
+    "settings.export_date_to": {
+        "ru": "По дату",
+        "en": "To date",
+        "uz": "Sanagacha",
+    },
+    "settings.export_scope": {
+        "ru": "Счета",
+        "en": "Accounts",
+        "uz": "Hisoblar",
+    },
+    "settings.export_scope_all": {
+        "ru": "Все счета",
+        "en": "All accounts",
+        "uz": "Barcha hisoblar",
+    },
+    "settings.export_scope_personal": {
+        "ru": "Личные",
+        "en": "Personal",
+        "uz": "Shaxsiy",
+    },
+    "settings.export_scope_corporate": {
+        "ru": "Корпоративные",
+        "en": "Corporate",
+        "uz": "Korporativ",
+    },
+    "settings.export_scope_selected": {
+        "ru": "Выбранные",
+        "en": "Selected",
+        "uz": "Tanlanganlar",
+    },
+    "settings.export_sections": {
+        "ru": "Что включить в отчёт",
+        "en": "What to include",
+        "uz": "Hisobotga nima kiritilsin",
+    },
+    "settings.export_section_summary": {
+        "ru": "Сводка",
+        "en": "Summary",
+        "uz": "Xulosa",
+    },
+    "settings.export_section_accounts": {
+        "ru": "Список счетов",
+        "en": "Account list",
+        "uz": "Hisoblar ro‘yxati",
+    },
+    "settings.export_section_transactions": {
+        "ru": "Операции",
+        "en": "Transactions",
+        "uz": "Amaliyotlar",
+    },
+    "settings.export_section_categories": {
+        "ru": "Категории",
+        "en": "Categories",
+        "uz": "Toifalar",
+    },
+    "settings.export_section_charts": {
+        "ru": "Графики",
+        "en": "Charts",
+        "uz": "Grafiklar",
+    },
+    "settings.export_section_goals": {
+        "ru": "Цели",
+        "en": "Goals",
+        "uz": "Maqsadlar",
+    },
+    "settings.export_section_debts": {
+        "ru": "Долги",
+        "en": "Debts",
+        "uz": "Qarzlar",
+    },
+    "settings.export_section_subscriptions": {
+        "ru": "Подписки",
+        "en": "Subscriptions",
+        "uz": "Obunalar",
+    },
+    "settings.export_need_period": {
+        "ru": "Укажите даты периода",
+        "en": "Choose the period dates",
+        "uz": "Davr sanalarini tanlang",
+    },
+    "settings.export_need_account": {
+        "ru": "Выберите хотя бы один счёт",
+        "en": "Select at least one account",
+        "uz": "Kamida bitta hisobni tanlang",
+    },
+    "settings.export_need_section": {
+        "ru": "Включите хотя бы один раздел отчёта",
+        "en": "Turn on at least one report section",
+        "uz": "Kamida bitta bo‘limni yoqing",
     },
     "settings.sections_hint": {
         "ru": "Быстрый переход к разделам приложения",

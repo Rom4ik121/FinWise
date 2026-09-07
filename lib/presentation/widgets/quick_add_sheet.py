@@ -1,4 +1,4 @@
-"""Quick income / expense fullscreen form."""
+"""Quick income / expense fullscreen form (create + edit)."""
 
 from __future__ import annotations
 
@@ -43,20 +43,42 @@ def open_quick_add(
     accounts: Sequence[Account] | None = None,
     default_type: TransactionType = TransactionType.EXPENSE,
     locked_account: Account | None = None,
+    existing: Transaction | None = None,
     on_saved: Optional[Callable[[], None]] = None,
 ) -> None:
-    """Open a fullscreen form for quickly adding income or expense.
+    """Open a fullscreen form for adding or editing income / expense.
 
     When ``locked_account`` is set (e.g. corporate workspace), only that
     account is used and the account picker is hidden.
+
+    When ``existing`` is set, the form updates that transaction in place
+    (stays on the current screen — no jump to global Transactions).
     """
 
     async def _open() -> None:
         lang = state.language
+        if existing is not None and existing.is_transfer:
+            snack(page, tr("transfer.edit_blocked", lang), error=True)
+            return
         loaded: list[Account]
         try:
             if locked_account is not None:
                 loaded = [locked_account]
+            elif existing is not None:
+                # Prefer the transaction's account so corp edits stay scoped.
+                acc = await state.container.account_repository.get_by_id(
+                    existing.account_id
+                )
+                if acc is not None and bool(getattr(acc, "is_corporate", False)):
+                    loaded = [acc]
+                else:
+                    loaded = list(
+                        await state.container.list_accounts.execute(
+                            active_only=True, corporate=False
+                        )
+                    )
+                    if acc is not None and acc.id not in {a.id for a in loaded}:
+                        loaded = [acc, *loaded]
             else:
                 loaded = list(
                     await state.container.list_accounts.execute(
@@ -71,12 +93,25 @@ def open_quick_add(
         if not loaded:
             snack(page, tr("empty.accounts", lang), error=True)
             return
+        lock = locked_account
+        if (
+            lock is None
+            and existing is not None
+            and len(loaded) == 1
+            and bool(getattr(loaded[0], "is_corporate", False))
+        ):
+            lock = loaded[0]
         await _show_form(
             page,
             state,
             accounts=loaded,
-            default_type=default_type,
-            locked_account=locked_account,
+            default_type=(
+                existing.type
+                if existing is not None
+                else default_type
+            ),
+            locked_account=lock,
+            existing=existing,
             on_saved=on_saved,
         )
 
@@ -90,17 +125,27 @@ async def _show_form(
     accounts: Sequence[Account],
     default_type: TransactionType,
     locked_account: Account | None,
+    existing: Transaction | None,
     on_saved: Optional[Callable[[], None]],
 ) -> None:
     lang = state.language
+    editing = existing is not None
     if locked_account is not None:
         accounts = [locked_account]
         default_account_id = locked_account.id
+    elif editing:
+        default_account_id = existing.account_id
+        if default_account_id not in {a.id for a in accounts}:
+            # Never silently remap to another account.
+            snack(page, tr("error.no_accounts", lang), error=True)
+            return
+        accounts, _ = await prepare_tx_account_choices(state, accounts)
     else:
         accounts, default_account_id = await prepare_tx_account_choices(state, accounts)
+
     type_dd = ft.Dropdown(
         label=tr("field.type", lang),
-        value=default_type.value,
+        value=(existing.type.value if editing else default_type.value),
         options=[
             icon_dropdown_option(
                 TransactionType.EXPENSE.value,
@@ -120,8 +165,9 @@ async def _show_form(
     amount_tf = make_amount_field(
         lang,
         label=tr("field.amount", lang),
+        value=existing.amount if editing else "",
         expand=True,
-        autofocus=True,
+        autofocus=not editing,
     )
     items_editor = LineItemsEditor(
         lang,
@@ -131,6 +177,10 @@ async def _show_form(
     def _sync_amount_visibility() -> None:
         amount_tf.visible = not items_editor.enabled
         safe_update(amount_tf)
+
+    if editing and existing.has_items:
+        items_editor.set_items(list(existing.items))
+        amount_tf.visible = False
 
     fee_tf = make_amount_field(
         lang,
@@ -164,23 +214,36 @@ async def _show_form(
         if locked_account is not None
         else None
     )
+    scope_account = locked_account
+    if scope_account is None and editing:
+        scope_account = next(
+            (a for a in accounts if a.id == existing.account_id), None
+        )
+    category_scope = (
+        scope_account.id
+        if scope_account is not None
+        and bool(getattr(scope_account, "is_corporate", False))
+        else ""
+    )
     category_picker = CategoryPicker(
         page,
         state,
-        tx_type=default_type.value,
-        account_id=(
-            locked_account.id
-            if locked_account is not None
-            and bool(getattr(locked_account, "is_corporate", False))
-            else ""
-        ),
+        tx_type=(existing.type.value if editing else default_type.value),
+        account_id=category_scope,
     )
     await category_picker.reload()
+    if editing and existing.category:
+        category_picker.select_name(existing.category)
     if category_picker.is_empty:
         category_picker.prompt_if_empty()
 
     def _sync_fee_visibility() -> None:
-        show = (type_dd.value or TransactionType.EXPENSE.value) == TransactionType.EXPENSE.value
+        # Fee only on create expense — editing never invents a new fee leg here.
+        show = (
+            not editing
+            and (type_dd.value or TransactionType.EXPENSE.value)
+            == TransactionType.EXPENSE.value
+        )
         fee_tf.visible = show
         safe_update(fee_tf)
 
@@ -191,16 +254,35 @@ async def _show_form(
     bind_dropdown_select(type_dd, _on_type)
     _sync_fee_visibility()
 
-    comment_tf = ft.TextField(label=tr("field.comment", lang), expand=True)
+    comment_tf = ft.TextField(
+        label=tr("field.comment", lang),
+        value=(existing.comment if editing else ""),
+        expand=True,
+    )
     tags_tf = ft.TextField(
         label=tr("field.tags", lang),
         hint_text=tr("tags.hint", lang),
+        value=(
+            ", ".join(
+                t
+                for t in (existing.tags or [])
+                if not str(t).startswith("_")
+            )
+            if editing
+            else ""
+        ),
         expand=True,
     )
-    attachments = AttachmentPicker(page, lang=lang)
-    # Corporate (locked) workspace: pick any past/future date via inline calendar.
-    allow_custom_date = locked_account is not None and bool(
-        getattr(locked_account, "is_corporate", False)
+    attachments = AttachmentPicker(
+        page,
+        lang=lang,
+        transaction_id=(existing.id if editing else None),
+        existing=(list(existing.attachments) if editing else None),
+    )
+    # Corporate (locked) workspace or edit: pick any past/future date.
+    allow_custom_date = editing or (
+        locked_account is not None
+        and bool(getattr(locked_account, "is_corporate", False))
     )
     date_field: DateTimeField | None = None
     if allow_custom_date:
@@ -208,7 +290,7 @@ async def _show_form(
             page,
             lang=lang,
             label=tr("field.date", lang),
-            value=datetime.now(timezone.utc),
+            value=(existing.date if editing else datetime.now(timezone.utc)),
             with_time=True,
         )
     from lib.presentation.form_keyboard import configure_field, wire_field_chain
@@ -218,7 +300,12 @@ async def _show_form(
     wire_field_chain(page, [amount_tf, fee_tf, comment_tf, tags_tf])
 
     async def _save() -> None:
-        account = next((a for a in accounts if a.id == account_dd.value), accounts[0])
+        account = next((a for a in accounts if a.id == account_dd.value), None)
+        if account is None:
+            snack(page, tr("error.no_accounts", lang), error=True)
+            return
+        if locked_account is not None:
+            account = locked_account
         tags = [
             part.strip().lstrip("#")
             for part in (tags_tf.value or "").split(",")
@@ -229,6 +316,9 @@ async def _show_form(
         if not category_name:
             snack(page, tr("field.category", lang), error=True)
             return
+        cat_account_id = (
+            account.id if bool(getattr(account, "is_corporate", False)) else ""
+        )
         if (
             state.container.find_or_create_category is not None
             and not category_picker.has_category(category_name)
@@ -240,16 +330,12 @@ async def _show_form(
                     if tx_type == TransactionType.INCOME
                     else CategoryKind.EXPENSE
                 ),
-                account_id=(
-                    account.id
-                    if bool(getattr(account, "is_corporate", False))
-                    else ""
-                ),
+                account_id=cat_account_id,
             )
 
         line_items = items_editor.collect(default_category=category_name)
         try:
-            fee = parse_optional_amount(fee_tf.value)
+            fee = parse_optional_amount(fee_tf.value) if not editing else Decimal("0")
             if fee < 0:
                 raise InvalidOperation
             if line_items is None:
@@ -277,49 +363,65 @@ async def _show_form(
                 snack(page, tr("invalid_date", lang), error=True)
                 return
             occurred = picked
+        elif editing:
+            occurred = existing.date
 
-        tx_id = attachments.transaction_id
         paths = attachments.collected_paths()
-        tx = Transaction(
-            id=tx_id,
-            account_id=account.id,
-            amount=amount,
-            category=category_name,
-            tags=tags,
-            date=occurred,
-            comment=comment_tf.value or "",
-            type=tx_type,
-            currency=account.currency,
-            items=items,
-            attachments=paths,
-        )
+        if editing:
+            tx = existing.model_copy(
+                update={
+                    "account_id": account.id,
+                    "amount": amount,
+                    "category": category_name,
+                    "tags": tags,
+                    "date": occurred,
+                    "comment": comment_tf.value or "",
+                    "type": tx_type,
+                    "currency": account.currency,
+                    "items": items,
+                    "attachments": paths,
+                }
+            )
+        else:
+            tx = Transaction(
+                id=attachments.transaction_id,
+                account_id=account.id,
+                amount=amount,
+                category=category_name,
+                tags=tags,
+                date=occurred,
+                comment=comment_tf.value or "",
+                type=tx_type,
+                currency=account.currency,
+                items=items,
+                attachments=paths,
+            )
         try:
-            saved = await state.container.add_transaction.execute(tx)
-            if fee > 0 and tx_type == TransactionType.EXPENSE:
-                try:
-                    if state.container.find_or_create_category is not None:
-                        await state.container.find_or_create_category.execute(
-                            FEE_CATEGORY,
-                            kind=CategoryKind.EXPENSE,
-                            icon="receipt_long",
-                            account_id=(
-                                account.id
-                                if bool(getattr(account, "is_corporate", False))
-                                else ""
-                            ),
+            if editing:
+                await state.container.update_transaction.execute(tx)
+            else:
+                saved = await state.container.add_transaction.execute(tx)
+                if fee > 0 and tx_type == TransactionType.EXPENSE:
+                    try:
+                        if state.container.find_or_create_category is not None:
+                            await state.container.find_or_create_category.execute(
+                                FEE_CATEGORY,
+                                kind=CategoryKind.EXPENSE,
+                                icon="receipt_long",
+                                account_id=cat_account_id,
+                            )
+                        await state.container.add_transaction.execute(
+                            make_fee_expense(
+                                account_id=account.id,
+                                currency=account.currency,
+                                amount=fee,
+                                date=saved.date,
+                                comment=saved.comment or FEE_CATEGORY,
+                            )
                         )
-                    await state.container.add_transaction.execute(
-                        make_fee_expense(
-                            account_id=account.id,
-                            currency=account.currency,
-                            amount=fee,
-                            date=saved.date,
-                            comment=saved.comment or FEE_CATEGORY,
-                        )
-                    )
-                except Exception:
-                    await state.container.delete_transaction.execute(saved.id)
-                    raise
+                    except Exception:
+                        await state.container.delete_transaction.execute(saved.id)
+                        raise
         except Exception as exc:  # noqa: BLE001
             snack_exception(page, exc, lang=lang)
             return
@@ -332,7 +434,7 @@ async def _show_form(
 
     close = open_fullscreen_form(
         page,
-        title=tr("action.quick_add", lang),
+        title=tr("action.edit" if editing else "action.quick_add", lang),
         lang=lang,
         overlay_key="quick_add_editor",
         wrap_body=False,

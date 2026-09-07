@@ -14,7 +14,6 @@ from lib.infrastructure.services.backup_service import BackupService
 from lib.infrastructure.services.biometric import BiometricResult, BiometricStatus
 from lib.infrastructure.services.data_reset_service import DataResetService
 from lib.infrastructure.services.encryption_service import EncryptionService
-from lib.infrastructure.services.export_service import ExportService
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 from lib.infrastructure.services.localization import normalize_lang
 from lib.infrastructure.services.push_notifier import request_push_permissions
@@ -522,44 +521,13 @@ class SettingsPage(ft.Column):
                     [
                         _settings_subsection(tr("settings.export", lang)),
                         form_hint(tr("settings.export_hint", lang)),
-                        ft.Row(
-                            wrap=True,
-                            spacing=8,
-                            run_spacing=8,
-                            controls=[
-                                ft.OutlinedButton(
-                                    tr("settings.export_json", lang),
-                                    icon=ft.Icons.DATA_OBJECT,
-                                    style=btn_style,
-                                    on_click=lambda _e: self._confirm_export(
-                                        self.export_json
-                                    ),
-                                ),
-                                ft.OutlinedButton(
-                                    tr("settings.export_csv", lang),
-                                    icon=ft.Icons.TABLE_VIEW,
-                                    style=btn_style,
-                                    on_click=lambda _e: self._confirm_export(
-                                        self.export_csv
-                                    ),
-                                ),
-                                ft.OutlinedButton(
-                                    tr("settings.export_pdf", lang),
-                                    icon=ft.Icons.PICTURE_AS_PDF,
-                                    style=btn_style,
-                                    on_click=lambda _e: self._confirm_export(
-                                        self.export_pdf
-                                    ),
-                                ),
-                                ft.OutlinedButton(
-                                    tr("settings.export_json_encrypted", lang),
-                                    icon=ft.Icons.LOCK_OUTLINE,
-                                    style=btn_style,
-                                    on_click=lambda _e: run_async(
-                                        page, self.export_json_encrypted
-                                    ),
-                                ),
-                            ],
+                        ft.FilledButton(
+                            tr("settings.export_pdf_open", lang),
+                            icon=ft.Icons.PICTURE_AS_PDF,
+                            style=btn_style,
+                            on_click=lambda _e: run_async(
+                                page, self.open_pdf_export
+                            ),
                         ),
                         _settings_divider(),
                         _settings_subsection(tr("settings.backup_restore", lang)),
@@ -1017,112 +985,35 @@ class SettingsPage(ft.Column):
         lang = self._state.language
         snack_exception(self._page, exc, lang=lang)
 
-    def _confirm_export(self, action: Callable) -> None:
-        """Confirm before writing an unencrypted ledger export."""
+    async def open_pdf_export(self) -> None:
+        """Open the configured PDF report sheet."""
         lang = self._state.language
-        confirm_dialog(
-            self._page,
-            title=tr("settings.export", lang),
-            message=tr("settings.export_confirm", lang),
-            confirm_text=tr("action.save", lang),
-            cancel_text=tr("action.cancel", lang),
-            on_confirm=lambda: run_async(self._page, action),
-        )
-
-    async def export_json(self) -> None:
         try:
-            result = await self._state.container.export_data.execute(
-                self._state.container.config.export_dir
-            )
-            await self._offer_file(result.path, kind="JSON")
+            accounts = await self._state.container.list_accounts.execute()
         except Exception as exc:  # noqa: BLE001
             self._io_error_snack(exc)
-
-    async def export_json_encrypted(self) -> None:
-        """Export JSON wrapped in AES-GCM with a user password."""
-        import asyncio
-
-        lang = self._state.language
-        pwd = ft.TextField(
-            label=tr("settings.export_password", lang),
-            password=True,
-            can_reveal_password=False,
-            autofocus=True,
-        )
-        done: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
-
-        def _close(password: str | None) -> None:
-            dlg.open = False
-            safe_update(self._page)
-            if not done.done():
-                done.set_result(password)
-
-        dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text(tr("settings.export_json_encrypted", lang)),
-            content=pwd,
-            actions=[
-                ft.TextButton(
-                    tr("action.cancel", lang),
-                    on_click=lambda _e: _close(None),
-                ),
-                ft.FilledButton(
-                    tr("action.export", lang),
-                    on_click=lambda _e: _close((pwd.value or "").strip()),
-                ),
-            ],
-        )
-        self._page.overlay.append(dlg)
-        dlg.open = True
-        safe_update(self._page)
-        password = await done
-        try:
-            self._page.overlay.remove(dlg)
-        except ValueError:
-            pass
-        safe_update(self._page)
-        if password is None:
             return
-        if len(password) < 4:
-            snack(self._page, tr("settings.export_password_short", lang), error=True)
-            return
+        from lib.presentation.widgets.pdf_export_sheet import open_pdf_export_sheet
+
         try:
-            result = await self._state.container.export_data.execute(
-                self._state.container.config.export_dir,
-                password=password,
-            )
-            await self._offer_file(result.path, kind="Encrypted")
-        except Exception as exc:  # noqa: BLE001
-            self._io_error_snack(exc)
-
-    async def export_csv(self) -> None:
-        try:
-            from lib.presentation.tx_query import fetch_transactions_paged
-
-            c = self._state.container
-            txs = await fetch_transactions_paged(c.list_transactions)
-            path = ExportService(c.config).export_transactions_csv(txs)
-            await self._offer_file(path, kind="CSV")
-        except Exception as exc:  # noqa: BLE001
-            self._io_error_snack(exc)
-
-    async def export_pdf(self) -> None:
-        try:
-            from lib.presentation.tx_query import fetch_transactions_paged
-
-            c = self._state.container
-            accounts = await c.list_accounts.execute()
-            txs = await fetch_transactions_paged(c.list_transactions)
-            goals = await c.list_goals.execute()
-            debts = await c.list_debts.execute()
-            subs = await c.list_subscriptions.execute()
-            path = ExportService(c.config).export_summary_pdf(
+            open_pdf_export_sheet(
+                self._page,
+                lang=lang,
                 accounts=accounts,
-                transactions=txs,
-                goals=goals,
-                debts=debts,
-                subscriptions=subs,
-                title="FinWise",
+                mode="global",
+                on_export=self._run_pdf_export,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._io_error_snack(exc)
+
+    async def _run_pdf_export(self, choice) -> None:
+        from lib.presentation.pdf_export import export_configured_pdf
+
+        try:
+            path = await export_configured_pdf(
+                self._state.container,
+                choice,
+                language=self._state.language,
             )
             await self._offer_file(path, kind="PDF")
         except Exception as exc:  # noqa: BLE001

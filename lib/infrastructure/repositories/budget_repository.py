@@ -122,11 +122,23 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
     async def update_spent(self, budget_id: str, new_spent: Decimal) -> Optional[Budget]:
         return await asyncio.to_thread(self._update_spent_sync, budget_id, new_spent)
 
-    async def delete_for_category(self, category_id: str) -> int:
-        return await asyncio.to_thread(self._delete_for_category_sync, category_id)
+    async def delete_for_category(
+        self, category_id: str, *, account_id: str | None = None
+    ) -> int:
+        return await asyncio.to_thread(
+            self._delete_for_category_sync, category_id, account_id
+        )
 
-    async def reassign_category(self, old_name: str, new_name: str) -> int:
-        return await asyncio.to_thread(self._reassign_category_sync, old_name, new_name)
+    async def reassign_category(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        account_id: str | None = None,
+    ) -> int:
+        return await asyncio.to_thread(
+            self._reassign_category_sync, old_name, new_name, account_id
+        )
 
     def _get_by_id_sync(self, budget_id: str) -> Optional[Budget]:
         with session_scope(self._session_factory) as session:
@@ -216,20 +228,35 @@ class SqlAlchemyBudgetRepository(BudgetRepository):
             session.flush()
             return _to_entity(model)
 
-    def _delete_for_category_sync(self, category_id: str) -> int:
+    def _delete_for_category_sync(
+        self, category_id: str, account_id: str | None = None
+    ) -> int:
+        scope = _scope_key(account_id)
         with session_scope(self._session_factory) as session:
             result = session.execute(
-                delete(BudgetModel).where(BudgetModel.category_id == category_id)
+                delete(BudgetModel).where(
+                    BudgetModel.category_id == category_id,
+                    BudgetModel.account_id == scope,
+                )
             )
             return int(result.rowcount or 0)
 
-    def _reassign_category_sync(self, old_name: str, new_name: str) -> int:
+    def _reassign_category_sync(
+        self,
+        old_name: str,
+        new_name: str,
+        account_id: str | None = None,
+    ) -> int:
         if old_name == new_name:
             return 0
+        scope = _scope_key(account_id)
         with session_scope(self._session_factory) as session:
             result = session.execute(
                 update(BudgetModel)
-                .where(BudgetModel.category_id == old_name)
+                .where(
+                    BudgetModel.category_id == old_name,
+                    BudgetModel.account_id == scope,
+                )
                 .values(category_id=new_name, updated_at=datetime.now(timezone.utc))
             )
             return int(result.rowcount or 0)

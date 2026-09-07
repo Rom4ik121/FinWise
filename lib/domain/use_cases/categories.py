@@ -91,7 +91,11 @@ class UpdateCategoryUseCase:
             and previous is not None
             and previous.name != saved.name
         ):
-            await self._budgets.reassign_category(previous.name, saved.name)
+            await self._budgets.reassign_category(
+                previous.name,
+                saved.name,
+                account_id=scope,
+            )
         return saved
 
 
@@ -113,7 +117,10 @@ class DeleteCategoryUseCase:
         if existing.is_system:
             raise ValueError("System categories cannot be deleted")
         if self._budgets is not None:
-            await self._budgets.delete_for_category(existing.name)
+            await self._budgets.delete_for_category(
+                existing.name,
+                account_id=_scope(existing.account_id),
+            )
         return await self._categories.delete(category_id)
 
 

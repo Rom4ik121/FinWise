@@ -11,6 +11,7 @@ from lib.presentation.analytics_period import (
     fill_time_series,
     format_chart_period_label,
     resolve_analytics_period,
+    resolve_export_period,
     cumulative_net,
 )
 
@@ -67,6 +68,21 @@ def test_fill_time_series_inserts_zeros() -> None:
     assert filled[0] == ("2026-07-31", Decimal("0.00"), Decimal("0.00"))
     assert filled[1][1] == Decimal("10.00")
     assert filled[2][2] == Decimal("0.00")
+
+
+def test_resolve_export_period_custom_swaps_and_groups() -> None:
+    start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    cfg = resolve_export_period(
+        "custom",
+        datetime(2026, 9, 1, tzinfo=timezone.utc),
+        custom_from=end,
+        custom_to=start,
+    )
+    assert cfg.key == "custom"
+    assert cfg.date_from == start
+    assert cfg.date_to == end
+    assert cfg.group_by == StatsPeriod.DAY
 
 
 def test_cumulative_net_income_lifts_expense_drops() -> None:

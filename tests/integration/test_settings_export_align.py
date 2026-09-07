@@ -101,6 +101,49 @@ def test_export_data_use_case(container, tmp_path: Path) -> None:
     run_async(_run())
 
 
+def test_export_configured_pdf_filters_accounts(container, tmp_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    from lib.presentation.pdf_export import export_configured_pdf
+    from lib.presentation.widgets.pdf_export_sheet import PdfExportChoice
+    from lib.infrastructure.services.export_service import PdfSectionFlags
+
+    async def _run() -> None:
+        personal = await container.create_account.execute(
+            make_account(name="Cash", currency="UZS")
+        )
+        await container.create_account.execute(
+            make_account(name="CorpDesk", currency="UZS", is_corporate=True)
+        )
+        now = datetime.now(timezone.utc)
+        await container.add_transaction.execute(
+            make_transaction(personal.id, amount="25", currency="UZS")
+        )
+        choice = PdfExportChoice(
+            period_key="30d",
+            date_from=now.replace(day=1) if now.day > 1 else now,
+            date_to=now,
+            period_label="30 дней",
+            account_scope="personal",
+            account_ids=frozenset({personal.id}),
+            sections=PdfSectionFlags(
+                summary=True,
+                accounts=True,
+                transactions=True,
+                categories=True,
+                charts=False,
+                goals=False,
+                debts=False,
+                subscriptions=False,
+            ),
+        )
+        path = await export_configured_pdf(container, choice, language="ru")
+        assert path.is_file()
+        assert path.stat().st_size > 500
+
+    run_async(_run())
+
+
 def test_export_service_json_csv(tmp_path: Path) -> None:
     from lib.core.config import AppConfig
 

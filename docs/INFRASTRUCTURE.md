@@ -95,7 +95,8 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 ### `ExportService`
 
 - CSV операций.
-- PDF-сводка (счета, операции, цели, долги, подписки) — reportlab / matplotlib по необходимости.
+- PDF-сводка и отчёт по счёту — reportlab / matplotlib; кириллица через `assets/fonts/LiberationSans*.ttf` (не Helvetica).
+- Настраиваемый экспорт: период (в т.ч. свои даты), scope счетов (все / личные / корпоративные / выбранные), разделы (`PdfSectionFlags`).
 
 ### `ExportDataUseCase` + шифрование JSON
 

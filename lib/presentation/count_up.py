@@ -106,7 +106,10 @@ async def play_count_ups(
     duration_s: float = _DURATION_S,
     steps: int = _STEPS,
 ) -> None:
-    """Animate marked money texts and progress bars; flush queued charts."""
+    """Animate marked money texts and progress bars; flush queued charts.
+
+    Updates only ``root`` (never the whole page) so ListView scroll stays put.
+    """
     chart_task = asyncio.create_task(_play_queued_charts())
     try:
         targets: list[ft.Text] = []
@@ -136,7 +139,7 @@ async def play_count_ups(
             bar.value = 0.0
 
         try:
-            safe_update(page)
+            safe_update(root)
         except Exception:  # noqa: BLE001
             pass
 
@@ -153,12 +156,13 @@ async def play_count_ups(
             for bar, goal in bar_specs:
                 bar.value = goal if i == steps else goal * progress
             try:
-                safe_update(page)
+                safe_update(root)
             except Exception:  # noqa: BLE001
                 pass
             await asyncio.sleep(delay)
     finally:
         await chart_task
+        _ = page  # kept for API compatibility with callers
 
 
 async def _play_queued_charts() -> None:

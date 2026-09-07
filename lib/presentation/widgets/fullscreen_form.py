@@ -23,14 +23,23 @@ SaveFn = Callable[[], Awaitable[None]]
 
 
 def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
-    """Remove any overlay tagged with ``key``."""
+    """Remove any overlay tagged with ``key``.
+
+    Prefer updating removed overlays only — full ``page.update()`` snaps
+    ListViews to the top and can wipe remembered scroll before reload.
+    """
+    removed: list[ft.Control] = []
     for item in list(page.overlay):
         if getattr(item, "data", None) == key:
             try:
                 page.overlay.remove(item)
+                removed.append(item)
             except Exception:  # noqa: BLE001
                 pass
+    if not removed:
+        return
     try:
+        # Flet needs a page patch after overlay mutation; keep it minimal.
         safe_update(page)
     except Exception:  # noqa: BLE001
         pass

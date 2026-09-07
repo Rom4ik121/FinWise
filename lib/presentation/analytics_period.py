@@ -10,6 +10,7 @@ from typing import Sequence
 from lib.domain.use_cases.transactions import GetTransactionStatsUseCase, StatsPeriod
 
 ANALYTICS_PERIOD_KEYS = ("1d", "7d", "30d", "90d", "180d", "365d", "all")
+EXPORT_PERIOD_KEYS = ("7d", "30d", "90d", "180d", "365d", "all", "custom")
 DEFAULT_ANALYTICS_PERIOD = "30d"
 
 
@@ -83,6 +84,40 @@ def resolve_analytics_period(key: str, now: datetime) -> AnalyticsPeriodConfig:
         date_to=now,
         group_by=StatsPeriod.DAY,
         max_chart_points=None,
+    )
+
+
+def resolve_export_period(
+    key: str,
+    now: datetime,
+    *,
+    custom_from: datetime | None = None,
+    custom_to: datetime | None = None,
+) -> AnalyticsPeriodConfig:
+    """Period bounds for PDF export, including an explicit custom range."""
+    if key != "custom":
+        return resolve_analytics_period(key, now)
+    if custom_from is None or custom_to is None:
+        raise ValueError("Custom period requires dates")
+    start = custom_from if custom_from <= custom_to else custom_to
+    end = custom_to if custom_to >= custom_from else custom_from
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    delta = max(0, (end - start).days)
+    if delta <= 45:
+        group_by = StatsPeriod.DAY
+    elif delta <= 200:
+        group_by = StatsPeriod.WEEK
+    else:
+        group_by = StatsPeriod.MONTH
+    return AnalyticsPeriodConfig(
+        key="custom",
+        date_from=start,
+        date_to=end,
+        group_by=group_by,
+        max_chart_points=36 if delta > 400 else None,
     )
 
 

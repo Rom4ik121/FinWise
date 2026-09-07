@@ -62,9 +62,17 @@ class BudgetRepository(ABC):
         """Set ``spent`` for a budget and return the updated entity."""
 
     @abstractmethod
-    async def delete_for_category(self, category_id: str) -> int:
-        """Delete all budgets for a category name. Returns rows removed."""
+    async def delete_for_category(
+        self, category_id: str, *, account_id: str | None = None
+    ) -> int:
+        """Delete budgets for a category name within optional account scope."""
 
     @abstractmethod
-    async def reassign_category(self, old_name: str, new_name: str) -> int:
-        """Rename ``category_id`` on budgets. Returns rows updated."""
+    async def reassign_category(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        account_id: str | None = None,
+    ) -> int:
+        """Rename ``category_id`` on budgets within optional account scope."""

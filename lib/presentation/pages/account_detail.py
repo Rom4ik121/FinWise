@@ -75,6 +75,21 @@ if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 
+def _lookup_category(cat_map: dict[str, object], name: str | None):
+    """Resolve a stored category name against the account-scoped catalog."""
+    key = (name or "").strip()
+    if not key:
+        return None
+    found = cat_map.get(key)
+    if found is not None:
+        return found
+    needle = key.casefold()
+    for stored, cat in cat_map.items():
+        if stored.casefold() == needle:
+            return cat
+    return None
+
+
 class AccountDetailPage(ft.Column):
     """Statistics for a single account opened from the accounts list."""
 
@@ -121,7 +136,7 @@ class AccountDetailPage(ft.Column):
                             icon=ft.Icons.PICTURE_AS_PDF_OUTLINED,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("account.export_pdf", state.language),
-                            on_click=lambda _e: run_async(page, self._export_pdf),
+                            on_click=lambda _e: run_async(page, self._open_pdf_export),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
@@ -604,7 +619,7 @@ class AccountDetailPage(ft.Column):
             return
         self._state.bump_refresh("dashboard", "budgets", "accounts", "analytics")
         snack(self._page, tr("budgets.copied", lang, count=str(count)))
-        self._reload_gate.request(True)
+        self._reload_gate.request(False)
 
     def _open_corporate_budget_editor(
         self, account: Account, budget: Optional[Budget] = None
@@ -655,7 +670,7 @@ class AccountDetailPage(ft.Column):
             close()
             self._state.bump_refresh("budgets", "accounts", "dashboard")
             snack(self._page, tr("budgets.saved", lang))
-            self._reload_gate.request(True)
+            self._reload_gate.request(False)
 
         def _delete() -> None:
             if budget is None:
@@ -669,7 +684,7 @@ class AccountDetailPage(ft.Column):
                     return
                 close()
                 self._state.bump_refresh("budgets", "accounts")
-                self._reload_gate.request(True)
+                self._reload_gate.request(False)
 
             confirm_dialog(
                 self._page,
@@ -708,51 +723,42 @@ class AccountDetailPage(ft.Column):
             on_save=_save,
         )
 
-    async def _export_pdf(self) -> None:
+    async def _open_pdf_export(self) -> None:
         lang = self._state.language
         account = self._account
-        stats = self._last_stats
-        if account is None or stats is None:
+        if account is None:
             snack(self._page, tr("account.export_pdf_need_data", lang), error=True)
             return
-        from lib.infrastructure.services.export_service import ExportService
-        from lib.presentation.file_transfer import offer_saved_file
+        from lib.presentation.widgets.pdf_export_sheet import open_pdf_export_sheet
 
-        expense_rows: list[tuple[str, str, Decimal]] = []
-        for tx in self._last_txs:
-            if tx.transfer_id:
-                continue
-            if tx.type != TransactionType.EXPENSE:
-                continue
-            expense_rows.append(
-                (
-                    format_date(tx.date, with_time=False),
-                    localize_category_name(tx.category, lang),
-                    tx.amount,
-                )
-            )
-        cats = [
-            (localize_category_name(cat, lang), amt)
-            for cat, amt in stats.by_category
-        ]
         try:
-            path = ExportService(self._state.container.config).export_account_period_pdf(
-                account_name=account.name,
-                currency=account.currency,
-                period_label=self._last_period_label or self._period,
-                balance=account.balance,
-                income=stats.income,
-                expense=stats.expense,
-                ops_income=(
-                    stats.income if account.is_corporate else stats.ops_income
-                ),
-                ops_expense=(
-                    stats.expense if account.is_corporate else stats.ops_expense
-                ),
-                by_category=cats,
-                expenses=expense_rows,
-                by_period=stats.by_period,
+            open_pdf_export_sheet(
+                self._page,
+                lang=lang,
+                accounts=[account],
+                mode="account",
+                locked_account=account,
+                default_period=self._period if self._period != "1d" else "30d",
+                on_export=self._run_pdf_export,
+            )
+        except Exception as exc:  # noqa: BLE001
+            snack_exception(self._page, exc, lang=lang)
+
+    async def _run_pdf_export(self, choice) -> None:
+        lang = self._state.language
+        account = self._account
+        if account is None:
+            snack(self._page, tr("account.export_pdf_need_data", lang), error=True)
+            return
+        from lib.presentation.file_transfer import offer_saved_file
+        from lib.presentation.pdf_export import export_configured_pdf
+
+        try:
+            path = await export_configured_pdf(
+                self._state.container,
+                choice,
                 language=lang,
+                locked_account=account,
             )
             location = await offer_saved_file(
                 self._page, path, title=tr("account.export_pdf", lang)
@@ -769,10 +775,98 @@ class AccountDetailPage(ft.Column):
             snack_exception(self._page, exc, lang=lang)
 
     def _edit_tx_from_detail(self, tx) -> None:
-        """Leave account detail and open the transaction editor on Operations."""
-        self._state.pending_edit_transaction_id = getattr(tx, "id", None)
-        self._state.close_secondary()
-        self._state.set_tab(self._state.TAB_TRANSACTIONS)
+        """Edit on this account screen — never jump to global Transactions."""
+        lang = self._state.language
+        account = self._account
+
+        if getattr(tx, "is_transfer", False):
+            self._edit_transfer_leg_local(tx)
+            return
+
+        async def _resolve_and_open() -> None:
+            lock = account
+            if lock is None or getattr(lock, "id", None) != getattr(tx, "account_id", None):
+                try:
+                    lock = await self._state.container.account_repository.get_by_id(
+                        tx.account_id
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    snack_exception(self._page, exc, lang=lang)
+                    return
+            if lock is None:
+                snack(self._page, tr("error.no_accounts", lang), error=True)
+                return
+            open_quick_add(
+                self._page,
+                self._state,
+                accounts=[lock],
+                default_type=tx.type,
+                locked_account=lock,
+                existing=tx,
+                on_saved=lambda: self._reload_gate.request(False),
+            )
+
+        run_async(self._page, _resolve_and_open)
+
+    def _edit_transfer_leg_local(self, tx) -> None:
+        """Comment/tags only — stay on account detail (no global tab jump)."""
+        lang = self._state.language
+        amount_tf = make_amount_field(
+            lang,
+            label=tr("field.amount", lang),
+            value=tx.amount,
+            read_only=True,
+        )
+        comment_tf = ft.TextField(
+            label=tr("field.comment", lang),
+            value=tx.comment or "",
+        )
+        tags_tf = ft.TextField(
+            label=tr("field.tags", lang),
+            value=", ".join(
+                t for t in (tx.tags or []) if not str(t).startswith("_")
+            ),
+        )
+        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+
+        configure_field(comment_tf, "text")
+        configure_field(tags_tf, "text")
+        wire_field_chain(self._page, [comment_tf, tags_tf])
+
+        async def _save() -> None:
+            tags = [
+                p.strip().lstrip("#")
+                for p in (tags_tf.value or "").split(",")
+                if p.strip()
+            ]
+            entity = tx.model_copy(
+                update={"comment": comment_tf.value or "", "tags": tags}
+            )
+            try:
+                await self._state.container.update_transaction.execute(entity)
+            except Exception as exc:  # noqa: BLE001
+                snack_exception(self._page, exc, lang=lang)
+                return
+            close()
+            self._state.bump_refresh(
+                "dashboard", "transactions", "accounts", "budgets"
+            )
+            snack(self._page, tr("action.saved", lang))
+            self._reload_gate.request(False)
+
+        close = open_fullscreen_form(
+            self._page,
+            title=tr("transaction.transfer", lang),
+            lang=lang,
+            overlay_key="corp_transfer_leg_editor",
+            body=[
+                muted_text(tr("transfer.edit_hint", lang), size=12),
+                amount_tf,
+                comment_tf,
+                tags_tf,
+            ],
+            on_save=_save,
+        )
 
     def _confirm_delete_tx(self, tx) -> None:
         lang = self._state.language
@@ -787,7 +881,7 @@ class AccountDetailPage(ft.Column):
                 "dashboard", "transactions", "accounts", "budgets"
             )
             snack(self._page, tr("action.saved", lang))
-            self._reload_gate.request(True)
+            self._reload_gate.request(False)
 
         confirm_dialog(
             self._page,
@@ -884,8 +978,8 @@ class AccountDetailPage(ft.Column):
         )
         lang = self._state.language
         self._rebuild_period_row(lang)
+        # Soft: keep painted body while data loads (no spinner flash / scroll jump).
         fill_loading(self._body, message=tr("action.refresh", lang))
-        safe_update(self._body)
 
         c = self._state.container
         now = datetime.now(timezone.utc)
@@ -897,13 +991,16 @@ class AccountDetailPage(ft.Column):
         try:
             account = await c.account_repository.get_by_id(self._account_id)
             if account is None:
-                self._body.controls = [
-                    EmptyState(
-                        tr("account.stats.missing", lang),
-                        icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
-                    )
-                ]
-                safe_update(self._body)
+                replace_controls(
+                    self._body,
+                    [
+                        EmptyState(
+                            tr("account.stats.missing", lang),
+                            icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
+                        )
+                    ],
+                    self._page,
+                )
                 return
             from lib.presentation.tx_query import fetch_transactions_paged
 
@@ -919,11 +1016,24 @@ class AccountDetailPage(ft.Column):
                 link = await repo.get_by_account_id(account.id)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
-            self._body.controls = [
-                EmptyState(tr("error.generic", lang), icon=ft.Icons.ERROR_OUTLINE)
-            ]
-            safe_update(self._body)
+            replace_controls(
+                self._body,
+                [
+                    EmptyState(tr("error.generic", lang), icon=ft.Icons.ERROR_OUTLINE)
+                ],
+                self._page,
+            )
             return
+
+        cat_map: dict[str, object] = {}
+        list_cats = getattr(c, "list_categories", None)
+        if list_cats is not None:
+            try:
+                scope = account.id if account.is_corporate else ""
+                for cat in await list_cats.execute(active_only=False, account_id=scope):
+                    cat_map[cat.name] = cat
+            except Exception:  # noqa: BLE001
+                cat_map = {}
 
         currency = account.currency
         self._account = account
@@ -975,7 +1085,7 @@ class AccountDetailPage(ft.Column):
                     accounts=[account],
                     default_type=TransactionType.EXPENSE,
                     locked_account=account,
-                    on_saved=lambda: self._reload_gate.request(True),
+                    on_saved=lambda: self._reload_gate.request(False),
                 ),
                 on_income=lambda: open_quick_add(
                     self._page,
@@ -983,7 +1093,7 @@ class AccountDetailPage(ft.Column):
                     accounts=[account],
                     default_type=TransactionType.INCOME,
                     locked_account=account,
-                    on_saved=lambda: self._reload_gate.request(True),
+                    on_saved=lambda: self._reload_gate.request(False),
                 ),
             ),
             ft.OutlinedButton(
@@ -995,7 +1105,7 @@ class AccountDetailPage(ft.Column):
                     self._state,
                     default_from_id=acc.id,
                     include_corporate=True,
-                    on_saved=lambda: self._reload_gate.request(True),
+                    on_saved=lambda: self._reload_gate.request(False),
                 ),
             ),
         ]
@@ -1303,6 +1413,7 @@ class AccountDetailPage(ft.Column):
             controls.append(
                 TransactionTile(
                     tx,
+                    category=_lookup_category(cat_map, tx.category),
                     language=lang,
                     on_open=self._open_tx_detail,
                     on_edit=self._edit_tx_from_detail,
