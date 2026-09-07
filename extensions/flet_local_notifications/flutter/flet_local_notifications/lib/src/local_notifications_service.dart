@@ -26,6 +26,8 @@ class FinanseLocalNotificationsService extends FletService {
     tzdata.initializeTimeZones();
     tz.setLocalLocation(tz.UTC);
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Request alert/badge/sound at initialize so iOS shows FinWise
+    // under Settings → Notifications on first launch.
     const darwin = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -43,6 +45,9 @@ class FinanseLocalNotificationsService extends FletService {
         macOS: darwin,
       ),
     );
+    // Darwin flags above ask at initialize; call requestPermissions too so
+    // iOS creates Settings → Notifications for FinWise on first launch.
+    await _requestPermissions();
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (androidPlugin != null) {

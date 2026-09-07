@@ -243,27 +243,26 @@ async def _flet_main(page: ft.Page) -> None:
             request_push_permissions,
         )
 
-        # Ask for OS notification permission immediately on first UI frame
-        # (Android 13+ / iOS show the system dialog once).
+        # Always request OS notification permission after the first UI frame.
+        # iOS only lists FinWise under Settings → Notifications after this.
         try:
+            granted = await request_push_permissions()
             settings = await container.get_settings.execute()
-            if settings.notifications_enabled:
-                prompt_flag = container.config.data_dir / ".push_permission_asked"
-                first_prompt = not prompt_flag.exists()
-                granted = await request_push_permissions()
-                logger.info("Push permission granted=%s first=%s", granted, first_prompt)
-                if first_prompt:
+            prompt_flag = container.config.data_dir / ".push_permission_asked"
+            first_prompt = not prompt_flag.exists()
+            logger.info("Push permission granted=%s first=%s", granted, first_prompt)
+            if first_prompt:
+                try:
+                    prompt_flag.write_text("1", encoding="utf-8")
+                except OSError:
+                    logger.debug(
+                        "Could not write push permission flag", exc_info=True
+                    )
+                if granted and settings.notifications_enabled:
                     try:
-                        prompt_flag.write_text("1", encoding="utf-8")
-                    except OSError:
-                        logger.debug(
-                            "Could not write push permission flag", exc_info=True
-                        )
-                    if granted:
-                        try:
-                            await notify_push_ready(normalize_lang(settings.language))
-                        except Exception:  # noqa: BLE001
-                            logger.exception("push ready banner failed")
+                        await notify_push_ready(normalize_lang(settings.language))
+                    except Exception:  # noqa: BLE001
+                        logger.exception("push ready banner failed")
         except Exception:  # noqa: BLE001
             logger.exception("Push permission request failed")
 
