@@ -10,7 +10,7 @@
 |------|----------------|
 | SQLite | WAL + составные индексы; границы `date_from` / `date_to`; батч UPDATE |
 | Domain | Один scan месяца для всех бюджетов; TTL RateBook; paging ledger; без N× `list_rates` |
-| Presentation | Без многокадровой анимации графика на каждый reload; один `list_pending` для бейджей; count-up только по marked money-текстам; `reload_gate` coalesce |
+| Presentation | Без многокадровой анимации графика на пассивный reload; явный refresh — count-up + chart queue; один `list_pending` для бейджей; `reload_gate` coalesce + skip hidden tabs; overlay reuse (`push_overlay`); шрифты/кольца/donut от ширины карточки (`fit_font`) |
 
 Индексы и границы периода — [DATABASE.md](DATABASE.md).
 
@@ -110,7 +110,8 @@
 |--------|------|
 | `count_up.py` | Count-up денег при Refresh (~0.55 с); скрытый баланс / простые % KPI пропускаются |
 | `ui_motion.py` | `replace_controls`, scroll memory, animate flag |
-| `reload_gate.py` | Слияние частых `reload()` (поиск, фильтры) |
+| `reload_gate.py` | Слияние `reload()`; скрытые вкладки **не** перезагружаются, пока снова на экране |
+| `fullscreen_form.py` | `push_overlay` / dismiss: один слот на ключ, дерево формы сбрасывается (без утечки overlay на телефоне) |
 | `widgets/period_scale.py` | Шкала периода на summary rings |
 | `layout.make_v_scroll` | Общий ListView + scroll memory (Goals/Debts/…) |
 
@@ -148,7 +149,8 @@
 
 - dashboard / debts KPI → `ledger_fx` (единый FX path);
 - `ConvertCurrencyUseCase` через RateBook cache + `execute_many`;
-- ReloadGate: off-screen не drain'ит после первого paint;
+- ReloadGate: off-screen не drain'ит после первого paint (явный visible flag; `control.page` на кэшированных вкладках всё ещё set);
+- overlay: `push_overlay` reuse слота + `dismiss_fullscreen` обнуляет дерево без `page.update()`;
 - transaction filter range capped at 365 days.
 
 Закрыто (2026-09-04 night):

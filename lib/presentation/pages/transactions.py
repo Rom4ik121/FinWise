@@ -17,6 +17,8 @@ from lib.domain.use_cases.goals import strip_goal_allocation_tags
 from lib.domain.use_cases.transactions import FEE_CATEGORY, StatsPeriod, make_fee_expense
 from lib.infrastructure.services.localization import localize_category_name
 from lib.infrastructure.services.notification_service import NotificationKind
+from lib.presentation.category_lookup import index_categories, lookup_category
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.count_up import mark_money_text, play_count_ups
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.dropdown_options import (
@@ -27,7 +29,6 @@ from lib.presentation.frequent_account import (
     account_option_label,
     prepare_tx_account_choices,
 )
-from lib.presentation.styles import page_header
 from lib.presentation.money_input import (
     make_amount_field,
     parse_amount,
@@ -161,12 +162,24 @@ class TransactionsPage(ft.Column):
             max_lines=1,
             expand=True,
         )
+        from lib.presentation.responsive import scale_space
+
         super().__init__(
-            expand=True,
-            spacing=6,
-            controls=[
-                page_header(
-                    tr("nav.transactions", lang),
+            **page_column(
+                page_frame(
+                    title=tr("nav.transactions", lang),
+                    body=self._list,
+                    page=page,
+                    extra=[
+                        ft.Column(
+                            spacing=scale_space(8, page),
+                            tight=True,
+                            controls=[
+                                self._search,
+                                self._day_nav,
+                            ],
+                        ),
+                    ],
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.TUNE,
@@ -188,23 +201,8 @@ class TransactionsPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=ft.Column(
-                        spacing=8,
-                        tight=True,
-                        controls=[
-                            self._search,
-                            self._day_nav,
-                        ],
-                    ),
-                ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=10),
-                    content=self._list,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -494,7 +492,7 @@ class TransactionsPage(ft.Column):
         self._goals = await c.list_goals.execute(include_completed=False)
         if c.list_categories is not None:
             cats = await c.list_categories.execute(active_only=False)
-            self._category_map = {cat.name: cat for cat in cats}
+            self._category_map = index_categories(cats)
         self._meta_token = token
 
     def _list_filters(self) -> dict:
@@ -585,8 +583,9 @@ class TransactionsPage(ft.Column):
                 extra.append(
                     TransactionTile(
                         tx,
-                        category=self._category_map.get(tx.category),  # type: ignore[arg-type]
+                        category=lookup_category(self._category_map, tx.category),  # type: ignore[arg-type]
                         language=lang,
+                        page=self._page,
                         on_open=self._open_detail,
                         on_edit=lambda t: run_async(
                             self._page, self._open_editor_async, t
@@ -636,8 +635,9 @@ class TransactionsPage(ft.Column):
         self._token = self._state.transactions_token
         lang = self._state.language
         self._filter_summary.value = self._filter_summary_text()
+        had_list = bool(self._list.controls)
         # Avoid spinner flash when the list already has tiles (search storms).
-        if not self._list.controls:
+        if not had_list:
             fill_loading(self._list)
         safe_update(self._filter_summary)
 

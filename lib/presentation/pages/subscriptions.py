@@ -28,6 +28,8 @@ from lib.presentation.dropdown_options import (
 )
 from lib.presentation.form_keyboard import configure_field, wire_field_chain
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.components.layout.grid import card_grid
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
 from lib.presentation.money_input import make_amount_field, parse_amount
@@ -43,7 +45,6 @@ from lib.presentation.styles import (
     form_section,
     labeled_switch,
     muted_text,
-    page_header,
 )
 from lib.presentation.subscriptions_templates import (
     SUBSCRIPTION_TEMPLATES,
@@ -124,11 +125,12 @@ class SubscriptionsPage(ft.Column):
             on_change=self._on_search_change,
         )
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("nav.subscriptions", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("nav.subscriptions", state.language),
+                    body=self._list,
+                    page=page,
+                    extra=[self._search_tf],
                     leading=ft.IconButton(
                         icon=ft.Icons.ARROW_BACK,
                         on_click=lambda _e: state.close_secondary(),
@@ -146,16 +148,8 @@ class SubscriptionsPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    padding=ft.Padding.only(left=12, right=12, top=8, bottom=4),
-                    content=self._search_tf,
-                ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=self._list,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -443,6 +437,7 @@ class SubscriptionsPage(ft.Column):
                 due_week_count=due_week_count,
                 due_week_amount=due_week_amount,
                 active_count=active_count,
+                page=self._page,
             )
         ]
         due_soon_items = []
@@ -492,6 +487,7 @@ class SubscriptionsPage(ft.Column):
                 on_open=self._open_detail,
                 on_edit=self._open_editor,
                 on_delete=self._confirm_delete,
+                page=self._page,
             )
             return swipe_subscription_card(
                 card,
@@ -502,6 +498,7 @@ class SubscriptionsPage(ft.Column):
                 on_pause=pause_cb,
                 on_edit=lambda s=sub: self._open_editor(s),
                 pause_label=pause_label,
+                page=self._page,
             )
 
         if due_soon_items:
@@ -512,7 +509,14 @@ class SubscriptionsPage(ft.Column):
                     weight=ft.FontWeight.W_700,
                 )
             )
-            cards.extend(_card(s) for s in due_soon_items)
+            cards.extend(
+                card_grid(
+                    [_card(s) for s in due_soon_items],
+                    self._page,
+                    min_card=300,
+                    maximum=2,
+                )
+            )
             if rest_items:
                 cards.append(
                     ft.Text(
@@ -521,7 +525,14 @@ class SubscriptionsPage(ft.Column):
                         weight=ft.FontWeight.W_700,
                     )
                 )
-        cards.extend(_card(s) for s in rest_items)
+        cards.extend(
+            card_grid(
+                [_card(s) for s in rest_items],
+                self._page,
+                min_card=300,
+                maximum=2,
+            )
+        )
         replace_controls(self._list, cards, self._page)
 
     async def _pause(self, sub: Subscription) -> None:
@@ -978,7 +989,7 @@ class SubscriptionsPage(ft.Column):
             )
 
             body.controls = [
-                SubscriptionCard(sub_obj, language=lang),
+                SubscriptionCard(sub_obj, language=lang, page=self._page),
                 sparkline_ctrl,
                 card_surface(meta),
                 ft.Row(wrap=True, spacing=8, controls=actions),

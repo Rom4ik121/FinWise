@@ -15,7 +15,7 @@ from lib.presentation.styles import (
     page_header,
 )
 from lib.presentation.utils import safe_update, tr
-from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen
+from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, push_overlay
 
 IconRenderer = Callable[[str], ft.Control]
 SelectStr = Callable[[str], None]
@@ -213,8 +213,7 @@ def open_icon_picker(
             ),
         ),
     )
-    page.overlay.append(overlay)
-    safe_update(page)
+    push_overlay(page, overlay)
 
 
 def open_color_picker(
@@ -329,5 +328,4 @@ def open_color_picker(
             ),
         ),
     )
-    page.overlay.append(overlay)
-    safe_update(page)
+    push_overlay(page, overlay)

@@ -52,19 +52,23 @@ def _prefer_native_charts() -> bool:
 
 
 def chart_layout(page: ft.Page | None = None) -> tuple[int, int]:
-    """Width and plot height that fill the current window."""
-    from lib.presentation.responsive import page_height, page_width
+    """Width and plot height that fill the hosting card, not the window."""
+    from lib.presentation.responsive import (
+        block_inner_width,
+        is_narrow,
+        page_height,
+        page_width,
+    )
 
-    width = int(page_width(page))
-    height = int(page_height(page))
-    inset = 28 if width < 420 else 40
-    chart_w = max(240, min(width - inset, 860))
-    chart_h = max(180, min(340, int(height * 0.32)))
-    if width < 360:
-        chart_h = max(180, min(chart_h, 220))
-    elif width < 400:
-        chart_h = max(chart_h, 200)
-    return chart_w, chart_h
+    width = int(block_inner_width(page, columns=1, padding=10))
+    height = int(page_height(page) * 0.26)
+    height = max(152, min(height, 260))
+    if is_narrow(page):
+        height = min(height, 172)
+    elif page_width(page) < 400:
+        height = min(height, 196)
+    height = min(height, width + 4)
+    return max(200, width), height
 
 
 def _money_formatter(value: float, _pos: int = 0) -> str:
@@ -98,13 +102,15 @@ def _nice_ceiling(value: float) -> float:
 
 
 def _empty_chart(message: str, hint: str, *, width: int, height: int) -> ft.Container:
+    from lib.presentation.responsive import fit_font, fit_size
     from lib.presentation.styles import glass_layer
 
     skin = get_active_skin()
+    fake = type("P", (), {"width": width, "height": height})()
     return ft.Container(
         expand=True,
         width=width,
-        height=max(height, 160),
+        height=max(height, 140),
         border_radius=skin.card_radius,
         alignment=ft.Alignment.CENTER,
         **glass_layer(elevated=True),
@@ -115,27 +121,31 @@ def _empty_chart(message: str, hint: str, *, width: int, height: int) -> ft.Cont
             controls=[
                 ft.Icon(
                     ft.Icons.SHOW_CHART,
-                    size=28,
+                    size=fit_size(28, fake, minimum=20, maximum=32),  # type: ignore[arg-type]
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
                 ft.Text(
                     message,
-                    size=13,
+                    size=fit_font(13, fake, minimum=11, maximum=15),  # type: ignore[arg-type]
                     color=ft.Colors.ON_SURFACE,
                     text_align=ft.TextAlign.CENTER,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 ft.Text(
                     hint,
-                    size=11,
+                    size=fit_font(11, fake, minimum=9, maximum=13),  # type: ignore[arg-type]
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     text_align=ft.TextAlign.CENTER,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
             ],
         ),
     )
 
 
-def _legend_dot(color: str, label: str) -> ft.Control:
+def _legend_dot(color: str, label: str, *, size: int = 11) -> ft.Control:
     return ft.Row(
         spacing=6,
         tight=True,
@@ -144,10 +154,11 @@ def _legend_dot(color: str, label: str) -> ft.Control:
             ft.Container(width=8, height=8, border_radius=4, bgcolor=color),
             ft.Text(
                 label,
-                size=11,
+                size=size,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 max_lines=1,
                 overflow=ft.TextOverflow.ELLIPSIS,
+                expand=True,
             ),
         ],
     )
@@ -445,12 +456,12 @@ def _info_line_chart(
     if compact:
         plot_h = max(int(height), 128)
         tick_count = 3  # 4 Y labels (lo … hi) with even spacing
-        label_size = 8
+        label_size = 8 if width < 360 else 9
         sample_labels = [
             _money_formatter(lo + span * i / 3) for i in range(4)
         ]
         label_chars = max(len(s) for s in sample_labels)
-        margin_left = max(34.0, 8.0 + label_chars * 5.6)
+        margin_left = max(30.0, 7.0 + label_chars * 5.2)
         margin_right = 10.0
         margin_top = 12.0
         margin_bottom = 20.0
@@ -460,13 +471,13 @@ def _info_line_chart(
         anim_frames = 1 if not animate else 16
     else:
         plot_h = max(height - 40, 168)
-        margin_left = 42.0 if width < 360 else 48.0
+        margin_left = 36.0 if width < 360 else 48.0
         margin_right = 12.0
         margin_top = 10.0
         margin_bottom = 22.0
         line_w = max(1.4, 2.8 / (density**0.35))
         tick_count = 4
-        label_size = 10
+        label_size = 9 if width < 360 else 10
         end_r_outer, end_r_inner = 8.0, 3.5
         anim_frames = 1 if not animate else 18
 
@@ -809,11 +820,16 @@ def _info_donut_chart(
     skin = get_active_skin()
     palette = _chart_palette()
     total = sum(nums)
-    size = max(148, min(int(width * 0.72), height - 8, 220 if width < 400 else 240))
+    from lib.presentation.responsive import donut_center_metrics
+
+    legend_reserve = 52 if show_legend else 4
+    size = min(int(width * 0.82), max(8, height - legend_reserve), 220)
+    size = max(112, size)
+    center_type = donut_center_metrics(size)
     cx = size / 2
     cy = size / 2
     radius = size * 0.34
-    stroke = max(12.0, size * 0.10)
+    stroke = max(10.0, size * 0.10)
     track = skin.dark_surface_3 if dark else skin.light_surface_3
     sweeps = _normalize_donut_sweeps(nums)
     gap = 0.012 if len(sweeps) > 1 else 0.0
@@ -873,27 +889,33 @@ def _info_donut_chart(
     top_share = nums[0] / total * 100 if total else 0
     share_label = ft.Text(
         f"{top_share:.0f}%",
-        size=24,
-        weight=ft.FontWeight.W_800,
+        size=center_type["percent"],
+        weight=ft.FontWeight.W_700,
         color=skin.text_hex(dark=dark),
+        text_align=ft.TextAlign.CENTER,
+        max_lines=1,
+        no_wrap=True,
     )
     amount_label = ft.Text(
         _money_formatter(total),
-        size=11,
+        size=center_type["amount"],
         color=skin.muted_hex(dark=dark),
         text_align=ft.TextAlign.CENTER,
+        max_lines=1,
+        no_wrap=True,
     )
     name_label = ft.Text(
         t("chart.total", language),
-        size=10,
+        size=center_type["caption"],
         color=skin.muted_hex(dark=dark),
         text_align=ft.TextAlign.CENTER,
         max_lines=1,
         overflow=ft.TextOverflow.ELLIPSIS,
+        no_wrap=True,
     )
     center = ft.Column(
         tight=True,
-        spacing=0,
+        spacing=center_type["spacing"],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         alignment=ft.MainAxisAlignment.CENTER,
         controls=[share_label, amount_label, name_label],
@@ -949,6 +971,7 @@ def _info_donut_chart(
             content=ring,
         ),
     )
+    legend_size = max(9, min(12, int(size * 0.055)))
     legend: list[ft.Control] = []
     if show_legend:
         for idx, (label, amount) in enumerate(zip(labels, nums)):
@@ -957,6 +980,7 @@ def _info_donut_chart(
                 _legend_dot(
                     palette[idx % len(palette)],
                     f"{label} · {_money_formatter(amount)} · {share:.0f}%",
+                    size=legend_size,
                 )
             )
     return _chart_shell(

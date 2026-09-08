@@ -18,6 +18,17 @@ _REF_WIDTH = 390.0
 COMPACT_MAX = 420
 # Desktop / tablet: center content, optional side breathing room.
 WIDE_MIN = 720
+# Extra-small phones (SE / compact Android).
+NARROW_MAX = 360
+# Large tablet / desktop split for card grids.
+DESKTOP_MIN = 1024
+
+Breakpoint = str
+BP_XS = "xs"
+BP_SM = "sm"
+BP_MD = "md"
+BP_LG = "lg"
+BP_XL = "xl"
 
 
 def page_width(page: ft.Page | None) -> float:
@@ -58,6 +69,308 @@ def is_wide(page: ft.Page | None) -> bool:
     return page_width(page) >= WIDE_MIN
 
 
+def is_narrow(page: ft.Page | None) -> bool:
+    """True on extra-small phones where labels must shrink."""
+    return page_width(page) < NARROW_MAX
+
+
+def breakpoint(page: ft.Page | None) -> Breakpoint:
+    """Named viewport band: xs <360, sm <420, md <720, lg <1024, else xl."""
+    width = page_width(page)
+    if width < NARROW_MAX:
+        return BP_XS
+    if width < COMPACT_MAX:
+        return BP_SM
+    if width < WIDE_MIN:
+        return BP_MD
+    if width < DESKTOP_MIN:
+        return BP_LG
+    return BP_XL
+
+
+def scale_factor(
+    page: ft.Page | None = None,
+    *,
+    floor: float = 0.88,
+    ceil: float = 1.22,
+) -> float:
+    """Width-based multiplier around the 390px reference phone."""
+    factor = page_width(page) / _REF_WIDTH
+    return max(floor, min(ceil, factor))
+
+
+def scale_size(
+    base: float,
+    page: ft.Page | None = None,
+    *,
+    floor: float = 0.88,
+    ceil: float = 1.22,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    """Scale padding, icon, and card metrics with the viewport."""
+    value = int(round(float(base) * scale_factor(page, floor=floor, ceil=ceil)))
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def scale_space(base: float, page: ft.Page | None = None) -> int:
+    """Spacing / gap that stays tight on phones and roomy on desktop."""
+    return scale_size(base, page, floor=0.90, ceil=1.18, minimum=4, maximum=28)
+
+
+def content_inset(page: ft.Page | None = None) -> int:
+    """Horizontal page gutter (list / dashboard body)."""
+    bp = breakpoint(page)
+    if bp == BP_XS:
+        return 8
+    if bp == BP_SM:
+        return 10
+    if bp in (BP_LG, BP_XL):
+        return 16
+    return 12
+
+
+def card_padding(page: ft.Page | None = None, *, hero: bool = False) -> int:
+    """Inner padding for catalog / KPI cards."""
+    base = 14 if hero else 12
+    return scale_size(base, page, floor=0.90, ceil=1.15, minimum=8, maximum=20)
+
+
+# Comfortable inner width of a full-bleed phone card (390 − gutters − pad).
+_REF_BLOCK = 340.0
+# Comfortable inner width of one KPI cell in a 2-up row.
+_REF_KPI = 150.0
+
+
+def content_column_width(page: ft.Page | None = None) -> float:
+    """List/body width inside page gutters (not the raw window)."""
+    return max(240.0, page_width(page) - content_inset(page) * 2)
+
+
+def block_inner_width(
+    page: ft.Page | None = None,
+    *,
+    columns: int = 1,
+    padding: int | None = None,
+    gap: float | None = None,
+) -> float:
+    """Estimated inner width of a card sitting in a ``columns``-wide row."""
+    usable = content_column_width(page)
+    pad = float(padding if padding is not None else card_padding(page))
+    space = float(gap if gap is not None else scale_space(8, page))
+    cols = max(1, int(columns))
+    cell = (usable - space * (cols - 1)) / cols
+    return max(96.0, cell - pad * 2)
+
+
+def fit_factor(
+    page: ft.Page | None = None,
+    *,
+    columns: int = 1,
+    ref: float = _REF_BLOCK,
+    floor: float = 0.72,
+    ceil: float = 1.10,
+    padding: int | None = None,
+) -> float:
+    """Scale relative to the card inner width, not the full viewport."""
+    inner = block_inner_width(page, columns=columns, padding=padding)
+    return max(floor, min(ceil, inner / max(ref, 1.0)))
+
+
+def fit_size(
+    base: float,
+    page: ft.Page | None = None,
+    *,
+    columns: int = 1,
+    ref: float = _REF_BLOCK,
+    floor: float = 0.72,
+    ceil: float = 1.10,
+    minimum: int | None = None,
+    maximum: int | None = None,
+    padding: int | None = None,
+) -> int:
+    """Padding / icon / ring size that shrinks with the hosting card."""
+    value = int(
+        round(
+            float(base)
+            * fit_factor(
+                page,
+                columns=columns,
+                ref=ref,
+                floor=floor,
+                ceil=ceil,
+                padding=padding,
+            )
+        )
+    )
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def fit_font(
+    base: float,
+    page: ft.Page | None = None,
+    *,
+    columns: int = 1,
+    ref: float = _REF_BLOCK,
+    floor: float = 0.72,
+    ceil: float = 1.10,
+    minimum: int = 9,
+    maximum: int = 28,
+    padding: int | None = None,
+) -> int:
+    """Type size that stays readable inside the hosting card."""
+    return fit_size(
+        base,
+        page,
+        columns=columns,
+        ref=ref,
+        floor=floor,
+        ceil=ceil,
+        minimum=minimum,
+        maximum=maximum,
+        padding=padding,
+    )
+
+
+def kpi_card_metrics(
+    page: ft.Page | None = None,
+    *,
+    columns: int = 2,
+) -> dict[str, int]:
+    """KPI / today / analytics cells that share a row."""
+    cols = max(1, columns)
+    return {
+        "title": fit_font(
+            11, page, columns=cols, ref=_REF_KPI, minimum=9, maximum=13
+        ),
+        "value": fit_font(
+            13, page, columns=cols, ref=_REF_KPI, minimum=10, maximum=18
+        ),
+        "icon": fit_size(
+            28, page, columns=cols, ref=_REF_KPI, minimum=22, maximum=34
+        ),
+        "glyph": fit_size(
+            15, page, columns=cols, ref=_REF_KPI, minimum=12, maximum=18
+        ),
+        "padding": fit_size(
+            10, page, columns=cols, ref=_REF_KPI, minimum=6, maximum=14
+        ),
+        "gap": fit_size(
+            8, page, columns=cols, ref=_REF_KPI, minimum=4, maximum=10
+        ),
+    }
+
+
+def hero_block_metrics(page: ft.Page | None = None) -> dict[str, int]:
+    """Full-width hero: ring + amount + chips."""
+    inner = block_inner_width(page, columns=1)
+    ring = int(max(56, min(88, inner * 0.26)))
+    ring = min(ring, int(inner * 0.34))
+    return {
+        "ring": ring,
+        "title": fit_font(12, page, minimum=10, maximum=14),
+        "amount": fit_font(22, page, minimum=16, maximum=24),
+        "meta": fit_font(13, page, minimum=10, maximum=15),
+        "chip": fit_font(11, page, minimum=9, maximum=12),
+        "chip_value": fit_font(13, page, minimum=10, maximum=15),
+        "padding": card_padding(page),
+        "gap": scale_space(10, page),
+        "row_gap": scale_space(12, page),
+    }
+
+
+def tile_ring_metrics(page: ft.Page | None = None) -> dict[str, int]:
+    """List/analytics row with a small ring beside text."""
+    inner = block_inner_width(page, columns=1)
+    ring = int(max(40, min(52, inner * 0.15)))
+    return {
+        "ring": ring,
+        "title": fit_font(14, page, minimum=12, maximum=16),
+        "amount": fit_font(14, page, minimum=11, maximum=16),
+        "meta": fit_font(12, page, minimum=10, maximum=14),
+        "icon": fit_size(28, page, minimum=24, maximum=34),
+        "glyph": fit_size(14, page, minimum=12, maximum=16),
+        "padding": max(8, card_padding(page) - 2),
+        "gap": scale_space(8, page),
+    }
+
+
+def ring_label_font(size: int, label: str) -> int:
+    """Percent (or short word) that stays inside a ProgressRing hole."""
+    stroke = max(4, int(size) // 10)
+    hole = max(12, int(size) - stroke * 2)
+    chars = max(1, len(label))
+    if chars <= 3:
+        return max(8, min(int(size * 0.24), int(hole * 0.38)))
+    return max(7, min(int(size * 0.15), int(hole * 0.26)))
+
+
+def donut_center_metrics(canvas: int) -> dict[str, int]:
+    """Three-line stack (percent / amount / caption) inside a donut hole.
+
+    ``canvas`` is the full donut square; the hole is ~58% of that. Percent
+    must stay clearly smaller than the ring — not a ProgressRing-sized glyph.
+    """
+    size = max(96, int(canvas))
+    return {
+        "percent": max(11, min(15, int(size * 0.072))),
+        "amount": max(8, min(10, int(size * 0.045))),
+        "caption": max(8, min(9, int(size * 0.038))),
+        "spacing": 1,
+    }
+
+
+def grid_columns(
+    page: ft.Page | None = None,
+    *,
+    min_card: float = 280,
+    maximum: int = 3,
+) -> int:
+    """How many equal-width cards fit in the current viewport."""
+    usable = max(280.0, page_width(page) - content_inset(page) * 2)
+    cols = max(1, int(usable // min_card))
+    return min(maximum, cols)
+
+
+def tx_tile_metrics(page: ft.Page | None = None) -> dict[str, int]:
+    """Transaction row: height, amount column, icon, type sizes."""
+    return {
+        "height": scale_size(56, page, floor=0.92, ceil=1.18, minimum=52, maximum=72),
+        "amount_width": scale_size(
+            88, page, floor=0.90, ceil=1.25, minimum=72, maximum=128
+        ),
+        "icon": scale_size(36, page, floor=0.90, ceil=1.18, minimum=32, maximum=44),
+        "title": fit_font(13, page, minimum=11, maximum=16),
+        "subtitle": fit_font(10, page, minimum=9, maximum=13),
+        "amount": fit_font(12, page, minimum=11, maximum=16),
+    }
+
+
+def entity_card_metrics(page: ft.Page | None = None) -> dict[str, int]:
+    """Shared metrics for goal / debt / subscription / budget catalog cards."""
+    cols = grid_columns(page, min_card=280, maximum=2)
+    return {
+        "icon": fit_size(36, page, columns=cols, minimum=30, maximum=44),
+        "glyph": fit_size(18, page, columns=cols, minimum=13, maximum=22),
+        "title": fit_font(16, page, columns=cols, minimum=12, maximum=20),
+        "amount": fit_font(18, page, columns=cols, minimum=13, maximum=24),
+        "meta": fit_font(12, page, columns=cols, minimum=10, maximum=15),
+        "chip": fit_font(11, page, columns=cols, minimum=9, maximum=13),
+        "padding": card_padding(page),
+        "gap": scale_space(8, page),
+        "ring": fit_size(52, page, columns=cols, minimum=44, maximum=64),
+        "ring_tile": fit_size(72, page, columns=cols, minimum=60, maximum=88),
+    }
+
+
 def swipe_action_strip_width(
     page: ft.Page | None = None,
     *,
@@ -90,9 +403,9 @@ def scale_font(
     page: ft.Page | None = None,
     *,
     floor: float = 0.88,
-    ceil: float = 1.12,
+    ceil: float = 1.22,
     minimum: int = 10,
-    maximum: int = 36,
+    maximum: int = 40,
 ) -> int:
     """Scale a base font size with viewport width (clamped).
 
@@ -173,13 +486,11 @@ def calendar_cell_size(page: ft.Page | None = None) -> int:
 
 
 def compact_chart_size(page: ft.Page | None = None) -> tuple[int, int]:
-    """Dashboard / hero sparkline dimensions from viewport."""
-    w = page_width(page)
+    """Dashboard / hero sparkline — sized to the hero card, not the window."""
+    pad = card_padding(page, hero=True)
+    width = int(block_inner_width(page, columns=1, padding=pad))
     h = page_height(page)
-    inset = 28 if w < 420 else 40
-    width = max(240, min(int(w - inset), 860))
-    # Hero charts stay shorter than full analytics plots.
-    height = max(120, min(168, int(h * 0.18)))
-    if w < 360:
-        height = max(112, height - 8)
-    return width, height
+    height = max(104, min(148, int(h * 0.16)))
+    if page_width(page) < NARROW_MAX:
+        height = max(100, height - 8)
+    return max(200, width), height

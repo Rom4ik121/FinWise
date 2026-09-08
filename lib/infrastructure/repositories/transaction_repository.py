@@ -12,7 +12,7 @@ from sqlalchemy import or_, select, update as sa_update, text, cast, String
 
 from lib.domain.entities.transaction import Transaction, TransactionItem, TransactionType
 from lib.domain.repositories.transaction_repository import TransactionRepository
-from lib.infrastructure.db_models import TransactionModel
+from lib.infrastructure.db_models import AccountModel, TransactionModel
 from lib.infrastructure.repositories._base import (
     SessionFactory,
     ensure_utc,
@@ -58,6 +58,37 @@ def _items_to_json(items: list[TransactionItem]) -> list[dict]:
         }
         for item in items
     ]
+
+
+def _rewrite_item_categories(
+    raw: object, old_name: str, new_name: str
+) -> list | None:
+    """Return rewritten JSON items when a line category matches, else None."""
+    from lib.domain.entities.category import category_names_equal
+
+    if not isinstance(raw, list) or not raw:
+        return None
+    target = (new_name or "").strip()
+    source = (old_name or "").strip()
+    if not target or not source:
+        return None
+    changed = False
+    out: list = []
+    for row in raw:
+        if not isinstance(row, dict):
+            out.append(row)
+            continue
+        cat = str(row.get("category") or "")
+        hit = category_names_equal(cat, source) or (
+            not category_names_equal(source, target)
+            and category_names_equal(cat, target)
+        )
+        if hit and cat != target:
+            out.append({**row, "category": target})
+            changed = True
+        else:
+            out.append(row)
+    return out if changed else None
 
 
 def _to_entity(model: TransactionModel) -> Transaction:
@@ -199,6 +230,19 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             return self._list_sync(*args)
         return await asyncio.to_thread(self._list_sync, *args)
 
+    async def reassign_category(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        account_id: Optional[str] = None,
+    ) -> int:
+        if in_unit_of_work():
+            return self._reassign_category_sync(old_name, new_name, account_id)
+        return await asyncio.to_thread(
+            self._reassign_category_sync, old_name, new_name, account_id
+        )
+
     def _create_sync(self, entity: Transaction) -> Transaction:
         with session_scope(self._session_factory) as session:
             model = TransactionModel()
@@ -254,6 +298,64 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             )
             count = int(result.rowcount or 0)
             logger.debug("Cleared goal_id on %s transactions for goal %s", count, goal_id)
+            return count
+
+    def _reassign_category_sync(
+        self,
+        old_name: str,
+        new_name: str,
+        account_id: Optional[str],
+    ) -> int:
+        from lib.domain.entities.category import category_names_equal
+
+        target = (new_name or "").strip()
+        source = (old_name or "").strip()
+        if not target or not source:
+            return 0
+        now = datetime.now(timezone.utc)
+        scope = (account_id or "").strip()
+        count = 0
+        with session_scope(self._session_factory) as session:
+            stmt = select(TransactionModel)
+            if scope:
+                stmt = stmt.where(TransactionModel.account_id == scope)
+            else:
+                stmt = stmt.join(
+                    AccountModel,
+                    TransactionModel.account_id == AccountModel.id,
+                ).where(AccountModel.is_corporate.is_(False))
+            rows = session.scalars(stmt).all()
+            for model in rows:
+                header_hit = category_names_equal(model.category, source) or (
+                    not category_names_equal(source, target)
+                    and category_names_equal(model.category, target)
+                )
+                new_items = _rewrite_item_categories(model.items, source, target)
+                if not header_hit and new_items is None:
+                    continue
+                if header_hit and model.category != target:
+                    model.category = target
+                if new_items is not None:
+                    model.items = new_items
+                    from sqlalchemy.orm.attributes import flag_modified
+
+                    flag_modified(model, "items")
+                model.updated_at = now
+                fts_upsert(
+                    session,
+                    tx_id=model.id,
+                    category=model.category,
+                    comment=model.comment or "",
+                    tags=list(model.tags or []),
+                )
+                count += 1
+            logger.debug(
+                "Reassigned category %r → %r on %s transactions (scope=%r)",
+                source,
+                target,
+                count,
+                scope,
+            )
             return count
 
     def _get_by_id_sync(self, transaction_id: str) -> Optional[Transaction]:

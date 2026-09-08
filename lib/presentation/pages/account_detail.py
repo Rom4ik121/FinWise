@@ -25,17 +25,17 @@ from lib.presentation.analytics_period import (
     format_chart_period_label,
     resolve_analytics_period,
 )
+from lib.presentation.category_lookup import index_categories, lookup_category
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.ui_motion import replace_controls
+from lib.presentation.ui_motion import replace_controls, reset_ui_animating, set_ui_animating
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
     form_section,
     glass_layer,
     muted_text,
-    page_header,
     section_title,
     amount_color,
 )
@@ -62,6 +62,7 @@ from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.layout import h_chip_row, make_v_scroll
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.responsive import scale_font
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.summary_card import SummaryCard
@@ -75,19 +76,8 @@ if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 
-def _lookup_category(cat_map: dict[str, object], name: str | None):
-    """Resolve a stored category name against the account-scoped catalog."""
-    key = (name or "").strip()
-    if not key:
-        return None
-    found = cat_map.get(key)
-    if found is not None:
-        return found
-    needle = key.casefold()
-    for stored, cat in cat_map.items():
-        if stored.casefold() == needle:
-            return cat
-    return None
+# Tests and older call sites still import this name.
+_lookup_category = lookup_category
 
 
 class AccountDetailPage(ft.Column):
@@ -121,11 +111,14 @@ class AccountDetailPage(ft.Column):
             on_click=lambda _e: run_async(page, self._sync_now),
         )
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("account.stats.title", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("account.stats.title", state.language),
+                    body=self._body,
+                    page=page,
+                    extra=[
+                        ft.Container(height=42, content=self._period_row),
+                    ],
                     leading=ft.IconButton(
                         icon=ft.Icons.ARROW_BACK,
                         on_click=lambda _e: state.close_secondary(),
@@ -146,17 +139,8 @@ class AccountDetailPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    height=42,
-                    padding=ft.Padding.only(left=12, right=12, bottom=8),
-                    content=self._period_row,
-                ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.only(left=12, right=12, top=6),
-                    content=self._body,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -538,6 +522,7 @@ class AccountDetailPage(ft.Column):
                         progress.category_id, lang
                     ),
                     compact=True,
+                    page=self._page,
                     on_open=lambda p=progress: self._open_corporate_budget_editor(
                         account, p.budget
                     ),
@@ -1030,8 +1015,9 @@ class AccountDetailPage(ft.Column):
         if list_cats is not None:
             try:
                 scope = account.id if account.is_corporate else ""
-                for cat in await list_cats.execute(active_only=False, account_id=scope):
-                    cat_map[cat.name] = cat
+                cat_map = index_categories(
+                    await list_cats.execute(active_only=False, account_id=scope)
+                )
             except Exception:  # noqa: BLE001
                 cat_map = {}
 
@@ -1063,6 +1049,7 @@ class AccountDetailPage(ft.Column):
         net = kpi_income - kpi_expense
         net_accent = amount_color(net >= 0, dark=dark)
 
+        anim_token = set_ui_animating(animate)
         controls: list[ft.Control] = [
             self._hero(
                 name=account.name,
@@ -1079,6 +1066,7 @@ class AccountDetailPage(ft.Column):
             ),
             dual_add_button(
                 lang,
+                page=self._page,
                 on_expense=lambda: open_quick_add(
                     self._page,
                     self._state,
@@ -1134,6 +1122,7 @@ class AccountDetailPage(ft.Column):
                         compact=False,
                         page=self._page,
                         language=lang,
+                        columns=2,
                     ),
                     SummaryCard(
                         title=tr("transaction.expense", lang),
@@ -1147,6 +1136,7 @@ class AccountDetailPage(ft.Column):
                         compact=False,
                         page=self._page,
                         language=lang,
+                        columns=2,
                     ),
                 ],
             ),
@@ -1267,6 +1257,7 @@ class AccountDetailPage(ft.Column):
                 if animate:
                     await play_count_ups(self._body, self._page)
             finally:
+                reset_ui_animating(anim_token)
                 await flush_chart_draws()
             return
 
@@ -1415,6 +1406,7 @@ class AccountDetailPage(ft.Column):
                     tx,
                     category=_lookup_category(cat_map, tx.category),
                     language=lang,
+                    page=self._page,
                     on_open=self._open_tx_detail,
                     on_edit=self._edit_tx_from_detail,
                     on_delete=self._confirm_delete_tx,
@@ -1425,4 +1417,5 @@ class AccountDetailPage(ft.Column):
             if animate:
                 await play_count_ups(self._body, self._page)
         finally:
+            reset_ui_animating(anim_token)
             await flush_chart_draws()

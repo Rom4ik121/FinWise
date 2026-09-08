@@ -23,7 +23,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | Класс | Таблица / таблицы | Заметки |
 |-------|------------------|---------|
 | `SqlAlchemyAccountRepository` | `accounts` | CRUD, `active_only`, `corporate`, `include_in_total` |
-| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`; **теги** дофильтровываются в Python **до** LIMIT/OFFSET |
+| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`; **теги** дофильтровываются в Python **до** LIMIT/OFFSET; `reassign_category` — массовое переименование (личный ledger vs `account_id`) + FTS |
 | `SqlAlchemyGoalRepository` | `goals` | status / priority / сортировки |
 | `SqlAlchemyDebtRepository` | `debts` | status / direction |
 | `SqlAlchemySubscriptionRepository` | `subscriptions` | `list_due(as_of)` |

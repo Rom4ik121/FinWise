@@ -16,9 +16,16 @@ def dual_add_button(
     on_expense: Optional[Callable[[], None]] = None,
     on_income: Optional[Callable[[], None]] = None,
     dark: bool = True,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     """One long button: left = expense, right = income."""
+    from lib.presentation.responsive import scale_font, scale_size
+
     skin = get_active_skin()
+    pad_h = scale_size(14, page, minimum=10, maximum=18)
+    pad_v = scale_size(14, page, minimum=10, maximum=18)
+    icon_sz = scale_size(18, page, minimum=16, maximum=22)
+    label_sz = scale_font(13, page, minimum=11, maximum=16)
 
     def _side(
         *,
@@ -34,16 +41,16 @@ def dual_add_button(
             ink=True,
             ink_color=ft.Colors.TRANSPARENT,
             on_click=lambda _e: on_click() if on_click else None,
-            padding=ft.Padding.symmetric(horizontal=14, vertical=14),
+            padding=ft.Padding.symmetric(horizontal=pad_h, vertical=pad_v),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.CENTER,
                 spacing=6,
                 tight=True,
                 controls=[
-                    ft.Icon(icon, size=18, color=color),
+                    ft.Icon(icon, size=icon_sz, color=color),
                     ft.Text(
                         label,
-                        size=13,
+                        size=label_sz,
                         weight=ft.FontWeight.W_700,
                         color=color,
                         max_lines=1,

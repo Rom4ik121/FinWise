@@ -23,6 +23,7 @@ from lib.presentation.account_icons import (
     is_valid_account_icon,
     resolve_account_icon_key,
 )
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.count_up import play_count_ups
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
@@ -32,7 +33,6 @@ from lib.presentation.styles import (
     form_save_button,
     form_section,
     labeled_switch,
-    page_header,
     section_title,
 )
 from lib.presentation.utils import (
@@ -54,6 +54,7 @@ from lib.presentation.widgets.fullscreen_form import (
     build_form_shell,
     dismiss_fullscreen,
     open_fullscreen_form,
+    push_overlay,
 )
 from lib.presentation.layout import make_v_scroll
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
@@ -85,10 +86,11 @@ class AccountsPage(ft.Column):
         self._account_count = 0
         self._list = make_v_scroll(spacing=12)
         super().__init__(
-            expand=True,
-            controls=[
-                page_header(
-                    tr("nav.accounts", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("nav.accounts", state.language),
+                    body=self._list,
+                    page=page,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
@@ -110,12 +112,8 @@ class AccountsPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=self._list,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -170,10 +168,11 @@ class AccountsPage(ft.Column):
         book = await load_rate_book(self._state.container)
         personal = [a for a in accounts if not a.is_corporate]
         corporate = [a for a in accounts if a.is_corporate]
-        cards: list[ft.Control] = []
+        personal_cards: list[ft.Control] = []
+        corporate_cards: list[ft.Control] = []
         fx_ok = True
 
-        def _append_card(account: Account) -> None:
+        def _make_card(account: Account) -> AccountCard:
             nonlocal fx_ok
             converted = book.convert(
                 account.balance,
@@ -185,34 +184,37 @@ class AccountsPage(ft.Column):
             ) != normalize_currency_code(base):
                 fx_ok = False
             link = self._links.get(account.id)
-            cards.append(
-                AccountCard(
-                    account,
-                    base_currency=base,
-                    base_balance=converted,
-                    language=self._state.language,
-                    exchange_title=exchange_title(link.provider) if link else "",
-                    exchange_id=link.provider if link else "",
-                    on_click=self._open_stats,
-                    on_edit=self._open_editor,
-                    on_delete=self._confirm_delete,
-                    on_sync=self._sync_exchange if link else None,
-                    on_include_in_total=(
-                        None if account.is_corporate else self._set_include_in_total
-                    ),
-                )
+            return AccountCard(
+                account,
+                base_currency=base,
+                base_balance=converted,
+                language=self._state.language,
+                exchange_title=exchange_title(link.provider) if link else "",
+                exchange_id=link.provider if link else "",
+                page=self._page,
+                on_click=self._open_stats,
+                on_edit=self._open_editor,
+                on_delete=self._confirm_delete,
+                on_sync=self._sync_exchange if link else None,
+                on_include_in_total=(
+                    None if account.is_corporate else self._set_include_in_total
+                ),
             )
 
         for account in personal:
-            _append_card(account)
-        if corporate:
-            if personal:
-                cards.append(
-                    ft.Container(height=8, content=ft.Container())
-                )
+            personal_cards.append(_make_card(account))
+        for account in corporate:
+            corporate_cards.append(_make_card(account))
+
+        from lib.presentation.components.layout.grid import card_grid
+
+        cards: list[ft.Control] = []
+        cards.extend(card_grid(personal_cards, self._page))
+        if corporate_cards:
+            if personal_cards:
+                cards.append(ft.Container(height=8, content=ft.Container()))
             cards.append(section_title(tr("account.corporate_section", lang)))
-            for account in corporate:
-                _append_card(account)
+            cards.extend(card_grid(corporate_cards, self._page))
 
         if not personal and not corporate:
             self._list.controls = [
@@ -1087,21 +1089,9 @@ class AccountsPage(ft.Column):
             dismiss_fullscreen(self._page, key="account_icon_picker")
             dismiss_fullscreen(self._page, key="account_color_picker")
             currency_picker.close_overlay()
-            try:
-                if overlay in self._page.overlay:
-                    self._page.overlay.remove(overlay)
-                safe_update(self._page)
-            except Exception:  # noqa: BLE001
-                pass
+            dismiss_fullscreen(self._page, key="account_editor")
 
-        # Drop any previous fullscreen account editor.
-        for item in list(self._page.overlay):
-            if getattr(item, "data", None) == "account_editor":
-                try:
-                    self._page.overlay.remove(item)
-                except Exception:  # noqa: BLE001
-                    pass
+        dismiss_fullscreen(self._page, key="account_editor")
         overlay.data = "account_editor"
-        self._page.overlay.append(overlay)
-        safe_update(self._page)
+        push_overlay(self._page, overlay)
 

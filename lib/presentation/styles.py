@@ -45,9 +45,13 @@ def card_surface(
     ink: bool = False,
     on_click: Optional[ft.ControlEventHandler] = None,
     expand: Optional[bool] = None,
-    animate: bool = True,
+    animate: bool | None = None,
 ) -> ft.Container:
     """Elevated card with readable border in both themes."""
+    if animate is None:
+        from lib.presentation.ui_motion import is_ui_animating
+
+        animate = is_ui_animating()
     skin = get_active_skin()
     border_color = accent or (
         ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE)
@@ -118,12 +122,56 @@ def muted_text(
     text: str, *, size: int = 12, page: ft.Page | None = None
 ) -> ft.Text:
     """Secondary / meta text with strong readability."""
-    from lib.presentation.responsive import scale_font
+    from lib.presentation.responsive import fit_font
 
     return ft.Text(
         text,
-        size=scale_font(size, page, minimum=10, maximum=18),
+        size=fit_font(size, page, minimum=9, maximum=16),
         color=ft.Colors.ON_SURFACE_VARIANT,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        max_lines=2,
+    )
+
+
+def metric_chip(
+    label: str,
+    value: str,
+    *,
+    page: ft.Page | None = None,
+    color: str | None = None,
+    bgcolor: str | None = None,
+    value_hidden: bool = False,
+) -> ft.Control:
+    """Compact label/value chip used on hero summary cards."""
+    from lib.presentation.responsive import hero_block_metrics
+
+    metrics = hero_block_metrics(page)
+    text_color = color or ft.Colors.ON_SURFACE_VARIANT
+    children: list[ft.Control] = [
+        ft.Text(
+            label,
+            size=metrics["chip"],
+            color=text_color,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+    ]
+    if not value_hidden and value:
+        children.append(
+            ft.Text(
+                value,
+                size=metrics["chip_value"],
+                weight=ft.FontWeight.W_700,
+                color=color or ft.Colors.ON_SURFACE,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            )
+        )
+    return ft.Container(
+        padding=ft.Padding.symmetric(horizontal=8, vertical=5),
+        border_radius=10,
+        bgcolor=bgcolor or ft.Colors.SURFACE_CONTAINER,
+        content=ft.Column(spacing=2, tight=True, controls=children),
     )
 
 
@@ -174,7 +222,7 @@ def page_header(
     page: ft.Page | None = None,
 ) -> ft.Container:
     """Page top bar — sits below SafeArea, clear of notch / status bar."""
-    from lib.presentation.responsive import scale_font
+    from lib.presentation.responsive import content_inset, scale_font
 
     left: list[ft.Control] = []
     if leading is not None:
@@ -182,7 +230,7 @@ def page_header(
     left.append(
         ft.Text(
             title,
-            size=scale_font(22, page, minimum=18, maximum=26),
+            size=scale_font(22, page, minimum=18, maximum=28),
             weight=ft.FontWeight.W_700,
             color=ft.Colors.ON_SURFACE,
             overflow=ft.TextOverflow.ELLIPSIS,
@@ -190,9 +238,10 @@ def page_header(
             expand=True,
         )
     )
+    inset = content_inset(page)
     return ft.Container(
         # Horizontal inset + comfortable tap height under Dynamic Island / notch.
-        padding=ft.Padding.only(left=16, right=10, top=12, bottom=8),
+        padding=ft.Padding.only(left=inset + 4, right=10, top=12, bottom=8),
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -262,21 +311,29 @@ def shortcut_chip(
     width: int | None = None,
     expand: bool = True,
     badge: int = 0,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     """Quick-nav tile that stretches inside a responsive grid."""
+    from lib.presentation.responsive import fit_font, scale_size
+
+    box = scale_size(40, page, minimum=36, maximum=48)
     icon_box = ft.Container(
-        width=40,
-        height=40,
+        width=box,
+        height=box,
         border_radius=12,
         bgcolor=get_active_skin().badge_bg(dark=True),
         alignment=ft.Alignment.CENTER,
-        content=ft.Icon(icon, color=get_active_skin().badge_fg(dark=True), size=20),
+        content=ft.Icon(
+            icon,
+            color=get_active_skin().badge_fg(dark=True),
+            size=scale_size(20, page, minimum=16, maximum=24),
+        ),
     )
     if badge > 0:
         label_count = "9+" if badge > 9 else str(badge)
         icon_area: ft.Control = ft.Stack(
-            width=40,
-            height=40,
+            width=box,
+            height=box,
             clip_behavior=ft.ClipBehavior.NONE,
             controls=[
                 ft.Container(alignment=ft.Alignment.CENTER, content=icon_box),
@@ -284,14 +341,14 @@ def shortcut_chip(
                     right=0,
                     top=0,
                     content=ft.Container(
-                        width=18,
-                        height=18,
+                        width=scale_size(18, page, minimum=16, maximum=22),
+                        height=scale_size(18, page, minimum=16, maximum=22),
                         border_radius=9,
                         bgcolor=ft.Colors.ERROR,
                         alignment=ft.Alignment.CENTER,
                         content=ft.Text(
                             label_count,
-                            size=10,
+                            size=fit_font(10, page, columns=2, minimum=8, maximum=12),
                             weight=ft.FontWeight.W_800,
                             color=ft.Colors.ON_ERROR,
                         ),
@@ -320,11 +377,12 @@ def shortcut_chip(
                 icon_area,
                 ft.Text(
                     label,
-                    size=11,
+                    size=fit_font(11, page, columns=2, minimum=9, maximum=13),
                     weight=ft.FontWeight.W_600,
                     text_align=ft.TextAlign.CENTER,
                     overflow=ft.TextOverflow.ELLIPSIS,
                     max_lines=1,
+                    no_wrap=True,
                 ),
             ],
         ),

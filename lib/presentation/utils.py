@@ -537,7 +537,13 @@ def snack(
             return
         except Exception:  # noqa: BLE001
             pass
-        page.update()
+        try:
+            from lib.presentation.ui_feedback import flash_message
+
+            if flash_message(page, message):
+                return
+        except Exception:  # noqa: BLE001
+            pass
         return
     except Exception:  # noqa: BLE001
         pass

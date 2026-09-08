@@ -23,12 +23,12 @@ from lib.presentation.styles import (
     form_hint,
     labeled_field,
     labeled_switch,
-    page_header,
     polish_form_control,
     section_title,
 )
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, snack_exception, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -599,16 +599,14 @@ class SettingsPage(ft.Column):
         )
 
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(tr("nav.settings", lang)),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=4),
-                    content=scroll_body,
+            **page_column(
+                page_frame(
+                    title=tr("nav.settings", lang),
+                    body=scroll_body,
+                    page=page,
                 ),
-            ],
+                page=page,
+            )
         )
         self._sync_notification_controls()
         run_async(page, self._refresh_biometric_hint)

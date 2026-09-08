@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime, timezone
 from enum import Enum
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def normalize_category_name(name: str | None) -> str:
+    """Strip and NFC-normalize a stored category label (Cyrillic-safe)."""
+    return unicodedata.normalize("NFC", (name or "").strip())
+
+
+def category_names_equal(left: str | None, right: str | None) -> bool:
+    """True when labels match after NFC + casefold (SQLite LOWER is ASCII-only)."""
+    a = normalize_category_name(left)
+    b = normalize_category_name(right)
+    if not a or not b:
+        return False
+    return a == b or a.casefold() == b.casefold()
 
 
 def _utc_now() -> datetime:
@@ -48,7 +63,7 @@ class Category(BaseModel):
     @field_validator("name")
     @classmethod
     def _strip_name(cls, value: str) -> str:
-        text = (value or "").strip()
+        text = normalize_category_name(value)
         if not text:
             raise ValueError("Category name is required")
         return text

@@ -8,6 +8,7 @@ from typing import Optional
 from lib.domain.entities.category import Category, CategoryKind
 from lib.domain.repositories.budget_repository import BudgetRepository
 from lib.domain.repositories.category_repository import CategoryRepository
+from lib.domain.repositories.transaction_repository import TransactionRepository
 
 
 def _utc_now() -> datetime:
@@ -66,9 +67,11 @@ class UpdateCategoryUseCase:
         self,
         categories: CategoryRepository,
         budgets: Optional[BudgetRepository] = None,
+        transactions: Optional[TransactionRepository] = None,
     ) -> None:
         self._categories = categories
         self._budgets = budgets
+        self._transactions = transactions
 
     async def execute(self, category: Category) -> Category:
         previous = await self._categories.get_by_id(category.id)
@@ -86,16 +89,21 @@ class UpdateCategoryUseCase:
         if clash is not None and clash.id != category.id:
             raise ValueError(f"Category already exists: {category.name}")
         saved = await self._categories.update(category)
-        if (
-            self._budgets is not None
-            and previous is not None
-            and previous.name != saved.name
-        ):
-            await self._budgets.reassign_category(
-                previous.name,
-                saved.name,
-                account_id=scope,
-            )
+        if previous is not None:
+            if self._budgets is not None and previous.name != saved.name:
+                await self._budgets.reassign_category(
+                    previous.name,
+                    saved.name,
+                    account_id=scope,
+                )
+            if self._transactions is not None:
+                # Rename + canonicalize whitespace/case/NFC so every tile
+                # still resolves the catalog icon after an edit.
+                await self._transactions.reassign_category(
+                    previous.name,
+                    saved.name,
+                    account_id=scope or None,
+                )
         return saved
 
 

@@ -8,6 +8,7 @@ from typing import Optional
 import flet as ft
 
 from lib.presentation.count_up import mark_money_text
+from lib.presentation.responsive import card_padding, kpi_card_metrics
 from lib.presentation.skins import get_active_skin
 from lib.presentation.utils import (
     format_money,
@@ -38,11 +39,13 @@ class SummaryCard(ft.Container):
         signed: bool = False,
         page: ft.Page | None = None,
         language: str = "ru",
+        columns: int = 2,
     ) -> None:
         skin = get_active_skin()
         color = accent or skin.text_hex(dark=dark)
         badge_bg = skin.badge_bg(dark=dark)
         badge_fg = skin.badge_fg(dark=dark)
+        kpi = kpi_card_metrics(page, columns=max(1, columns))
         display = value
         full = value
         abbreviated = False
@@ -56,7 +59,7 @@ class SummaryCard(ft.Container):
                 full = display
         value_text = ft.Text(
             display,
-            size=15 if hero else 13,
+            size=kpi["value"] + (2 if hero else 0),
             weight=ft.FontWeight.W_700,
             color=color,
             overflow=ft.TextOverflow.ELLIPSIS,
@@ -108,20 +111,20 @@ class SummaryCard(ft.Container):
                     vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
                         ft.Container(
-                            width=30,
-                            height=30,
+                            width=kpi["icon"],
+                            height=kpi["icon"],
                             border_radius=9,
                             bgcolor=badge_bg,
                             alignment=ft.Alignment.CENTER,
                             content=ft.Icon(
                                 icon,
-                                size=16,
+                                size=kpi["glyph"],
                                 color=badge_fg,
                             ),
                         ),
                         ft.Text(
                             title,
-                            size=11,
+                            size=kpi["title"],
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             weight=ft.FontWeight.W_500,
                             overflow=ft.TextOverflow.ELLIPSIS,
@@ -138,7 +141,7 @@ class SummaryCard(ft.Container):
         kwargs: dict = {
             "expand": expand,
             "width": width,
-            "padding": 14 if hero else 12,
+            "padding": kpi["padding"] if not hero else card_padding(page, hero=True),
             "border_radius": skin.hero_radius if hero else skin.card_radius,
             "border": ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             "shadow": ft.BoxShadow(

@@ -25,7 +25,11 @@ def mark_money_text(
     signed: bool = False,
     figure_only: bool = False,
 ) -> ft.Text:
-    """Tag a ``Text`` so :func:`play_count_ups` can animate it from zero."""
+    """Tag a ``Text`` so :func:`play_count_ups` can animate it from zero.
+
+    ``figure_only`` paints the number without the currency code. Full digits
+    unless ``compact=True`` (then K/M like ``format_money_parts``).
+    """
     value = Decimal(str(amount))
     meta = {
         _META_KEY: True,
@@ -63,8 +67,11 @@ def _format(meta: dict[str, Any], amount: Decimal) -> str:
     currency = str(meta.get("currency") or "RUB")
     signed = bool(meta.get("signed"))
     if meta.get("figure_only"):
-        figure, _code = format_money_parts(amount, currency, signed=signed)
-        return figure
+        if meta.get("compact"):
+            figure, _code = format_money_parts(amount, currency, signed=signed)
+            return figure
+        full = format_money(amount, currency, signed=signed)
+        return full.rsplit(" ", 1)[0] if " " in full else full
     if meta.get("compact"):
         return format_money_compact(amount, currency, signed=signed)
     return format_money(amount, currency, signed=signed)

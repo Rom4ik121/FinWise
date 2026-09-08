@@ -20,6 +20,29 @@ def test_mark_money_text_stores_meta() -> None:
     assert text.data["signed"] is True
 
 
+def test_figure_only_keeps_full_amount() -> None:
+    meta = {
+        "currency": "UZS",
+        "compact": False,
+        "signed": False,
+        "figure_only": True,
+    }
+    shown = _format(meta, Decimal("8700000"))
+    assert "M" not in shown
+    assert "8 700 000" in shown
+
+
+def test_figure_only_compact_abbreviates() -> None:
+    meta = {
+        "currency": "UZS",
+        "compact": True,
+        "signed": False,
+        "figure_only": True,
+    }
+    shown = _format(meta, Decimal("8700000"))
+    assert "M" in shown
+
+
 def test_format_starts_from_zero_shape() -> None:
     meta = {
         "currency": "USD",

@@ -8,13 +8,18 @@ import flet as ft
 
 from lib.core.config import CATEGORY_COLORS, CATEGORY_ICONS
 from lib.presentation.account_icons import entity_icon_groups
-from lib.domain.entities.category import Category, CategoryKind
+from lib.domain.entities.category import (
+    Category,
+    CategoryKind,
+    category_names_equal,
+    normalize_category_name,
+)
 from lib.domain.entities.transaction import TransactionType
 from lib.presentation.styles import page_header
 from lib.presentation.utils import category_icon, run_async, safe_update, snack, snack_exception, tr
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
-from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, open_fullscreen_form
+from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, open_fullscreen_form, push_overlay
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -126,10 +131,7 @@ class CategoryPicker(ft.Column):
         needle = (name or "").strip()
         if not needle:
             return False
-        folded = needle.casefold()
-        return any(
-            c.name == needle or c.name.casefold() == folded for c in self._categories
-        )
+        return any(category_names_equal(c.name, needle) for c in self._categories)
 
     @property
     def is_empty(self) -> bool:
@@ -153,7 +155,10 @@ class CategoryPicker(ft.Column):
         name = self.selected_name
         if not name:
             return None
-        return next((c for c in self._categories if c.name == name), None)
+        return next(
+            (c for c in self._categories if category_names_equal(c.name, name)),
+            None,
+        )
 
     def _sync_display(self) -> None:
         lang = self._state.language
@@ -190,9 +195,18 @@ class CategoryPicker(ft.Column):
             )
 
         if self._selected_name and any(
-            c.name == self._selected_name for c in self._categories
+            category_names_equal(c.name, self._selected_name)
+            for c in self._categories
         ):
-            pass
+            match = next(
+                (
+                    c.name
+                    for c in self._categories
+                    if category_names_equal(c.name, self._selected_name)
+                ),
+                self._selected_name,
+            )
+            self._selected_name = match
         elif self._categories:
             self._selected_name = self._categories[0].name
         else:
@@ -212,7 +226,7 @@ class CategoryPicker(ft.Column):
             (
                 cat.name
                 for cat in self._categories
-                if cat.name == needle or cat.name.casefold() == needle.casefold()
+                if category_names_equal(cat.name, needle)
             ),
             needle,
         )
@@ -247,7 +261,7 @@ class CategoryPicker(ft.Column):
             self._pick(name)
 
         def _tile(category: Category) -> ft.Control:
-            selected = category.name == self.selected_name
+            selected = category_names_equal(category.name, self.selected_name)
             can_edit = not category.is_system
             trailing: list[ft.Control] = []
             if can_edit:
@@ -396,13 +410,17 @@ class CategoryPicker(ft.Column):
                 ),
             ),
         )
-        self._page.overlay.append(overlay)
-        safe_update(self._page)
+        push_overlay(self._page, overlay)
 
     def _open_editor(self, *, existing_name: str | None) -> None:
         lang = self._state.language
         existing = next(
-            (c for c in self._categories if c.name == existing_name), None
+            (
+                c
+                for c in self._categories
+                if existing_name and category_names_equal(c.name, existing_name)
+            ),
+            None,
         )
         default_icon = (
             existing.icon
@@ -585,7 +603,7 @@ class CategoryPicker(ft.Column):
         )
 
         async def _save() -> None:
-            name = (name_tf.value or "").strip()
+            name = normalize_category_name(name_tf.value)
             if not name:
                 snack(self._page, tr("field.name", lang), error=True)
                 return

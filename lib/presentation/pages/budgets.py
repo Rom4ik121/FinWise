@@ -26,6 +26,8 @@ from lib.presentation.budgets_templates import (
     budget_template_chip,
 )
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.components.layout.grid import card_grid
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
 from lib.presentation.money_input import make_amount_field, parse_amount
@@ -34,7 +36,7 @@ from lib.presentation.notification_badges import (
     mark_related_read,
     pending_related_ids,
 )
-from lib.presentation.styles import choice_chips, form_section, muted_text, page_header
+from lib.presentation.styles import choice_chips, form_section, muted_text
 from lib.presentation.utils import (
     format_date,
     format_money_compact,
@@ -90,11 +92,12 @@ class BudgetsPage(ft.Column):
             on_change=self._on_search_change,
         )
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("budgets.title", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("budgets.title", state.language),
+                    body=self._list,
+                    page=page,
+                    extra=[self._search_tf],
                     leading=ft.IconButton(
                         icon=ft.Icons.ARROW_BACK,
                         on_click=lambda _e: state.close_secondary(),
@@ -114,16 +117,8 @@ class BudgetsPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    padding=ft.Padding.only(left=12, right=12, top=8, bottom=4),
-                    content=self._search_tf,
-                ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=self._list,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -294,6 +289,7 @@ class BudgetsPage(ft.Column):
                     over_count=over_count,
                     warning_count=warning_count,
                     count=len(items),
+                    page=self._page,
                 )
             )
         if not items:
@@ -308,6 +304,7 @@ class BudgetsPage(ft.Column):
         elif not visible:
             controls.append(EmptyState(tr("budgets.empty_filtered", lang)))
         else:
+            packed: list[ft.Control] = []
             for progress in visible:
                 cat = self._categories_by_name.get(progress.category_id)
                 icon = getattr(cat, "icon", None) or "category"
@@ -343,15 +340,20 @@ class BudgetsPage(ft.Column):
                     sparkline=spark,
                     alert=progress.budget.id in self._alert_ids,
                     on_open=self._open_detail,
+                    page=self._page,
                 )
-                controls.append(
+                packed.append(
                     swipe_budget_card(
                         card,
                         language=lang,
                         on_edit=lambda p=progress: self._open_editor(p.budget),
                         on_delete=lambda p=progress: self._confirm_delete(p.budget),
+                        page=self._page,
                     )
                 )
+            controls.extend(
+                card_grid(packed, self._page, min_card=300, maximum=2)
+            )
         replace_controls(self._list, controls, self._page)
 
     def _on_filter(self, value: str) -> None:

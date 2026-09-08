@@ -23,26 +23,75 @@ SaveFn = Callable[[], Awaitable[None]]
 
 
 def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
-    """Remove any overlay tagged with ``key``.
+    """Hide the overlay tagged with ``key`` and drop its widget tree.
 
-    Prefer updating removed overlays only — full ``page.update()`` snaps
-    ListViews to the top and can wipe remembered scroll before reload.
+    Keep the slot in ``page.overlay`` and update *that control only*.
+    Removing it without ``page.update()`` leaves a live Flutter overlay;
+    calling ``page.update()`` snaps ListViews to the top. Reuse + empty
+    content avoids both.
     """
-    removed: list[ft.Control] = []
+    for item in list(page.overlay):
+        if getattr(item, "data", None) != key:
+            continue
+        try:
+            item.visible = False
+            item.content = None
+            item.ignore_interactions = True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            safe_update(item)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _find_overlay(page: ft.Page, key: str) -> ft.Control | None:
     for item in list(page.overlay):
         if getattr(item, "data", None) == key:
-            try:
-                page.overlay.remove(item)
-                removed.append(item)
-            except Exception:  # noqa: BLE001
-                pass
-    if not removed:
-        return
-    try:
-        # Flet needs a page patch after overlay mutation; keep it minimal.
+            return item
+    return None
+
+
+def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
+    """Show ``overlay`` (must set ``data`` key), reusing an existing slot."""
+    key = getattr(overlay, "data", None)
+    if not key:
+        page.overlay.append(overlay)
         safe_update(page)
+        return
+    overlay.visible = True
+    try:
+        overlay.ignore_interactions = False
     except Exception:  # noqa: BLE001
         pass
+    slot = _find_overlay(page, str(key))
+    if slot is None:
+        page.overlay.append(overlay)
+        safe_update(page)
+        return
+    slot.content = overlay.content
+    slot.visible = True
+    try:
+        slot.ignore_interactions = False
+    except Exception:  # noqa: BLE001
+        pass
+    for attr in (
+        "left",
+        "top",
+        "right",
+        "bottom",
+        "width",
+        "height",
+        "expand",
+        "bgcolor",
+        "alignment",
+    ):
+        if hasattr(overlay, attr):
+            try:
+                setattr(slot, attr, getattr(overlay, attr))
+            except Exception:  # noqa: BLE001
+                pass
+    safe_update(slot)
 
 
 def _polish_tree(controls: Sequence[ft.Control]) -> list[ft.Control]:
@@ -197,6 +246,5 @@ def open_fullscreen_form(
             wrap_body=wrap_body,
         ),
     )
-    page.overlay.append(overlay)
-    safe_update(page)
+    push_overlay(page, overlay)
     return _close

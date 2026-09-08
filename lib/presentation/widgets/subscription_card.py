@@ -8,9 +8,11 @@ import flet as ft
 
 from lib.domain.entities.subscription import Periodicity, Subscription, SubscriptionStatus
 from lib.presentation.account_icons import account_icon_badge
+from lib.presentation.components.layout.text import adaptive_text, money_label
+from lib.presentation.responsive import entity_card_metrics
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import alert_corner, card_surface, muted_text, style_popup_menu
-from lib.presentation.utils import format_date, format_money_compact
+from lib.presentation.utils import format_date
 
 
 _STATUS_COLOR = {
@@ -58,9 +60,11 @@ class SubscriptionCard(ft.Container):
         on_open: Optional[Callable[[Subscription], None]] = None,
         on_edit: Optional[Callable[[Subscription], None]] = None,
         on_delete: Optional[Callable[[Subscription], None]] = None,
+        page: ft.Page | None = None,
     ) -> None:
         from lib.presentation.utils import tr
 
+        metrics = entity_card_metrics(page)
         period = periodicity_label(
             subscription.periodicity,
             language,
@@ -84,24 +88,26 @@ class SubscriptionCard(ft.Container):
                     account_icon_badge(
                         icon_key,
                         color=icon_color,
-                        size=36,
-                        glyph_size=18,
+                        size=metrics["icon"],
+                        glyph_size=metrics["glyph"],
                     ),
-                    ft.Text(
+                    adaptive_text(
                         subscription.name,
-                        weight=ft.FontWeight.W_700,
+                        page=page,
                         size=16,
+                        weight=ft.FontWeight.W_700,
                         expand=True,
                         max_lines=2,
-                        overflow=ft.TextOverflow.ELLIPSIS,
+                        minimum=13,
+                        maximum=20,
                     ),
-                    ft.Text(
-                        format_money_compact(subscription.amount, subscription.currency),
-                        weight=ft.FontWeight.W_700,
-                        color=icon_color,
+                    money_label(
+                        subscription.amount,
+                        subscription.currency,
+                        page=page,
                         size=14,
-                        max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS,
+                        color=icon_color,
+                        compact=True,
                         text_align=ft.TextAlign.RIGHT,
                     ),
                     style_popup_menu(
@@ -136,29 +142,34 @@ class SubscriptionCard(ft.Container):
                 ),
                 content=ft.Text(
                     status_label,
-                    size=11,
+                    size=metrics["chip"],
                     color=_STATUS_COLOR.get(status, ft.Colors.PRIMARY),
                     weight=ft.FontWeight.W_600,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    max_lines=1,
                 ),
             ),
-            muted_text(" · ".join(muted_parts)),
-            ft.Text(
+            muted_text(" · ".join(muted_parts), page=page),
+            adaptive_text(
                 tr(
                     "subscription.next_billing",
                     language,
                     date=format_date(subscription.next_billing_date),
                 ),
+                page=page,
                 size=12,
                 weight=ft.FontWeight.W_500,
                 max_lines=2,
-                overflow=ft.TextOverflow.ELLIPSIS,
+                minimum=10,
+                maximum=15,
             ),
         ]
         if sparkline is not None:
             body_controls.append(sparkline)
-        body = ft.Column(spacing=8, tight=True, controls=body_controls)
+        body = ft.Column(spacing=metrics["gap"], tight=True, controls=body_controls)
         card = card_surface(
             body,
+            padding=metrics["padding"],
             ink=True,
             on_click=lambda _e: open_cb(subscription) if open_cb else None,
         )

@@ -9,7 +9,9 @@ import flet as ft
 
 from lib.domain.entities.goal import Goal, GoalItem, GoalStatus
 from lib.presentation.account_icons import account_icon_badge
+from lib.presentation.components.layout.text import adaptive_text
 from lib.presentation.layout import h_scroll
+from lib.presentation.responsive import entity_card_metrics, ring_label_font, tile_ring_metrics
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.utils import format_date, format_money_compact, tr
@@ -22,13 +24,15 @@ def circular_progress_badge(
     size: int = 56,
     color: str | None = None,
     track_color: str | None = None,
+    page: ft.Page | None = None,
 ) -> ft.Control:
     """Determinate ring with centered label (percent or checkmark)."""
+    _ = page
     clamped = max(0.0, min(float(ratio), 1.0))
     skin = get_active_skin()
     ring_color = color or skin.primary_hex(dark=True)
     track = track_color or ft.Colors.SURFACE_CONTAINER_HIGHEST
-    font_size = 13 if len(label) <= 3 else 11
+    font_size = ring_label_font(size, label)
     from lib.presentation.count_up import mark_progress
     from lib.presentation.ui_motion import is_ui_animating
 
@@ -69,10 +73,13 @@ def goal_item_ring_tile(
     *,
     currency: str,
     language: str,
-    size: int = 56,
+    size: int | None = None,
     on_tap: Optional[Callable[[], None]] = None,
+    page: ft.Page | None = None,
 ) -> ft.Control:
     """Compact ring + name for goal list cards."""
+    metrics = entity_card_metrics(page)
+    ring_size = size if size is not None else metrics["ring"]
     ratio = float(item.progress_ratio)
     pct = int(round(max(0.0, min(ratio, 1.0)) * 100))
     closed = item.is_closed
@@ -85,7 +92,7 @@ def goal_item_ring_tile(
     # Single-line ellipsis — avoids mid-word wraps like «Футболк» / «-».
     name = (item.name or "").strip()
     tile = ft.Container(
-        width=76,
+        width=metrics["ring_tile"],
         padding=ft.Padding.only(top=4, right=2),
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -95,12 +102,13 @@ def goal_item_ring_tile(
                 circular_progress_badge(
                     ratio,
                     label,
-                    size=size,
+                    size=ring_size,
                     color=ring_color,
+                    page=page,
                 ),
                 ft.Text(
                     name,
-                    size=10,
+                    size=max(9, metrics["meta"] - 2),
                     weight=ft.FontWeight.W_600,
                     text_align=ft.TextAlign.CENTER,
                     max_lines=1,
@@ -129,8 +137,10 @@ def goal_item_progress_card(
     language: str,
     on_close: Optional[Callable[[], None]] = None,
     on_contribute: Optional[Callable[[], None]] = None,
+    page: ft.Page | None = None,
 ) -> ft.Control:
     """Detail row: circular progress, amounts, optional close action."""
+    tile = tile_ring_metrics(page)
     ratio = float(item.progress_ratio)
     clamped = max(0.0, min(ratio, 1.0))
     pct = int(round(clamped * 100))
@@ -168,8 +178,9 @@ def goal_item_progress_card(
                 circular_progress_badge(
                     ratio,
                     label,
-                    size=52,
+                    size=tile["ring"],
                     color=ring_color,
+                    page=page,
                 ),
                 ft.Column(
                     spacing=2,
@@ -179,7 +190,7 @@ def goal_item_progress_card(
                         ft.Text(
                             name,
                             weight=ft.FontWeight.W_700,
-                            size=13,
+                            size=tile["title"],
                             max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS,
                             no_wrap=True,
@@ -195,13 +206,13 @@ def goal_item_progress_card(
                                     item.target_amount, currency
                                 ),
                             ),
-                            size=11,
+                            size=tile["meta"],
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS,
                             no_wrap=True,
                         ),
-                        muted_text(status_txt, size=10),
+                        muted_text(status_txt, size=10, page=page),
                     ],
                 ),
                 *trailing,
@@ -233,7 +244,9 @@ class GoalProgress(ft.Container):
         on_item_contribute: Optional[Callable[[GoalItem], None]] = None,
         on_alert: Optional[Callable[[Goal], None]] = None,
         show_item_rings: bool = True,
+        page: ft.Page | None = None,
     ) -> None:
+        metrics = entity_card_metrics(page)
         ratio = float(goal.progress_ratio)
         ratio = max(0.0, min(ratio, 1.0))
         pct = int(round(ratio * 100))
@@ -267,9 +280,11 @@ class GoalProgress(ft.Container):
                 bgcolor=bgcolor,
                 content=ft.Text(
                     text,
-                    size=11,
+                    size=metrics["chip"],
                     weight=ft.FontWeight.W_700,
                     color=color,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    max_lines=1,
                 ),
             )
 
@@ -375,6 +390,7 @@ class GoalProgress(ft.Container):
                     item,
                     currency=currency,
                     language=language,
+                    page=page,
                     on_tap=(
                         (lambda it=item: on_item_contribute(it))
                         if on_item_contribute is not None and not item.is_closed
@@ -402,16 +418,18 @@ class GoalProgress(ft.Container):
                                         getattr(goal, "icon", None) or "flag",
                                         color=getattr(goal, "color", None)
                                         or get_active_skin().primary_hex(dark=True),
-                                        size=36,
-                                        glyph_size=18,
+                                        size=metrics["icon"],
+                                        glyph_size=metrics["glyph"],
                                     ),
-                                    ft.Text(
+                                    adaptive_text(
                                         goal.name,
-                                        weight=ft.FontWeight.W_700,
+                                        page=page,
                                         size=17,
+                                        weight=ft.FontWeight.W_700,
                                         expand=True,
                                         max_lines=2,
-                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                        minimum=13,
+                                        maximum=22,
                                     ),
                                 ],
                             ),
@@ -432,7 +450,7 @@ class GoalProgress(ft.Container):
                     ft.Text(
                         f"{format_money_compact(goal.current_amount, currency)} / "
                         f"{format_money_compact(goal.target_amount, currency)}",
-                        size=12,
+                        size=metrics["meta"],
                         weight=ft.FontWeight.W_600,
                         expand=True,
                         max_lines=2,
@@ -440,7 +458,7 @@ class GoalProgress(ft.Container):
                     ),
                     ft.Text(
                         f"{pct}%",
-                        size=18,
+                        size=metrics["amount"],
                         weight=ft.FontWeight.W_800,
                         color=get_active_skin().primary_hex(dark=True),
                     ),
@@ -462,29 +480,29 @@ class GoalProgress(ft.Container):
                     controls=[
                         ft.Text(
                             tr("goal.items_section", language),
-                            size=12,
+                            size=metrics["meta"],
                             weight=ft.FontWeight.W_700,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                         h_scroll(
                             item_rings,
                             spacing=8,
-                            height=108,
+                            height=metrics["ring"] + 52,
                             padding=ft.Padding.only(top=8, bottom=4),
                         ),
                     ],
                 )
             )
-        body_controls.append(muted_text(" · ".join(footer_bits)))
+        body_controls.append(muted_text(" · ".join(footer_bits), page=page))
 
         body = ft.Column(
-            spacing=12,
+            spacing=metrics["gap"],
             tight=True,
             controls=body_controls,
         )
         card = card_surface(
             body,
-            padding=16,
+            padding=metrics["padding"],
             ink=on_click is not None,
             on_click=lambda _e: on_click(goal) if on_click else None,
             animate=False,

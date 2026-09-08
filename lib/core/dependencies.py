@@ -934,6 +934,7 @@ def build_container(
         container.update_category = UpdateCategoryUseCase(
             container.category_repository,
             budgets=container.budget_repository,
+            transactions=container.transaction_repository,
         )
         container.delete_category = DeleteCategoryUseCase(
             container.category_repository,

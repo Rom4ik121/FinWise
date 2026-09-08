@@ -1,6 +1,9 @@
 # Презентация (Flet UI)
 
 Код: `lib/presentation/`. Оболочка — `FinanseApp` в `app.py`.  
+Экраны: публичный импорт `lib.presentation.views`.  
+Переиспользуемые виджеты: `lib.presentation.components` (cards / dialogs / inputs / layout).  
+Реализации карточек пока в `widgets/` — `components/` это группированный API.  
 Все пользовательские строки — через `tr` / `STRINGS`.
 
 ---
@@ -85,26 +88,28 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 
 | Страница | Файл | Содержание |
 |----------|------|------------|
-| Dashboard | `pages/dashboard.py` | Баланс, день, быстрые действия, бюджеты, бейджи, график (prefs hide/days); toggles in-place mutate |
-| Transactions | `pages/transactions.py` | Поиск (FTS `query=`), фильтры, группировка, CRUD, перевод, частый счёт |
-| Accounts | `pages/accounts.py` | Список счетов, биржи, корпоративные workspace |
-| Account detail | `pages/account_detail.py` | История, статистика, графики счёта; быстрый расход/доход; перевод; PDF-отчёт за период; детали tx с фото |
-| Analytics | `pages/analytics.py` | Категории дохода/расхода + линия за период (пустые дни — нули) |
-| Goals / Debts / Subscriptions / Budgets / Currencies | соответствующие `pages/` | CRUD и профили; списки через `layout.make_v_scroll` |
-| Settings | `pages/settings.py` | Тема, скин, язык, валюта, пуши, PIN/Face ID, голос, экспорт, бэкап, сброс, **обучение** |
+| Dashboard | `pages/dashboard.py` (`views`) | Баланс, день, быстрые действия, бюджеты, бейджи, график; `page_frame` + слоты |
+| Transactions | `pages/transactions.py` | Поиск (FTS `query=`), фильтры, группировка, CRUD, перевод, частый счёт; `page_frame` |
+| Accounts | `pages/accounts.py` | Список счетов (`card_grid` 1–3 колонки), биржи, корпоративные workspace |
+| Account detail | `pages/account_detail.py` | История, статистика, графики счёта; быстрый расход/доход; перевод; PDF-отчёт за период; детали tx с фото; `page_frame` |
+| Analytics | `pages/analytics.py` | Категории дохода/расхода + линия за период (пустые дни — нули); `page_frame` |
+| Goals / Debts / Subscriptions / Budgets / Currencies | соответствующие `pages/` | CRUD и профили; `page_frame` + `card_grid` (1–2 колонки) |
+| Settings | `pages/settings.py` | Тема, скин, язык, валюта, пуши, PIN/Face ID, голос, экспорт, бэкап, сброс, **обучение**; `page_frame` |
 
 ### UX-детали
 
-- **Count-up** денежных сумм при Refresh: `count_up.py` (`mark_money_text` / `play_count_ups`) на dashboard, accounts, transactions, analytics, account detail. Скрытый баланс и простые % KPI не анимируются.
+- **Адаптив карточек:** шрифты, кольца и диаграммы считаются от **внутренней ширины блока** (`fit_font` / `hero_block_metrics` / `kpi_card_metrics`), а не от окна. KPI в ряду из 2–3 ячеек сжимаются. В donut процент / сумма / «Всего» — `donut_center_metrics` (меньше, чем подпись ProgressRing).
+- **Count-up** денежных сумм и графики на **кнопке Обновить**. Герой «Общий баланс» на главной всегда полный (`figure_only` без compact), не 8.7M. Пассивный reload после сохранения только подставляет цифры.
 - **Частый счёт** для дохода/расхода: `frequent_account.py` — самый используемый не-transfer счёт; подпись «часто» в quick-add и редакторе операций.
-- **Reload coalesce:** `reload_gate.py` — поиск/фильтры не штормят БД.
-- **Scroll / rebuild:** `ui_motion.replace_controls` сохраняет позицию списка.
+- **Reload coalesce:** `reload_gate.py` — поиск/фильтры не штормят БД; скрытые вкладки не reload'ятся на каждый save (явный `mark_shown` / `mark_hidden`).
+- **Scroll / rebuild:** `ui_motion.replace_controls` сохраняет позицию списка. Главная при повторном reload мутирует слоты (баланс/ярлыки/бюджеты), не пересобирает ListView. Fullscreen-формы reuse'ят один overlay-слот (`push_overlay`); закрытие обнуляет дерево без `page.update()`.
 - Ошибки: `snack_exception` / `user_facing_error` — доменные тексты → i18n; technical English → `error.generic`; без traceback.
 ---
 
-## 6. Виджеты (`widgets/`)
+## 6. Компоненты (`components/` + `widgets/`)
 
-Карточки счетов / операций / целей / долгов / подписок;  
+Публичный kit: `lib.presentation.components` — карточки, диалоги, инпуты, `adaptive_text` / `money_label` / `card_grid` / `page_frame` / `card_with_actions`.  
+Реализации: карточки счетов / операций / целей / долгов / подписок в `widgets/`.  
 `QuickAddSheet` (в т.ч. микрофон); `TransferSheet`; `CategoryPicker`; `CurrencyTickerPicker`;  
 `DateTimeField`; `LockScreen`; Splash; Charts (пончик, линия);  
 `DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor`;  
@@ -127,7 +132,7 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 
 | Модуль | Роль |
 |--------|------|
-| `responsive.py` | `scale_font`, `tap_*`, `clamp_content_width`, `calendar_cell_size`, `compact_chart_size`, breakpoints |
+| `responsive.py` | Breakpoints xs–xl, `scale_font` / `scale_size`, `grid_columns`, `tx_tile_metrics`, `entity_card_metrics`, `content_inset` |
 | `utils.py` | `format_money`, `run_async`, `snack`, RateBook helpers, `user_facing_error`, `snack_exception` |
 | `tx_query.py` | Paged load транзакций (500 / 25k) через use case |
 | `reload_gate.py` | Coalesce частых reload |
@@ -137,12 +142,15 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 | `analytics_period.py` | `enumerate_period_keys`, `fill_time_series` |
 | `notification_badges.py` | Бейджи pending |
 | `dropdown_options.py` / `currency_options.py` | Опции форм |
+| `category_lookup.py` | NFC + casefold lookup of catalog icons for tiles |
 | `layout.py` | `make_v_scroll`, chip rows + re-export responsive API |
 | `widgets/period_scale.py` | Шкала периода на summary rings |
 
-### Responsive / touch (2026-09-04)
+### Responsive / touch (2026-09-08)
 
-- Шрифты заголовков через `scale_font` (SE…Pro Max).
+- Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от `page.width`.
+- Все экраны — `page_frame` (динамические gutters). Счета 1–3 колонки; цели/долги/подписки/бюджеты — 1–2.
+- Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
 - Touch targets ≥ **40** logical px (`tap_button_style`, calendar cells, nav pads).
 - Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
 - Графики: `chart_layout` / `compact_chart_size` от `page.width/height`.

@@ -20,21 +20,29 @@ class EmptyState(ft.Container):
         icon: ft.IconData = ft.Icons.INBOX_OUTLINED,
         action_label: Optional[str] = None,
         on_action: Optional[ft.ControlEventHandler] = None,
+        page: ft.Page | None = None,
     ) -> None:
+        from lib.presentation.responsive import scale_font, scale_size
+
         skin = get_active_skin()
+        badge = scale_size(56, page, minimum=48, maximum=72)
         controls: list[ft.Control] = [
             ft.Container(
-                width=56,
-                height=56,
+                width=badge,
+                height=badge,
                 border_radius=18,
                 bgcolor=skin.badge_bg(dark=True),
                 alignment=ft.Alignment.CENTER,
-                content=ft.Icon(icon, size=28, color=skin.badge_fg(dark=True)),
+                content=ft.Icon(
+                    icon,
+                    size=scale_size(28, page, minimum=22, maximum=36),
+                    color=skin.badge_fg(dark=True),
+                ),
             ),
             ft.Text(
                 message,
                 text_align=ft.TextAlign.CENTER,
-                size=14,
+                size=scale_font(14, page, minimum=12, maximum=18),
                 weight=ft.FontWeight.W_600,
                 color=ft.Colors.ON_SURFACE,
             ),

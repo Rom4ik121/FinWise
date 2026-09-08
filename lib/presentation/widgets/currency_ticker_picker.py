@@ -366,5 +366,6 @@ class CurrencyTickerPicker(ft.Container):
                 ),
             ),
         )
-        self._page.overlay.append(overlay)
-        safe_update(self._page)
+        from lib.presentation.widgets.fullscreen_form import push_overlay
+
+        push_overlay(self._page, overlay)

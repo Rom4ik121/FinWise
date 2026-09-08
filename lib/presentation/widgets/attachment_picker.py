@@ -11,7 +11,7 @@ import flet as ft
 from lib.infrastructure.services.media_store import MediaStore
 from lib.presentation.file_transfer import pick_restore_bytes
 from lib.presentation.utils import run_async, safe_update, snack, tr
-from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen
+from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, push_overlay
 
 
 class AttachmentPicker(ft.Column):
@@ -218,8 +218,7 @@ def open_attachment_viewer(
             ],
         ),
     )
-    page.overlay.append(overlay)
-    safe_update(page)
+    push_overlay(page, overlay)
 
 
 def attachment_gallery(

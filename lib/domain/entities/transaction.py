@@ -50,7 +50,9 @@ class TransactionItem(BaseModel):
     def _strip_text(cls, value: object) -> object:
         if value is None:
             return ""
-        return str(value).strip()
+        from lib.domain.entities.category import normalize_category_name
+
+        return normalize_category_name(str(value))
 
 
 class Transaction(BaseModel):
@@ -110,6 +112,15 @@ class Transaction(BaseModel):
         if value <= 0:
             raise ValueError("Transaction amount must be positive")
         return value
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _normalize_category(cls, value: object) -> object:
+        if value is None:
+            return ""
+        from lib.domain.entities.category import normalize_category_name
+
+        return normalize_category_name(str(value))
 
     @model_validator(mode="after")
     def _sync_items_total(self) -> Transaction:

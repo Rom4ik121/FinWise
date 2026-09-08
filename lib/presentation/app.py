@@ -10,17 +10,19 @@ from typing import Any, Optional
 import flet as ft
 
 from lib.infrastructure.services.encryption_service import EncryptionService
-from lib.presentation.pages.account_detail import AccountDetailPage
-from lib.presentation.pages.accounts import AccountsPage
-from lib.presentation.pages.analytics import AnalyticsPage
-from lib.presentation.pages.budgets import BudgetsPage
-from lib.presentation.pages.currencies import CurrenciesPage
-from lib.presentation.pages.dashboard import DashboardPage
-from lib.presentation.pages.debts import DebtsPage
-from lib.presentation.pages.goals import GoalsPage
-from lib.presentation.pages.settings import SettingsPage
-from lib.presentation.pages.subscriptions import SubscriptionsPage
-from lib.presentation.pages.transactions import TransactionsPage
+from lib.presentation.views import (
+    AccountDetailPage,
+    AccountsPage,
+    AnalyticsPage,
+    BudgetsPage,
+    CurrenciesPage,
+    DashboardPage,
+    DebtsPage,
+    GoalsPage,
+    SettingsPage,
+    SubscriptionsPage,
+    TransactionsPage,
+)
 from lib.presentation.skins import get_active_skin
 from lib.presentation.state.app_state import AppState
 from lib.presentation.styles import glass_layer
@@ -167,6 +169,7 @@ class FinanseApp:
         self._rendered_rebuild_token: int = -1
         self._primary_cache: dict[int, ft.Control] = {}
         self._secondary_cache: dict[str, ft.Control] = {}
+        self._active_view: Optional[ft.Control] = None
         self._pin_hash: Optional[str] = None
         self._pin_salt: Optional[str] = None
         self._pin_gate_failed: bool = False
@@ -426,8 +429,7 @@ class FinanseApp:
 
     def _on_state_changed(self, _state: AppState) -> None:
         if self._rendered_rebuild_token != self.state.view_rebuild_token:
-            self._primary_cache.clear()
-            self._secondary_cache.clear()
+            self._forget_cached_views()
             self._rendered_rebuild_token = self.state.view_rebuild_token
             self._render(force=True)
             self._flush_notifications()
@@ -443,8 +445,7 @@ class FinanseApp:
             # Nav labels update immediately; force remount so page strings
             # switch language too (plain _render early-returns on same tab).
             self._build_navigation_bar()
-            self._primary_cache.clear()
-            self._secondary_cache.clear()
+            self._forget_cached_views()
             self._render(force=True)
             self._flush_notifications()
             self._pulse_data_flash()
@@ -468,6 +469,39 @@ class FinanseApp:
         for message in self.state.pop_notifications():
             snack(self.page, message)
 
+    def _forget_view(self, view: ft.Control | None) -> None:
+        """Stop background reloads and drop AppState listeners for a cached page."""
+        if view is None:
+            return
+        gate = getattr(view, "_reload_gate", None)
+        if gate is not None:
+            gate.mark_hidden()
+        listener = getattr(view, "_on_state", None)
+        if callable(listener):
+            self.state.unsubscribe(listener)
+
+    def _forget_cached_views(self) -> None:
+        for view in list(self._primary_cache.values()):
+            self._forget_view(view)
+        for view in list(self._secondary_cache.values()):
+            self._forget_view(view)
+        self._primary_cache.clear()
+        self._secondary_cache.clear()
+        self._active_view = None
+
+    def _deactivate_view(self, view: ft.Control | None) -> None:
+        if view is None:
+            return
+        gate = getattr(view, "_reload_gate", None)
+        if gate is not None:
+            gate.mark_hidden()
+
+    def _activate_view(self, view: ft.Control) -> None:
+        gate = getattr(view, "_reload_gate", None)
+        if gate is not None:
+            gate.mark_shown()
+            gate.on_mounted()
+
     def _primary_page(self, tab: int) -> ft.Control:
         cached = self._primary_cache.get(tab)
         if cached is not None:
@@ -484,6 +518,12 @@ class FinanseApp:
         return view
 
     def _secondary_page(self, route: str) -> ft.Control:
+        # Account detail is heavy (charts + ledger). Keep only the current one
+        # so opening many cards does not stack listeners and reloads.
+        if route.startswith("account:"):
+            for key in list(self._secondary_cache):
+                if key.startswith("account:") and key != route:
+                    self._forget_view(self._secondary_cache.pop(key))
         cached = self._secondary_cache.get(route)
         if cached is not None:
             return cached
@@ -515,6 +555,8 @@ class FinanseApp:
         if not self.state.is_unlocked and self._pin_gate_failed:
             from lib.presentation.utils import tr
 
+            self._deactivate_view(self._active_view)
+            self._active_view = None
             self._nav_host.visible = False
             lang = self.state.language
             self._content.content = ft.Container(
@@ -538,6 +580,8 @@ class FinanseApp:
             self.page.update()
             return
         if not self.state.is_unlocked and self._pin_hash and self._pin_salt:
+            self._deactivate_view(self._active_view)
+            self._active_view = None
             self._nav_host.visible = False
             self._content.content = ft.Container(
                 expand=True,
@@ -574,6 +618,14 @@ class FinanseApp:
             view = self._secondary_page(route)
         else:
             view = self._primary_page(tab)
+            # Leaving a secondary route: drop the last account-detail tree.
+            for key in list(self._secondary_cache):
+                if key.startswith("account:"):
+                    self._forget_view(self._secondary_cache.pop(key))
+
+        previous = self._active_view
+        if previous is not None and previous is not view:
+            self._deactivate_view(previous)
 
         self._nav_host.visible = route is None
         self._build_navigation_bar()
@@ -588,6 +640,8 @@ class FinanseApp:
             key=route or f"tab-{tab}",
             content=view,
         )
+        self._active_view = view
+        self._activate_view(view)
         self._rendered_tab = tab
         self._rendered_secondary = route
         self._rendered_unlocked = True

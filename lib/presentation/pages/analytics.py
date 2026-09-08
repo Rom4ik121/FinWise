@@ -28,7 +28,6 @@ from lib.presentation.styles import (
     card_surface,
     glass_layer,
     muted_text,
-    page_header,
     section_title,
 )
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
@@ -52,6 +51,7 @@ from lib.presentation.widgets.charts import (
     chart_layout,
 )
 from lib.presentation.layout import h_chip_row
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.debt_summary_ring import (
     analytics_debt_tile,
@@ -138,11 +138,20 @@ class AnalyticsPage(ft.Column):
             on_change=self._on_pager_change,
         )
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("nav.analytics", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("nav.analytics", state.language),
+                    body=ft.Column(
+                        expand=True,
+                        spacing=6,
+                        controls=[
+                            ft.Container(height=40, content=self._period_row),
+                            self._kpi_host,
+                            ft.Container(height=40, content=self._section_chips),
+                            self._pager,
+                        ],
+                    ),
+                    page=page,
                     leading=ft.IconButton(
                         icon=ft.Icons.ARROW_BACK,
                         on_click=lambda _e: state.close_secondary(),
@@ -156,21 +165,8 @@ class AnalyticsPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.only(left=12, right=12, bottom=8),
-                    content=ft.Column(
-                        expand=True,
-                        spacing=6,
-                        controls=[
-                            ft.Container(height=40, content=self._period_row),
-                            self._kpi_host,
-                            ft.Container(height=40, content=self._section_chips),
-                            self._pager,
-                        ],
-                    ),
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -250,21 +246,25 @@ class AnalyticsPage(ft.Column):
         align: ft.TextAlign = ft.TextAlign.END,
         stacked: bool = False,
     ) -> ft.Control:
+        from lib.presentation.responsive import fit_font
+
         figure, code = format_money_parts(amount, currency, signed=signed)
         figure_text = ft.Text(
             figure,
-            size=size,
+            size=fit_font(size, self._page, minimum=10, maximum=18),
             weight=weight,
             color=color or ft.Colors.ON_SURFACE,
             text_align=align,
             no_wrap=True,
             max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
         mark_money_text(
             figure_text,
             amount,
             currency=currency,
             signed=signed,
+            compact=True,
             figure_only=True,
         )
         code_text = ft.Text(
@@ -487,16 +487,22 @@ class AnalyticsPage(ft.Column):
         color: Optional[str] = None,
         signed: bool = False,
         plain: Optional[str] = None,
+        columns: int = 3,
     ) -> ft.Control:
+        from lib.presentation.responsive import kpi_card_metrics
+
+        kpi = kpi_card_metrics(self._page, columns=columns)
         value: ft.Control
         if plain is not None:
             value = ft.Text(
                 plain,
-                size=15,
+                size=kpi["value"] + 1,
                 weight=ft.FontWeight.W_800,
                 color=color or ft.Colors.ON_SURFACE,
                 text_align=ft.TextAlign.CENTER,
                 max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+                no_wrap=True,
             )
         else:
             value = self._money(
@@ -504,7 +510,7 @@ class AnalyticsPage(ft.Column):
                 currency,
                 label=label,
                 color=color,
-                size=15,
+                size=kpi["value"] + 1,
                 signed=signed,
                 align=ft.TextAlign.CENTER,
                 stacked=True,
@@ -518,7 +524,7 @@ class AnalyticsPage(ft.Column):
                 controls=[
                     ft.Text(
                         label,
-                        size=10,
+                        size=kpi["title"],
                         color=ft.Colors.ON_SURFACE_VARIANT,
                         text_align=ft.TextAlign.CENTER,
                         max_lines=1,
@@ -632,6 +638,10 @@ class AnalyticsPage(ft.Column):
             page=self._page,
             animate=bool(self._animate_charts),
         )
+        from lib.presentation.responsive import fit_font
+
+        legend_size = fit_font(12, self._page, minimum=10, maximum=14)
+        share_size = fit_font(11, self._page, minimum=9, maximum=13)
         rows: list[ft.Control] = []
         denom = total if total > 0 else Decimal("0")
         palette = _chart_palette()
@@ -651,7 +661,7 @@ class AnalyticsPage(ft.Column):
                         ),
                         ft.Text(
                             name,
-                            size=12,
+                            size=legend_size,
                             expand=True,
                             overflow=ft.TextOverflow.ELLIPSIS,
                             max_lines=1,
@@ -662,11 +672,11 @@ class AnalyticsPage(ft.Column):
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
                                 self._money(
-                                    amount, base, label=name, size=11, color=None
+                                    amount, base, label=name, size=share_size, color=None
                                 ),
                                 ft.Text(
                                     f"{share:.0f}%",
-                                    size=11,
+                                    size=share_size,
                                     no_wrap=True,
                                     max_lines=1,
                                     text_align=ft.TextAlign.END,
@@ -887,12 +897,14 @@ class AnalyticsPage(ft.Column):
                             tr("analytics.balance", lang),
                             total_balance,
                             base,
+                            columns=2,
                         ),
                         self._metric_cell(
                             tr("analytics.savings", lang),
                             0,
                             base,
                             plain=savings,
+                            columns=2,
                         ),
                     ]
                 ),
@@ -1089,6 +1101,7 @@ class AnalyticsPage(ft.Column):
                     currency=base,
                     language=lang,
                     goal_count=len(visible),
+                    page=self._page,
                 )
             )
             rows.append(section_title(tr("analytics.goals_breakdown", lang)))
@@ -1106,6 +1119,7 @@ class AnalyticsPage(ft.Column):
                     goal,
                     language=lang,
                     base_currency=base,
+                    page=self._page,
                 )
             )
         return rows
@@ -1160,6 +1174,7 @@ class AnalyticsPage(ft.Column):
                     language=lang,
                     debt_count=len(live),
                     overdue_count=overdue_count,
+                    page=self._page,
                 )
             )
             rows.append(section_title(tr("analytics.debts_breakdown", lang)))
@@ -1177,6 +1192,7 @@ class AnalyticsPage(ft.Column):
                     debt,
                     language=lang,
                     base_currency=base,
+                    page=self._page,
                 )
             )
         return rows
@@ -1242,6 +1258,7 @@ class AnalyticsPage(ft.Column):
                 over_count=over_count,
                 warning_count=warning_count,
                 count=len(budgets),
+                page=self._page,
             ),
             section_title(tr("analytics.budgets_breakdown", lang)),
         ]
@@ -1255,6 +1272,7 @@ class AnalyticsPage(ft.Column):
                     category_icon=getattr(cat, "icon", None) or "category",
                     category_color=getattr(cat, "color", None) or "#546E7A",
                     category_name=localize_category_name(progress.category_id, lang),
+                    page=self._page,
                 )
             )
         return rows
@@ -1290,6 +1308,7 @@ class AnalyticsPage(ft.Column):
                 currency=base,
                 language=lang,
                 active_count=analytics.total_active,
+                page=self._page,
             )
         ]
         items = list(getattr(analytics, "top_subscriptions", None) or [])
@@ -1311,6 +1330,7 @@ class AnalyticsPage(ft.Column):
                         share=share,
                         period_start=item.get("start_date"),
                         period_end=item.get("end_date"),
+                        page=self._page,
                     )
                 )
         return rows

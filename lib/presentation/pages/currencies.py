@@ -10,8 +10,10 @@ import flet as ft
 from lib.domain.entities.currency import Currency, ExchangeRate
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.presentation.layout import make_v_scroll
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.money_input import make_amount_field, parse_amount
-from lib.presentation.styles import card_surface, muted_text, page_header
+from lib.presentation.styles import card_surface, muted_text
+from lib.presentation.responsive import card_padding
 from lib.presentation.utils import (
     format_money,
     run_async,
@@ -231,11 +233,11 @@ class CurrenciesPage(ft.Column):
             self._rates_host,
         ]
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("nav.currencies", lang),
+            **page_column(
+                page_frame(
+                    title=tr("nav.currencies", lang),
+                    body=self._body,
+                    page=page,
                     leading=ft.IconButton(
                         icon=ft.Icons.ARROW_BACK,
                         on_click=lambda _e: state.close_secondary(),
@@ -249,12 +251,8 @@ class CurrenciesPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.only(left=12, right=12, bottom=8),
-                    content=self._body,
-                ),
-            ],
+                page=page,
+            )
         )
         run_async(page, self.reload)
 
@@ -315,7 +313,7 @@ class CurrenciesPage(ft.Column):
                     result_box,
                 ],
             ),
-            padding=12,
+            padding=card_padding(self._page, hero=True),
         )
 
     def _set_result(
@@ -327,8 +325,11 @@ class CurrenciesPage(ft.Column):
         reverse: str = "",
         error: str = "",
     ) -> None:
+        from lib.presentation.responsive import scale_font
+
         self._result_figure.value = figure
-        self._result_figure.size = _result_size(figure) if figure and figure != "—" else 22
+        base_size = _result_size(figure) if figure and figure != "—" else 22
+        self._result_figure.size = scale_font(base_size, self._page, minimum=14, maximum=28)
         self._result_code.value = code
         self._result_code.visible = bool(code)
         if forward and reverse:

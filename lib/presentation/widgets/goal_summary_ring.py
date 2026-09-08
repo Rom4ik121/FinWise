@@ -9,11 +9,12 @@ import flet as ft
 
 from lib.domain.entities.goal import GoalStatus
 from lib.presentation.account_icons import account_icon_badge
-from lib.presentation.skins import get_active_skin
-from lib.presentation.styles import card_surface
-from lib.presentation.widgets.goal_progress import circular_progress_badge
-from lib.presentation.utils import format_money_compact, tappable_compact_money, tr
 from lib.presentation.count_up import mark_money_text
+from lib.presentation.responsive import hero_block_metrics, tile_ring_metrics
+from lib.presentation.skins import get_active_skin
+from lib.presentation.styles import card_surface, metric_chip
+from lib.presentation.utils import format_money_compact, tappable_compact_money, tr
+from lib.presentation.widgets.goal_progress import circular_progress_badge
 from lib.presentation.widgets.period_scale import period_progress_scale
 
 if TYPE_CHECKING:
@@ -26,19 +27,23 @@ def goals_summary_ring(
     target: Decimal,
     currency: str,
     language: str,
+    page: ft.Page | None = None,
 ) -> ft.Control:
     """Large ring showing total saved vs target across active goals."""
+    metrics = hero_block_metrics(page)
     ratio = float(saved / target) if target > 0 else 0.0
     pct = int(round(max(0.0, min(ratio, 1.0)) * 100))
     return ft.Container(
-        padding=16,
+        padding=metrics["padding"],
         border_radius=18,
         bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
         content=ft.Row(
-            spacing=16,
+            spacing=metrics["gap"],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                circular_progress_badge(ratio, f"{pct}%", size=88),
+                circular_progress_badge(
+                    ratio, f"{pct}%", size=metrics["ring"], page=page
+                ),
                 ft.Column(
                     spacing=4,
                     tight=True,
@@ -46,18 +51,25 @@ def goals_summary_ring(
                     controls=[
                         ft.Text(
                             tr("goals.total_saved", language),
-                            size=12,
+                            size=metrics["title"],
                             color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                         ft.Text(
                             format_money_compact(saved, currency),
-                            size=22,
+                            size=metrics["amount"],
                             weight=ft.FontWeight.W_800,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            no_wrap=True,
                         ),
                         ft.Text(
                             f"/ {format_money_compact(target, currency)}",
-                            size=13,
+                            size=metrics["meta"],
                             color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                     ],
                 ),
@@ -74,48 +86,54 @@ def analytics_goals_summary(
     currency: str,
     language: str,
     goal_count: int,
+    page: ft.Page | None = None,
 ) -> ft.Control:
     """Hero summary for analytics goals section."""
+    metrics = hero_block_metrics(page)
     ratio = float(saved / target) if target > 0 else 0.0
     pct = int(round(max(0.0, min(ratio, 1.0)) * 100))
     skin = get_active_skin()
     primary = skin.primary_hex(dark=True)
     chips: list[ft.Control] = [
-        _metric_chip(
+        metric_chip(
             tr("goals.total_target", language),
             format_money_compact(target, currency),
+            page=page,
         ),
     ]
     if remaining > 0:
         chips.append(
-            _metric_chip(
+            metric_chip(
                 tr("goals.total_remaining", language),
                 format_money_compact(remaining, currency),
+                page=page,
                 color=ft.Colors.ERROR,
                 bgcolor=ft.Colors.ERROR_CONTAINER,
             )
         )
     chips.append(
-        _metric_chip(
+        metric_chip(
             tr("analytics.goals_count", language, count=str(goal_count)),
             "",
+            page=page,
             value_hidden=True,
         )
     )
     return card_surface(
         ft.Column(
-            spacing=14,
+            spacing=metrics["row_gap"],
             tight=True,
             controls=[
                 ft.Row(
-                    spacing=16,
+                    spacing=metrics["gap"],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
                         circular_progress_badge(
                             ratio,
                             f"{pct}%",
-                            size=96,
+                            size=metrics["ring"],
                             color=primary,
+                            page=page,
                         ),
                         ft.Column(
                             spacing=4,
@@ -124,15 +142,20 @@ def analytics_goals_summary(
                             controls=[
                                 ft.Text(
                                     tr("nav.goals", language),
-                                    size=12,
+                                    size=metrics["title"],
                                     weight=ft.FontWeight.W_700,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                                 mark_money_text(
                                     ft.Text(
                                         format_money_compact(saved, currency),
-                                        size=26,
+                                        size=metrics["amount"],
                                         weight=ft.FontWeight.W_800,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                        no_wrap=True,
                                     ),
                                     saved,
                                     currency=currency,
@@ -144,8 +167,10 @@ def analytics_goals_summary(
                                         language,
                                         target=format_money_compact(target, currency),
                                     ),
-                                    size=13,
+                                    size=metrics["meta"],
                                     color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=2,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                             ],
                         ),
@@ -154,7 +179,7 @@ def analytics_goals_summary(
                 ft.Row(spacing=8, wrap=True, controls=chips),
             ],
         ),
-        padding=16,
+        padding=metrics["padding"],
     )
 
 
@@ -163,8 +188,10 @@ def analytics_goal_tile(
     *,
     language: str,
     base_currency: str,
+    page: ft.Page | None = None,
 ) -> ft.Control:
     """Compact goal row for analytics list."""
+    tile = tile_ring_metrics(page)
     currency = goal.currency or base_currency
     ratio = float(goal.progress_ratio)
     ratio_clamped = max(0.0, min(ratio, 1.0))
@@ -190,7 +217,7 @@ def analytics_goal_tile(
             bgcolor=ft.Colors.SECONDARY_CONTAINER,
             content=ft.Text(
                 tr("goal.badge.completed", language),
-                size=10,
+                size=max(9, tile["meta"] - 2),
                 weight=ft.FontWeight.W_700,
                 color=ft.Colors.ON_SECONDARY_CONTAINER,
             ),
@@ -198,14 +225,15 @@ def analytics_goal_tile(
 
     body: list[ft.Control] = [
         ft.Row(
-            spacing=12,
+            spacing=tile["gap"],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 circular_progress_badge(
                     ratio_clamped,
                     ring_label,
-                    size=52,
+                    size=tile["ring"],
                     color=ring_color,
+                    page=page,
                 ),
                 ft.Column(
                     spacing=4,
@@ -219,14 +247,14 @@ def analytics_goal_tile(
                                 account_icon_badge(
                                     icon_key,
                                     color=icon_color,
-                                    size=28,
-                                    glyph_size=14,
+                                    size=tile["icon"],
+                                    glyph_size=tile["glyph"],
                                 ),
                                 ft.Text(
                                     goal.name,
                                     expand=True,
                                     weight=ft.FontWeight.W_700,
-                                    size=15,
+                                    size=tile["title"],
                                     max_lines=2,
                                     overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
@@ -237,24 +265,24 @@ def analytics_goal_tile(
                             tight=True,
                             controls=[
                                 tappable_compact_money(
-                                    None,
+                                    page,
                                     goal.current_amount,
                                     currency,
                                     language=language,
-                                    size=12,
+                                    size=tile["meta"],
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                                 ft.Text(
                                     "/",
-                                    size=12,
+                                    size=tile["meta"],
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                                 tappable_compact_money(
-                                    None,
+                                    page,
                                     goal.target_amount,
                                     currency,
                                     language=language,
-                                    size=12,
+                                    size=tile["meta"],
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
                             ],
@@ -268,7 +296,7 @@ def analytics_goal_tile(
                     controls=[
                         ft.Text(
                             f"{pct}%",
-                            size=17,
+                            size=tile["amount"] + 2,
                             weight=ft.FontWeight.W_800,
                             color=primary if not completed else ft.Colors.OUTLINE,
                         ),
@@ -278,7 +306,6 @@ def analytics_goal_tile(
             ],
         ),
     ]
-    # Period line only when the goal has a deadline.
     scale = period_progress_scale(
         color=primary if not completed else ft.Colors.OUTLINE,
         start=getattr(goal, "created_at", None),
@@ -288,35 +315,6 @@ def analytics_goal_tile(
         body.append(scale)
 
     return card_surface(
-        ft.Column(spacing=10, tight=True, controls=body),
-        padding=14,
-    )
-
-
-def _metric_chip(
-    label: str,
-    value: str,
-    *,
-    color: str | None = None,
-    bgcolor: str | None = None,
-    value_hidden: bool = False,
-) -> ft.Control:
-    text_color = color or ft.Colors.ON_SURFACE_VARIANT
-    children: list[ft.Control] = [
-        ft.Text(label, size=11, color=text_color),
-    ]
-    if not value_hidden and value:
-        children.append(
-            ft.Text(
-                value,
-                size=13,
-                weight=ft.FontWeight.W_700,
-                color=color or ft.Colors.ON_SURFACE,
-            )
-        )
-    return ft.Container(
-        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-        border_radius=10,
-        bgcolor=bgcolor or ft.Colors.SURFACE_CONTAINER,
-        content=ft.Column(spacing=2, tight=True, controls=children),
+        ft.Column(spacing=tile["gap"], tight=True, controls=body),
+        padding=tile["padding"],
     )

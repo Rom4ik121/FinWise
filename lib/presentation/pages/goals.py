@@ -36,7 +36,6 @@ from lib.presentation.styles import (
     form_section,
     form_hint,
     muted_text,
-    page_header,
     section_title,
 )
 from lib.presentation.money_input import (
@@ -72,6 +71,8 @@ from lib.presentation.widgets.goal_swipe_card import swipe_goal_card
 from lib.presentation.ui_motion import replace_controls
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.components.layout.grid import card_grid
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 
 if TYPE_CHECKING:
@@ -110,11 +111,12 @@ class GoalsPage(ft.Column):
             on_change=self._on_search_change,
         )
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("nav.goals", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("nav.goals", state.language),
+                    body=self._list,
+                    page=page,
+                    extra=[self._search_tf],
                     leading=ft.IconButton(
                         icon=ft.Icons.ARROW_BACK,
                         on_click=lambda _e: state.close_secondary(),
@@ -132,16 +134,8 @@ class GoalsPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    padding=ft.Padding.only(left=12, right=12, top=8, bottom=8),
-                    content=self._search_tf,
-                ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=self._list,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -334,6 +328,7 @@ class GoalsPage(ft.Column):
                     target=total_target,
                     currency=base,
                     language=lang,
+                    page=self._page,
                 )
             )
             cards.append(ft.Container(height=8))
@@ -344,7 +339,14 @@ class GoalsPage(ft.Column):
                 grouped[key].append(g)
             for category, items in sorted(grouped.items(), key=lambda kv: kv[0].lower()):
                 cards.append(section_title(category))
-                cards.extend(self._goal_card(g) for g in items)
+                cards.extend(
+                    card_grid(
+                        [self._goal_card(g) for g in items],
+                        self._page,
+                        min_card=300,
+                        maximum=2,
+                    )
+                )
         elif self._group_mode == "priority":
             by_priority: dict[int, list[Goal]] = defaultdict(list)
             for g in goals:
@@ -356,9 +358,23 @@ class GoalsPage(ft.Column):
                 cards.append(
                     section_title(tr("goal.priority_block", lang, n=str(priority)))
                 )
-                cards.extend(self._goal_card(g) for g in items)
+                cards.extend(
+                    card_grid(
+                        [self._goal_card(g) for g in items],
+                        self._page,
+                        min_card=300,
+                        maximum=2,
+                    )
+                )
         else:
-            cards.extend(self._goal_card(g) for g in goals)
+            cards.extend(
+                card_grid(
+                    [self._goal_card(g) for g in goals],
+                    self._page,
+                    min_card=300,
+                    maximum=2,
+                )
+            )
 
         replace_controls(self._list, cards, self._page)
 
@@ -384,6 +400,7 @@ class GoalsPage(ft.Column):
                 if goal.status == GoalStatus.ACTIVE
                 else None
             ),
+            page=self._page,
         )
         if goal.status == GoalStatus.ACTIVE:
             return swipe_goal_card(
@@ -391,11 +408,13 @@ class GoalsPage(ft.Column):
                 language=self._state.language,
                 on_contribute=lambda g=goal: self._contribute(g),
                 on_edit=lambda g=goal: self._open_editor(g),
+                page=self._page,
             )
         return swipe_goal_card(
             card,
             language=self._state.language,
             on_edit=lambda g=goal: self._open_editor(g),
+            page=self._page,
         )
 
     def _crossed_milestones(self, old_ratio: float, new_ratio: float) -> list[int]:
@@ -1001,6 +1020,7 @@ class GoalsPage(ft.Column):
                             language=lang,
                             on_close=close_handler,
                             on_contribute=contribute_handler,
+                            page=self._page,
                         )
                     )
                 items_col = ft.Column(spacing=10, tight=True, controls=item_rows)
@@ -1011,6 +1031,7 @@ class GoalsPage(ft.Column):
                     currency=goal_obj.currency,
                     language=lang,
                     show_item_rings=False,
+                    page=self._page,
                 ),
             ]
             if items_col is not None:

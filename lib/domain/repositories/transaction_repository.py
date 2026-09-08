@@ -71,6 +71,61 @@ class TransactionRepository(ABC):
         (FTS5 when available).
         """
 
+    async def reassign_category(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        account_id: Optional[str] = None,
+    ) -> int:
+        """Rename ``category`` on txs in account scope (personal vs corporate).
+
+        Empty / omitted ``account_id`` updates personal (non-corporate) accounts
+        only. Also rewrites matching line-item categories and canonicalizes
+        case / whitespace / NFC variants onto ``new_name``.
+        """
+        from datetime import timezone
+
+        from lib.domain.entities.category import category_names_equal
+
+        target = (new_name or "").strip()
+        source = (old_name or "").strip()
+        if not target or not source:
+            return 0
+        stamp = datetime.now(timezone.utc)
+        kwargs: dict = {}
+        if account_id:
+            kwargs["account_id"] = account_id
+        count = 0
+        for tx in await self.list(**kwargs):
+            header_hit = category_names_equal(tx.category, source) or (
+                not category_names_equal(source, target)
+                and category_names_equal(tx.category, target)
+            )
+            items_changed = False
+            new_items = []
+            for item in tx.items:
+                item_hit = category_names_equal(item.category, source) or (
+                    not category_names_equal(source, target)
+                    and category_names_equal(item.category, target)
+                )
+                if item_hit and item.category != target:
+                    new_items.append(item.model_copy(update={"category": target}))
+                    items_changed = True
+                else:
+                    new_items.append(item)
+            updates: dict = {}
+            if header_hit and tx.category != target:
+                updates["category"] = target
+            if items_changed:
+                updates["items"] = new_items
+            if not updates:
+                continue
+            updates["updated_at"] = stamp
+            await self.update(tx.model_copy(update=updates))
+            count += 1
+        return count
+
     async def list_by_account(self, account_id: str) -> list[Transaction]:
         """Return all transactions for an account."""
         return await self.list(account_id=account_id)

@@ -40,7 +40,6 @@ from lib.presentation.styles import (
     ICON_CATALOG_GLYPH,
     labeled_switch,
     muted_text,
-    page_header,
 )
 from lib.presentation.money_input import (
     attach_grouped_digits,
@@ -64,6 +63,8 @@ from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.components.layout.grid import card_grid
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
@@ -122,11 +123,12 @@ class DebtsPage(ft.Column):
             on_change=self._on_search_change,
         )
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("nav.debts", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("nav.debts", state.language),
+                    body=self._list,
+                    page=page,
+                    extra=[self._search_tf],
                     leading=ft.IconButton(
                         icon=ft.Icons.ARROW_BACK,
                         on_click=lambda _e: state.close_secondary(),
@@ -144,16 +146,8 @@ class DebtsPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    padding=ft.Padding.only(left=12, right=12, top=8, bottom=4),
-                    content=self._search_tf,
-                ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=self._list,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -407,6 +401,7 @@ class DebtsPage(ft.Column):
                     currency=base,
                     language=lang,
                     overdue_count=overdue_count,
+                    page=self._page,
                 )
             )
             cards.append(ft.Container(height=4))
@@ -461,6 +456,7 @@ class DebtsPage(ft.Column):
                 on_edit=self._open_editor,
                 on_delete=self._confirm_delete,
                 on_repay=self._repay if can_repay else None,
+                page=self._page,
             )
             cards.append(
                 swipe_debt_card(
@@ -469,8 +465,19 @@ class DebtsPage(ft.Column):
                     repay_label=repay_label,
                     on_repay=(lambda d=debt: self._repay(d)) if can_repay else None,
                     on_edit=lambda d=debt: self._open_editor(d),
+                    page=self._page,
                 )
             )
+        if debts:
+            prefix_len = len(cards) - len(debts)
+            prefix = cards[:prefix_len]
+            entity = cards[prefix_len:]
+            replace_controls(
+                self._list,
+                prefix + card_grid(entity, self._page, min_card=300, maximum=2),
+                self._page,
+            )
+            return
         replace_controls(self._list, cards, self._page)
 
     def _confirm_delete(self, debt: Debt) -> None:
@@ -1057,6 +1064,7 @@ class DebtsPage(ft.Column):
                     language=lang,
                     interest_amount=interest,
                     projected_payoff_date=projection.projected_payoff_date,
+                    page=self._page,
                 ),
                 projection_card,
                 sparkline_ctrl,

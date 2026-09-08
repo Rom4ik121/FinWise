@@ -57,7 +57,9 @@ def _apply_entity(model: CategoryModel, entity: Category) -> None:
 
 def _name_matches(stored: str, needle: str) -> bool:
     """Case-insensitive match that works for Cyrillic (SQLite LOWER is ASCII-only)."""
-    return stored == needle or stored.casefold() == needle.casefold()
+    from lib.domain.entities.category import category_names_equal
+
+    return category_names_equal(stored, needle)
 
 
 class SqlAlchemyCategoryRepository(CategoryRepository):

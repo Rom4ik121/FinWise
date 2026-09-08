@@ -15,6 +15,8 @@ from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import amount_color
+from lib.presentation.widgets.color_badge import color_badge
+from lib.presentation.responsive import tx_tile_metrics
 from lib.presentation.utils import (
     category_icon,
     format_date,
@@ -86,10 +88,15 @@ class TransactionTile(ft.Container):
         on_delete: Optional[Callable[[Transaction], None]] = None,
         language: str = "ru",
         dark: bool = True,
+        page: ft.Page | None = None,
     ) -> None:
         from lib.presentation.utils import tr
 
         self._revealed = False
+        metrics = tx_tile_metrics(page)
+        tile_h = metrics["height"]
+        amount_w = metrics["amount_width"]
+        icon_edge = metrics["icon"]
 
         is_transfer = transaction.is_transfer
         is_income = transaction.type == TransactionType.INCOME
@@ -148,7 +155,7 @@ class TransactionTile(ft.Container):
         # --- Arrow toggle button (rotates 180° when open) ---
         self._arrow_container = ft.Container(
             width=40,
-            height=_TILE_HEIGHT,
+            height=tile_h,
             alignment=ft.Alignment.CENTER,
             ink=True,
             border_radius=8,
@@ -173,7 +180,7 @@ class TransactionTile(ft.Container):
                 signed,
                 color=amount_color_value,
                 weight=ft.FontWeight.W_700,
-                size=12,
+                size=metrics["amount"],
                 text_align=ft.TextAlign.RIGHT,
                 max_lines=1,
                 overflow=ft.TextOverflow.ELLIPSIS,
@@ -216,7 +223,7 @@ class TransactionTile(ft.Container):
                 pass
 
         amount_box = ft.Container(
-            width=_AMOUNT_WIDTH,
+            width=amount_w,
             alignment=ft.Alignment.CENTER_RIGHT,
             ink=can_expand,
             on_click=_show_full if can_expand else None,
@@ -229,13 +236,14 @@ class TransactionTile(ft.Container):
             spacing=8,
             expand=True,
             controls=[
-                ft.Container(
-                    width=_ICON,
-                    height=_ICON,
-                    border_radius=11,
+                color_badge(
+                    icon_data,
                     bgcolor=icon_bg,
-                    alignment=ft.Alignment.CENTER,
-                    content=ft.Icon(icon_data, color=icon_fg, size=18),
+                    fgcolor=icon_fg,
+                    size=icon_edge,
+                    glyph_size=18,
+                    page=page,
+                    radius=11,
                 ),
                 ft.Column(
                     spacing=1,
@@ -246,16 +254,18 @@ class TransactionTile(ft.Container):
                         ft.Text(
                             title,
                             weight=ft.FontWeight.W_600,
-                            size=13,
+                            size=metrics["title"],
                             overflow=ft.TextOverflow.ELLIPSIS,
                             max_lines=1,
+                            no_wrap=True,
                         ),
                         ft.Text(
                             subtitle,
-                            size=10,
+                            size=metrics["subtitle"],
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             overflow=ft.TextOverflow.ELLIPSIS,
                             max_lines=1,
+                            no_wrap=True,
                         ),
                     ],
                 ),
@@ -268,7 +278,7 @@ class TransactionTile(ft.Container):
             bgcolor=ft.Colors.SURFACE_CONTAINER,
             padding=ft.Padding.symmetric(horizontal=10, vertical=0),
             border_radius=12,
-            height=_TILE_HEIGHT,
+            height=tile_h,
             alignment=ft.Alignment.CENTER_LEFT,
             offset=ft.Offset(0, 0),
             animate_offset=ft.Animation(
@@ -301,7 +311,7 @@ class TransactionTile(ft.Container):
         ) -> ft.Control:
             return ft.Container(
                 width=btn_w,
-                height=_TILE_HEIGHT - 8,
+                height=tile_h - 8,
                 bgcolor=ft.Colors.with_opacity(0.14, fg),
                 border_radius=10,
                 ink=True,
@@ -342,7 +352,7 @@ class TransactionTile(ft.Container):
             )
 
         back = ft.Container(
-            height=_TILE_HEIGHT,
+            height=tile_h,
             border_radius=12,
             padding=ft.Padding.only(right=6),
             alignment=ft.Alignment.CENTER_RIGHT,
@@ -359,7 +369,7 @@ class TransactionTile(ft.Container):
         )
 
         super().__init__(
-            height=_TILE_HEIGHT,
+            height=tile_h,
             border_radius=12,
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),

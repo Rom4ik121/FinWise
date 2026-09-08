@@ -18,7 +18,9 @@ from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.utils import format_money, format_money_parts, safe_update
 from lib.presentation.responsive import (
-    scale_font,
+    fit_font,
+    fit_size,
+    grid_columns,
     swipe_action_strip_width,
     swipe_reveal_offset,
 )
@@ -44,9 +46,11 @@ class AccountCard(ft.Container):
         on_delete: Optional[Callable[[Account], None]] = None,
         on_sync: Optional[Callable[[Account], None]] = None,
         on_include_in_total: Optional[Callable[[Account, bool], None]] = None,
+        page: ft.Page | None = None,
     ) -> None:
         from lib.presentation.utils import tr
 
+        cols = grid_columns(page, min_card=280, maximum=3)
         self._revealed = False
         accent = account.color or get_active_skin().primary_hex(dark=True)
         converted_line: list[ft.Control] = []
@@ -89,7 +93,7 @@ class AccountCard(ft.Container):
             controls=[
                 ft.Text(
                     tr("account.include_in_total", language),
-                    size=12,
+                    size=fit_font(12, page, columns=cols, minimum=10, maximum=14),
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     expand=True,
                     max_lines=2,
@@ -104,7 +108,7 @@ class AccountCard(ft.Container):
             bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.PRIMARY),
             content=ft.Text(
                 tr("account.corporate_badge", language),
-                size=11,
+                size=fit_font(11, page, columns=cols, minimum=9, maximum=13),
                 weight=ft.FontWeight.W_600,
                 color=ft.Colors.PRIMARY,
             ),
@@ -117,8 +121,8 @@ class AccountCard(ft.Container):
                 account_icon_badge(
                     icon_key,
                     color=accent,
-                    size=46,
-                    glyph_size=24,
+                    size=fit_size(46, page, columns=cols, minimum=36, maximum=56),
+                    glyph_size=fit_size(24, page, columns=cols, minimum=18, maximum=28),
                     glyph_color=ft.Colors.WHITE,
                 ),
                 ft.Column(
@@ -129,11 +133,11 @@ class AccountCard(ft.Container):
                         ft.Text(
                             account.name,
                             weight=ft.FontWeight.W_700,
-                            size=16,
+                            size=fit_font(16, page, columns=cols, minimum=12, maximum=20),
                             max_lines=2,
                             overflow=ft.TextOverflow.ELLIPSIS,
                         ),
-                        muted_text(subtitle),
+                        muted_text(subtitle, page=page),
                     ],
                 ),
             ],
@@ -168,7 +172,7 @@ class AccountCard(ft.Container):
                 mark_money_text(
                     ft.Text(
                         balance_figure,
-                        size=scale_font(20),
+                        size=fit_font(20, page, columns=cols, minimum=14, maximum=26),
                         weight=ft.FontWeight.W_700,
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
@@ -177,7 +181,7 @@ class AccountCard(ft.Container):
                     account.balance,
                     currency=account.currency,
                 ),
-                muted_text(code, size=13),
+                muted_text(code, size=fit_font(12, page, columns=cols, minimum=10, maximum=14)),
             ],
         )
 
@@ -210,11 +214,11 @@ class AccountCard(ft.Container):
         action_count = sum(
             1 for h in (on_sync, on_edit, on_delete) if h is not None
         )
-        strip_w = swipe_action_strip_width(None, buttons=max(action_count, 1))
+        strip_w = swipe_action_strip_width(page, buttons=max(action_count, 1))
         # Account cards stack actions vertically — keep a modest column width.
         _action_width = min(96.0, max(72.0, strip_w / max(action_count, 1) + 24))
         self._reveal_frac = swipe_reveal_offset(
-            None, strip_width=_action_width + 8, buttons=1
+            page, strip_width=_action_width + 8, buttons=1
         )
 
         def _action_tile(

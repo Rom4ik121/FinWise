@@ -61,6 +61,34 @@ def test_later_unmounted_requests_wait_for_mount() -> None:
     asyncio.run(_run())
 
 
+def test_mark_hidden_skips_reload_until_shown() -> None:
+    calls: list[int] = []
+
+    async def reload(*, animate: bool = False) -> None:
+        calls.append(1)
+
+    async def _run() -> None:
+        host = _Host()
+        page = _FakePage()
+        host.page = page
+        gate = ReloadGate(page, host, reload)  # type: ignore[arg-type]
+        gate.on_mounted()
+        gate.request()
+        await asyncio.sleep(0.05)
+        assert len(calls) == 1
+        gate.mark_hidden()
+        gate.request()
+        gate.request()
+        await asyncio.sleep(0.05)
+        assert len(calls) == 1
+        gate.mark_shown()
+        gate.on_mounted()
+        await asyncio.sleep(0.05)
+        assert len(calls) == 2
+
+    asyncio.run(_run())
+
+
 def test_gate_coalesces_in_flight_requests() -> None:
     started = asyncio.Event()
     release = asyncio.Event()
@@ -77,6 +105,7 @@ def test_gate_coalesces_in_flight_requests() -> None:
         page = _FakePage()
         host.page = page
         gate = ReloadGate(page, host, reload)  # type: ignore[arg-type]
+        gate.on_mounted()
         gate.request()
         await started.wait()
         gate.request()

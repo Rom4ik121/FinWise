@@ -65,11 +65,79 @@ def test_transaction_tile_uses_category_icon() -> None:
 
 def test_lookup_account_category_is_case_insensitive() -> None:
     from lib.domain.entities.category import Category
+    from lib.presentation.category_lookup import lookup_category
     from lib.presentation.pages.account_detail import _lookup_category
 
     cat = Category(name="Еда", icon="restaurant")
+    assert lookup_category({"Еда": cat}, "еда") is cat
     assert _lookup_category({"Еда": cat}, "еда") is cat
-    assert _lookup_category({"Еда": cat}, "Такси") is None
+    assert lookup_category({"Еда": cat}, "Такси") is None
+
+
+def test_components_and_views_public_api() -> None:
+    from lib.presentation.components import (
+        AccountCard,
+        TransactionTile,
+        adaptive_text,
+        card_grid,
+        card_with_actions,
+        confirm_dialog,
+        money_label,
+        page_frame,
+    )
+    from lib.presentation.views import DashboardPage, TransactionsPage
+
+    assert AccountCard is not None
+    assert TransactionTile is not None
+    assert callable(adaptive_text)
+    assert callable(card_grid)
+    assert callable(card_with_actions)
+    assert callable(confirm_dialog)
+    assert callable(money_label)
+    assert callable(page_frame)
+    assert DashboardPage is not None
+    assert TransactionsPage is not None
+
+
+def test_adaptive_text_ellipsis() -> None:
+    from lib.presentation.components.layout.text import adaptive_text
+
+    label = adaptive_text("A very long category name", size=14)
+    assert label.max_lines == 1
+    assert label.overflow is not None
+
+
+def test_card_with_actions_empty_returns_card() -> None:
+    from lib.presentation.components.layout.actions import card_with_actions
+
+    inner = ft.Text("card")
+    assert card_with_actions(inner, []) is inner
+    wrapped = card_with_actions(inner, [ft.TextButton("edit")])
+    assert wrapped is not inner
+    assert isinstance(wrapped, ft.Column)
+
+
+def test_dismiss_fullscreen_drops_overlay_tree() -> None:
+    from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, push_overlay
+
+    class _Page:
+        def __init__(self) -> None:
+            self.overlay: list = []
+
+        def update(self) -> None:
+            return None
+
+    page = _Page()
+    first = ft.Container(data="editor", content=ft.Text("a"))
+    push_overlay(page, first)  # type: ignore[arg-type]
+    assert len(page.overlay) == 1
+    dismiss_fullscreen(page, key="editor")  # type: ignore[arg-type]
+    assert page.overlay[0].content is None
+    assert page.overlay[0].visible is False
+    second = ft.Container(data="editor", content=ft.Text("b"))
+    push_overlay(page, second)  # type: ignore[arg-type]
+    assert len(page.overlay) == 1
+    assert page.overlay[0].content is second.content
 
 
 def test_transaction_tile_builds() -> None:

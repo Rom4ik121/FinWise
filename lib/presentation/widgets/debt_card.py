@@ -9,6 +9,8 @@ import flet as ft
 
 from lib.domain.entities.debt import Debt, DebtDirection, DebtStatus
 from lib.presentation.account_icons import account_icon_badge
+from lib.presentation.components.layout.text import adaptive_text, money_label
+from lib.presentation.responsive import entity_card_metrics
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import amount_color, card_surface, muted_text, style_popup_menu
 from lib.presentation.utils import format_date, format_money, format_money_compact
@@ -30,9 +32,11 @@ class DebtCard(ft.Container):
         on_edit: Optional[Callable[[Debt], None]] = None,
         on_delete: Optional[Callable[[Debt], None]] = None,
         on_repay: Optional[Callable[[Debt], None]] = None,
+        page: ft.Page | None = None,
     ) -> None:
         from lib.presentation.utils import tr
 
+        metrics = entity_card_metrics(page)
         i_owe = debt.direction == DebtDirection.I_OWE
         accent = amount_color(not i_owe)
         icon_key = getattr(debt, "icon", None) or "credit_card"
@@ -56,7 +60,7 @@ class DebtCard(ft.Container):
             )
             if interest_amount is not None:
                 text += f" · {format_money(interest_amount, debt.currency)}"
-            interest_line.append(muted_text(text))
+            interest_line.append(muted_text(text, page=page))
         if getattr(debt, "accrued_interest", None) and debt.accrued_interest > 0:
             interest_line.append(
                 muted_text(
@@ -66,7 +70,8 @@ class DebtCard(ft.Container):
                         amount=format_money_compact(
                             debt.accrued_interest, debt.currency
                         ),
-                    )
+                    ),
+                    page=page,
                 )
             )
 
@@ -156,7 +161,8 @@ class DebtCard(ft.Container):
                         language,
                         date=format_date(debt.next_payment_date),
                     )
-                    + amt
+                    + amt,
+                    page=page,
                 )
             )
         eta_line: list[ft.Control] = []
@@ -164,12 +170,13 @@ class DebtCard(ft.Container):
             eta_line.append(
                 muted_text(
                     f"{tr('debt.projected_date', language)}: "
-                    f"{format_date(projected_payoff_date)}"
+                    f"{format_date(projected_payoff_date)}",
+                    page=page,
                 )
             )
 
         body = ft.Column(
-            spacing=8,
+            spacing=metrics["gap"],
             tight=True,
             controls=[
                 ft.Row(
@@ -180,16 +187,18 @@ class DebtCard(ft.Container):
                         account_icon_badge(
                             icon_key,
                             color=icon_color,
-                            size=36,
-                            glyph_size=18,
+                            size=metrics["icon"],
+                            glyph_size=metrics["glyph"],
                         ),
-                        ft.Text(
+                        adaptive_text(
                             debt.counterparty,
-                            weight=ft.FontWeight.W_700,
+                            page=page,
                             size=16,
+                            weight=ft.FontWeight.W_700,
                             expand=True,
                             max_lines=2,
-                            overflow=ft.TextOverflow.ELLIPSIS,
+                            minimum=13,
+                            maximum=20,
                         ),
                         ft.Row(tight=True, spacing=0, controls=actions_row),
                     ],
@@ -208,23 +217,25 @@ class DebtCard(ft.Container):
                         )
                         + " · "
                         + tr(f"debt.status.{status_value}", language),
-                        size=11,
+                        size=metrics["chip"],
                         weight=ft.FontWeight.W_600,
                         color=status_color,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        max_lines=1,
                     ),
                 ),
-                ft.Text(
-                    format_money(debt.remaining_amount, debt.currency),
+                money_label(
+                    debt.remaining_amount,
+                    debt.currency,
+                    page=page,
                     size=18,
-                    weight=ft.FontWeight.W_700,
                     color=accent,
-                    max_lines=2,
-                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 muted_text(
                     f"{format_money_compact(debt.amount - min(debt.remaining_amount, debt.amount), debt.currency)}"
                     f" / {format_money_compact(debt.amount, debt.currency)}"
-                    f" · {pct}%"
+                    f" · {pct}%",
+                    page=page,
                 ),
                 ft.ProgressBar(
                     value=ratio,
@@ -233,7 +244,7 @@ class DebtCard(ft.Container):
                     bar_height=6,
                     border_radius=999,
                 ),
-                muted_text(due_line),
+                muted_text(due_line, page=page),
                 *schedule_line,
                 *eta_line,
                 *interest_line,
@@ -242,6 +253,7 @@ class DebtCard(ft.Container):
         )
         card = card_surface(
             body,
+            padding=metrics["padding"],
             ink=True,
             on_click=lambda _e: on_click(debt)
             if on_click

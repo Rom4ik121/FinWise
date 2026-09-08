@@ -24,7 +24,6 @@ from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
     muted_text,
-    page_header,
     section_title,
     shortcut_chip,
 )
@@ -39,9 +38,11 @@ from lib.presentation.utils import (
     tr,
 )
 from lib.infrastructure.services.localization import localize_category_name
+from lib.presentation.category_lookup import index_categories, lookup_category
 from lib.presentation.account_icons import account_icon_badge
+from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.widgets.charts import build_line_chart_image
-from lib.presentation.responsive import compact_chart_size, scale_font, tap_button_style
+from lib.presentation.responsive import card_padding, compact_chart_size, fit_font, kpi_card_metrics, scale_size, tap_button_style
 from lib.presentation.widgets.dual_add_button import dual_add_button
 from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.layout import make_v_scroll
@@ -97,13 +98,16 @@ class DashboardPage(ft.Column):
         self._chart_slot: ft.Container | None = None
         self._sections_body: ft.Column | None = None
         self._sections_chevron: ft.Icon | None = None
+        self._sections_slot: ft.Container | None = None
+        self._budget_slot: ft.Container | None = None
+        self._add_slot: ft.Container | None = None
         self._slots_ready = False
         super().__init__(
-            expand=True,
-            spacing=0,
-            controls=[
-                page_header(
-                    tr("nav.home", state.language),
+            **page_column(
+                page_frame(
+                    title=tr("nav.home", state.language),
+                    body=self._body,
+                    page=page,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
@@ -113,12 +117,8 @@ class DashboardPage(ft.Column):
                         ),
                     ],
                 ),
-                ft.Container(
-                    expand=True,
-                    padding=ft.Padding.symmetric(horizontal=12),
-                    content=self._body,
-                ),
-            ],
+                page=page,
+            )
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
@@ -337,7 +337,7 @@ class DashboardPage(ft.Column):
             return
         replace_controls(self._body, cache["build"](), self._page)
 
-    def _apply_visibility(self) -> None:
+    def _apply_visibility(self, *, animate_chart: bool = False) -> None:
         """Mutate balance/chart/sections slots without rebuilding the ListView."""
         cache = self._balance_cache
         if not self._slots_ready or not cache:
@@ -427,7 +427,7 @@ class DashboardPage(ft.Column):
                     show_expense=True,
                     page=self._page,
                     compact=True,
-                    animate=False,
+                    animate=bool(animate_chart) and not hidden,
                 )
             safe_update(self._chart_slot)
 
@@ -451,6 +451,7 @@ class DashboardPage(ft.Column):
         color: str,
         hidden: bool,
     ) -> ft.Control:
+        kpi = kpi_card_metrics(self._page, columns=2)
         if hidden:
             display = _HIDDEN_SMALL
             tip = None
@@ -459,11 +460,12 @@ class DashboardPage(ft.Column):
             tip = display
         amount_label = ft.Text(
             display,
-            size=13,
+            size=kpi["value"],
             weight=ft.FontWeight.W_700,
             color=color,
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
+            no_wrap=True,
         )
         if not hidden:
             mark_money_text(
@@ -475,7 +477,7 @@ class DashboardPage(ft.Column):
         return ft.Container(
             expand=True,
             tooltip=tip,
-            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            padding=ft.Padding.symmetric(horizontal=max(6, kpi["padding"]), vertical=max(6, kpi["gap"])),
             border_radius=12,
             bgcolor=ft.Colors.with_opacity(0.22, ft.Colors.SURFACE),
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
@@ -485,7 +487,7 @@ class DashboardPage(ft.Column):
                 controls=[
                     ft.Text(
                         label,
-                        size=10,
+                        size=kpi["title"],
                         color=ft.Colors.ON_SURFACE_VARIANT,
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
@@ -513,7 +515,7 @@ class DashboardPage(ft.Column):
         zeros = [Decimal("0")] * max(len(incomes), 1)
         balance_label = ft.Text(
             figure,
-            size=scale_font(20, self._page, minimum=17, maximum=24),
+            size=fit_font(20, self._page, minimum=16, maximum=24),
             weight=ft.FontWeight.W_700,
             color=skin.text_hex(dark=True),
             max_lines=1,
@@ -522,7 +524,7 @@ class DashboardPage(ft.Column):
         )
         balance_code = ft.Text(
             "" if hidden else base,
-            size=13,
+            size=fit_font(12, self._page, minimum=10, maximum=14),
             weight=ft.FontWeight.W_600,
             color=ft.Colors.ON_SURFACE_VARIANT,
             visible=not hidden,
@@ -652,7 +654,7 @@ class DashboardPage(ft.Column):
         self._chart_slot = chart_slot
         panel_controls.append(chart_slot)
         return ft.Container(
-            padding=12,
+            padding=card_padding(self._page, hero=True),
             border_radius=skin.hero_radius,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             gradient=skin.hero_gradient(dark=True),
@@ -718,12 +720,14 @@ class DashboardPage(ft.Column):
                             tr("nav.goals", lang),
                             ft.Icons.FLAG_OUTLINED,
                             badge=goals_badge,
+                            page=self._page,
                             on_click=lambda _e: self._state.open_secondary("goals"),
                         ),
                         shortcut_chip(
                             tr("nav.debts", lang),
                             ft.Icons.CREDIT_SCORE,
                             badge=debts_badge,
+                            page=self._page,
                             on_click=lambda _e: self._state.open_secondary("debts"),
                         ),
                     ],
@@ -735,6 +739,7 @@ class DashboardPage(ft.Column):
                             tr("nav.subscriptions", lang),
                             ft.Icons.EVENT_REPEAT,
                             badge=subs_badge,
+                            page=self._page,
                             on_click=lambda _e: self._state.open_secondary(
                                 "subscriptions"
                             ),
@@ -742,6 +747,7 @@ class DashboardPage(ft.Column):
                         shortcut_chip(
                             tr("nav.currencies", lang),
                             ft.Icons.CURRENCY_EXCHANGE,
+                            page=self._page,
                             on_click=lambda _e: self._state.open_secondary(
                                 "currencies"
                             ),
@@ -755,6 +761,7 @@ class DashboardPage(ft.Column):
                             tr("nav.budgets", lang),
                             ft.Icons.PIE_CHART,
                             badge=budgets_badge,
+                            page=self._page,
                             on_click=lambda _e: self._state.open_secondary(
                                 "budgets"
                             ),
@@ -769,7 +776,7 @@ class DashboardPage(ft.Column):
     def _analytics_button(self, lang: str) -> ft.Container:
         """Full-width entry to the analytics secondary screen."""
         return ft.Container(
-            height=52,
+            height=scale_size(52, self._page, minimum=48, maximum=64),
             border_radius=16,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
@@ -830,9 +837,13 @@ class DashboardPage(ft.Column):
         if days in _CHART_PERIODS:
             self._chart_days = days
         self._hide_chart = bool(getattr(prefs, "dashboard_hide_chart", False))
-        # Soft reload: keep painted UI while data refreshes (no spinner flash).
-        soft = self._slots_ready and bool(self._body.controls) and not animate
-        if not soft:
+        # Soft reload: keep painted UI while data refreshes (no spinner / jump).
+        keep_layout = (
+            self._slots_ready
+            and bool(self._body.controls)
+            and self._budget_slot is not None
+        )
+        if not keep_layout:
             fill_loading(self._body, message=tr("action.refresh", lang))
         c = self._state.container
         if animate:
@@ -926,8 +937,36 @@ class DashboardPage(ft.Column):
                 except Exception:  # noqa: BLE001
                     pass
         try:
-            with ui_animation(animate):
+            motion = animate
+            with ui_animation(motion):
                 budget_widget = await self._budgets_widget(lang, base)
+
+                def _add_button() -> ft.Control:
+                    return dual_add_button(
+                        lang,
+                        page=self._page,
+                        on_expense=lambda: open_quick_add(
+                            self._page,
+                            self._state,
+                            accounts=accounts,
+                            default_type=TransactionType.EXPENSE,
+                        ),
+                        on_income=lambda: open_quick_add(
+                            self._page,
+                            self._state,
+                            accounts=accounts,
+                            default_type=TransactionType.INCOME,
+                        ),
+                    )
+
+                def _host(slot_name: str, content: ft.Control) -> ft.Container:
+                    slot = getattr(self, slot_name)
+                    if slot is None:
+                        slot = ft.Container(content=content)
+                        setattr(self, slot_name, slot)
+                    else:
+                        slot.content = content
+                    return slot
 
                 def _build() -> list[ft.Control]:
                     return [
@@ -941,30 +980,19 @@ class DashboardPage(ft.Column):
                             incomes,
                             expenses,
                         ),
-                        dual_add_button(
-                            lang,
-                            on_expense=lambda: open_quick_add(
-                                self._page,
-                                self._state,
-                                accounts=accounts,
-                                default_type=TransactionType.EXPENSE,
-                            ),
-                            on_income=lambda: open_quick_add(
-                                self._page,
-                                self._state,
-                                accounts=accounts,
-                                default_type=TransactionType.INCOME,
-                            ),
-                        ),
+                        _host("_add_slot", _add_button()),
                         self._analytics_button(lang),
-                        self._sections_panel(
-                            lang,
-                            goals_badge=goals_badge,
-                            debts_badge=debts_badge,
-                            subs_badge=subs_badge,
-                            budgets_badge=budgets_badge,
+                        _host(
+                            "_sections_slot",
+                            self._sections_panel(
+                                lang,
+                                goals_badge=goals_badge,
+                                debts_badge=debts_badge,
+                                subs_badge=subs_badge,
+                                budgets_badge=budgets_badge,
+                            ),
                         ),
-                        budget_widget,
+                        _host("_budget_slot", budget_widget),
                         ft.Container(height=10),
                     ]
 
@@ -979,20 +1007,53 @@ class DashboardPage(ft.Column):
                     "incomes": incomes,
                     "expenses": expenses,
                 }
-                try:
-                    controls = _build()
-                except Exception as exc:  # noqa: BLE001
-                    snack_exception(self._page, exc, lang=lang)
-                    controls = [
-                        EmptyState(
-                            tr("error.generic", lang),
-                            icon=ft.Icons.ERROR_OUTLINE,
+                if keep_layout:
+                    try:
+                        self._apply_visibility(
+                            animate_chart=bool(self._animate_charts)
                         )
-                    ]
-                    self._slots_ready = False
+                        if self._add_slot is not None:
+                            self._add_slot.content = _add_button()
+                            safe_update(self._add_slot)
+                        if self._sections_slot is not None:
+                            self._sections_slot.content = self._sections_panel(
+                                lang,
+                                goals_badge=goals_badge,
+                                debts_badge=debts_badge,
+                                subs_badge=subs_badge,
+                                budgets_badge=budgets_badge,
+                            )
+                            safe_update(self._sections_slot)
+                        self._budget_slot.content = budget_widget
+                        safe_update(self._budget_slot)
+                    except Exception as exc:  # noqa: BLE001
+                        snack_exception(self._page, exc, lang=lang)
+                        self._slots_ready = False
+                        replace_controls(
+                            self._body,
+                            [
+                                EmptyState(
+                                    tr("error.generic", lang),
+                                    icon=ft.Icons.ERROR_OUTLINE,
+                                )
+                            ],
+                            self._page,
+                        )
                 else:
-                    self._slots_ready = True
-                replace_controls(self._body, controls, self._page)
+                    try:
+                        controls = _build()
+                    except Exception as exc:  # noqa: BLE001
+                        snack_exception(self._page, exc, lang=lang)
+                        controls = [
+                            EmptyState(
+                                tr("error.generic", lang),
+                                icon=ft.Icons.ERROR_OUTLINE,
+                            )
+                        ]
+                        self._slots_ready = False
+                    else:
+                        self._slots_ready = True
+                    replace_controls(self._body, controls, self._page)
             if animate and self._slots_ready:
                 await play_count_ups(self._body, self._page)
         finally:
@@ -1015,15 +1076,15 @@ class DashboardPage(ft.Column):
         list_cats = getattr(self._state.container, "list_categories", None)
         if list_cats is not None:
             try:
-                cat_map = {
-                    c.name: c for c in await list_cats.execute(active_only=False)
-                }
+                cat_map = index_categories(
+                    await list_cats.execute(active_only=False)
+                )
             except Exception:  # noqa: BLE001
                 cat_map = {}
         if not shown:
             body: ft.Control = ft.Text(
                 tr("dashboard.budgets_empty", lang),
-                size=13,
+                size=fit_font(13, self._page, minimum=11, maximum=15),
                 color=ft.Colors.ON_SURFACE_VARIANT,
             )
         else:
@@ -1033,7 +1094,7 @@ class DashboardPage(ft.Column):
                 color = ft.Colors.ERROR if percent > 100 else (
                     ft.Colors.AMBER if percent >= 80 else ft.Colors.GREEN
                 )
-                cat = cat_map.get(progress.category_id)
+                cat = lookup_category(cat_map, progress.category_id)
                 rows.append(
                     ft.Column(
                         spacing=4,
@@ -1054,10 +1115,14 @@ class DashboardPage(ft.Column):
                                             progress.category_id, lang
                                         ),
                                         expand=True,
-                                        size=13,
+                                        size=fit_font(13, self._page, minimum=11, maximum=15),
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
-                                    ft.Text(f"{percent:.0f}%", size=13, color=color),
+                                    ft.Text(
+                                        f"{percent:.0f}%",
+                                        size=fit_font(13, self._page, minimum=11, maximum=15),
+                                        color=color,
+                                    ),
                                 ],
                             ),
                             _home_budget_bar(percent, color),
