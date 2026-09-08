@@ -60,3 +60,18 @@ def test_icon_path_points_to_app_branding() -> None:
     assert path
     assert Path(path).is_file()
     assert Path(path).name in {"icon.png", "icon_android.png", "icon.ico"}
+
+
+def test_request_push_permissions_false_without_service_on_ios(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    monkeypatch.setattr(pn, "_mobile_service", None)
+    monkeypatch.setattr(pn, "_looks_like_ios", lambda: True)
+    monkeypatch.setattr(pn, "push_disabled_by_env", lambda: False)
+
+    async def _run() -> None:
+        assert await pn.request_push_permissions() is False
+
+    import asyncio
+
+    asyncio.run(_run())

@@ -23,46 +23,48 @@ class FinanseLocalNotificationsService extends FletService {
     if (_ready) {
       return;
     }
-    tzdata.initializeTimeZones();
-    tz.setLocalLocation(tz.UTC);
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    // Request alert/badge/sound at initialize so iOS shows FinWise
-    // under Settings → Notifications on first launch.
-    const darwin = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-      defaultPresentAlert: true,
-      defaultPresentSound: true,
-      defaultPresentBadge: true,
-      defaultPresentBanner: true,
-      defaultPresentList: true,
-    );
-    await _plugin.initialize(
-      const InitializationSettings(
-        android: android,
-        iOS: darwin,
-        macOS: darwin,
-      ),
-    );
-    // Darwin flags above ask at initialize; call requestPermissions too so
-    // iOS creates Settings → Notifications for FinWise on first launch.
-    await _requestPermissions();
-    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (androidPlugin != null) {
-      await androidPlugin.createNotificationChannel(
-        const AndroidNotificationChannel(
-          'finwise_reminders',
-          'FinWise reminders',
-          description: 'Debt, subscription, and goal alerts',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: true,
+    try {
+      tzdata.initializeTimeZones();
+      tz.setLocalLocation(tz.UTC);
+      const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+      // iOS swallows the system dialog if we ask during splash /
+      // didFinishLaunching. Request later from Python after the first frame.
+      const darwin = DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+        defaultPresentAlert: true,
+        defaultPresentSound: true,
+        defaultPresentBadge: true,
+        defaultPresentBanner: true,
+        defaultPresentList: true,
+      );
+      await _plugin.initialize(
+        const InitializationSettings(
+          android: android,
+          iOS: darwin,
+          macOS: darwin,
         ),
       );
+      final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        await androidPlugin.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'finwise_reminders',
+            'FinWise reminders',
+            description: 'Debt, subscription, and goal alerts',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          ),
+        );
+      }
+      _ready = true;
+    } catch (err, stack) {
+      debugPrint("FinanseLocalNotifications init failed: $err\n$stack");
+      rethrow;
     }
-    _ready = true;
   }
 
   Future<dynamic> _invokeMethod(String name, dynamic args) async {
@@ -114,9 +116,11 @@ class FinanseLocalNotificationsService extends FletService {
 
   Future<bool> _requestPermissions() async {
     var granted = true;
+    var asked = false;
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (android != null) {
+      asked = true;
       final ok = await android.requestNotificationsPermission();
       if (ok == false) {
         granted = false;
@@ -128,6 +132,7 @@ class FinanseLocalNotificationsService extends FletService {
     final ios = _plugin.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
     if (ios != null) {
+      asked = true;
       final ok = await ios.requestPermissions(
         alert: true,
         badge: true,
@@ -140,6 +145,7 @@ class FinanseLocalNotificationsService extends FletService {
     final macos = _plugin.resolvePlatformSpecificImplementation<
         MacOSFlutterLocalNotificationsPlugin>();
     if (macos != null) {
+      asked = true;
       final ok = await macos.requestPermissions(
         alert: true,
         badge: true,
@@ -148,6 +154,13 @@ class FinanseLocalNotificationsService extends FletService {
       if (ok == false) {
         granted = false;
       }
+    }
+    if (!asked) {
+      debugPrint(
+        "FinanseLocalNotifications: no native plugin "
+        "(IPA/APK missing flutter_local_notifications?)",
+      );
+      return false;
     }
     return granted;
   }

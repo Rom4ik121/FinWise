@@ -243,9 +243,10 @@ async def _flet_main(page: ft.Page) -> None:
             request_push_permissions,
         )
 
-        # Always request OS notification permission after the first UI frame.
-        # iOS only lists FinWise under Settings → Notifications after this.
+        # iOS drops the system alert if we ask during splash. Wait until the
+        # Flutter window is key, then request from the native plugin.
         try:
+            await asyncio.sleep(1.0)
             granted = await request_push_permissions()
             settings = await container.get_settings.execute()
             prompt_flag = container.config.data_dir / ".push_permission_asked"

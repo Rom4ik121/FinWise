@@ -174,6 +174,7 @@ class FinanseApp:
         self._pin_salt: Optional[str] = None
         self._pin_gate_failed: bool = False
         self._backgrounded_at: float | None = None
+        self._push_prompted: bool = False
 
     async def start(self) -> None:
         """Load settings, apply theme, and mount the shell."""
@@ -244,6 +245,9 @@ class FinanseApp:
                     self._backgrounded_at = time.monotonic()
                 return
             if state_token in _FOREGROUND_LIFECYCLE:
+                if not self._push_prompted:
+                    self._push_prompted = True
+                    self._ask_notification_permission()
                 started = self._backgrounded_at
                 self._backgrounded_at = None
                 if started is None:
@@ -254,6 +258,16 @@ class FinanseApp:
                 self.lock_session()
 
         self.page.on_app_lifecycle_state_change = _on_lifecycle
+
+    def _ask_notification_permission(self) -> None:
+        """Ask iOS/Android for alerts after the window is active."""
+        try:
+            from lib.infrastructure.services.push_notifier import request_push_permissions
+            from lib.presentation.utils import run_async
+
+            run_async(self.page, request_push_permissions)
+        except Exception:  # noqa: BLE001
+            logger.exception("Notification permission prompt failed")
 
     def lock_session(self) -> None:
         """Show the PIN / Face ID gate when credentials exist."""

@@ -16,3 +16,9 @@ path = "flutter/flet_local_notifications"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.package-data]
+"flutter.flet_local_notifications" = [
+  "pubspec.yaml",
+  "lib/**",
+]

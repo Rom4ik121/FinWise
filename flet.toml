@@ -70,6 +70,8 @@ local_auth = "^2.3.0"
 local_auth_android = "^1.0.46"
 local_auth_darwin = "^1.4.1"
 url_launcher = "^6.2.5"
+flutter_local_notifications = "^17.2.4"
+timezone = "^0.9.4"
 
 [tool.flet.splash]
 color = "#0B1220"

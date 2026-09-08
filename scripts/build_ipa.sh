@@ -77,7 +77,13 @@ if [[ -n "$PROFILE" ]]; then
 fi
 
 echo "Running: flet ${ARGS[*]}"
+# Flet copies a stock AppDelegate; patch it before Xcode compiles.
+python3 "$ROOT/scripts/patch_ios_appdelegate.py" --watch --project-root "$ROOT/build/flutter" &
+WATCH_PID=$!
+trap 'kill "$WATCH_PID" 2>/dev/null || true' EXIT
 flet "${ARGS[@]}"
+kill "$WATCH_PID" 2>/dev/null || true
+python3 "$ROOT/scripts/patch_ios_appdelegate.py" --project-root "$ROOT/build/flutter" || true
 
 echo
 echo "IPA (if export succeeded): look under build/ipa/"

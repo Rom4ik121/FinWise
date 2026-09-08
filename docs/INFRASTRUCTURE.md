@@ -113,7 +113,7 @@ Wipe таблиц с учётом FK — «сброс данных» в наст
 | Модуль | Роль |
 |--------|------|
 | `notification_service.py` | Очередь in-app уведомлений; `push` → `dispatch_push` |
-| `push_notifier.py` | Mobile (`FinanseLocalNotifications` + launcher icon), Windows toast, Linux `notify-send` with `assets/icon.png`; **не** тянуть `flet-android-notifications` в IPA. iOS: `DarwinInitializationSettings` + `requestPermissions` при init и в `_post_start`, иначе нет пункта в Настройки → Уведомления |
+| `push_notifier.py` | Mobile (`FinanseLocalNotifications` + launcher icon), Windows toast, Linux `notify-send` with `assets/icon.png`; **не** тянуть `flet-android-notifications` в IPA. iOS: **не** звать `requestPermissions` в `initialize()` (диалог на splash глотается); запрос после первого кадра + на `resume`. IPA: патч `AppDelegate.swift` (`UNUserNotificationCenter.delegate`) через `scripts/patch_ios_appdelegate.py`, иначе нет пункта Настройки → Уведомления и баннеров |
 | `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней вперёд |
 
 Env: **`FINANCE_DISABLE_PUSH=1`** — отключить OS-push (в pytest включено autouse).

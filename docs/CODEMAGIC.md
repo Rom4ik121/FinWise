@@ -20,6 +20,8 @@
 
 Info.plist должен запрашивать Face ID, микрофон, распознавание речи.
 
+Сборка IPA патчит `ios/Runner/AppDelegate.swift` (`scripts/patch_ios_appdelegate.py`): без `UNUserNotificationCenter.delegate` iPhone не показывает системный диалог и баннеры.
+
 Без **новой** IPA правки плагинов / Python на устройстве не появятся.
 
 **Не** ставить `flet-android-notifications` в iOS-сборку: конфликт версий Flutter-пакета `timezone` с `flet_local_notifications`.

@@ -51,6 +51,9 @@ workflows:
             exit 1
           fi
 
+          python3 scripts/patch_ios_appdelegate.py --watch --project-root build/flutter --timeout 900 &
+          WATCH_PID=$!
+          trap 'kill "$WATCH_PID" 2>/dev/null || true' EXIT
           flet build ipa \
             --org com.finanse.app \
             --product "$APP_NAME" \
@@ -72,6 +75,8 @@ workflows:
             --yes \
             --no-rich-output \
             --verbose
+          kill "$WATCH_PID" 2>/dev/null || true
+          python3 scripts/patch_ios_appdelegate.py --project-root build/flutter || true
       - name: Locate IPA
         script: |
           echo "Searching for IPA artifacts..."

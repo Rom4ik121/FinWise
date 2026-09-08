@@ -118,11 +118,15 @@ def is_mobile_platform(page: "ft.Page | None" = None) -> bool:
     try:
         from flet import PagePlatform
 
-        return page.platform in {
+        platform = getattr(page, "platform", None)
+        if platform in {
             PagePlatform.ANDROID,
             PagePlatform.ANDROID_TV,
             PagePlatform.IOS,
-        }
+        }:
+            return True
+        token = str(getattr(platform, "value", platform) or "").strip().lower()
+        return token in {"android", "android_tv", "ios"}
     except Exception:  # noqa: BLE001
         return False
 

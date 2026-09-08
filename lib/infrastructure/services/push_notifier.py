@@ -198,13 +198,30 @@ async def request_push_permissions() -> bool:
     svc = _mobile_service
     if svc is None:
         # Desktop toasts (Windows / Linux notify-send) do not need a runtime prompt.
-        return sys.platform in {"win32", "linux"}
+        desktop = sys.platform in {"win32", "linux"} and not _looks_like_ios()
+        if not desktop:
+            logger.warning(
+                "Push permission skipped: native notification service is not "
+                "attached (IPA missing plugin, or flet run --ios web client)"
+            )
+        return desktop
     try:
         granted = await svc.request_permissions()
+        logger.info("OS notification permission granted=%s", bool(granted))
         return bool(granted)
     except Exception:  # noqa: BLE001
-        logger.exception("Android notification permission request failed")
+        logger.exception("OS notification permission request failed")
         return False
+
+
+def _looks_like_ios() -> bool:
+    """True on packaged iPhone / iPad runtimes."""
+    try:
+        from lib.core.config import _is_ios
+
+        return bool(_is_ios())
+    except Exception:  # noqa: BLE001
+        return sys.platform == "ios"
 
 
 async def notify_push_ready(language: str = "ru") -> bool:

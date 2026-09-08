@@ -81,8 +81,9 @@ Dart/Flutter-мосты, подключаемые только в нативно
    - `_daily_backup_loop` — раз в час проверка; запись `finanse_daily.db` **не чаще одного раза в локальные сутки**.
 5. Регистрация сервисов на **`page.services`** (не `page.add`): local auth, notifications.
 6. `FinanseApp.start()` — тема, PIN-гейт, навигация, UI.
-7. Post-start (сразу после первого кадра):
-   - **запрос разрешения на уведомления** (система покажет диалог один раз);
+7. Post-start (после первого кадра, с паузой ~1с на iOS):
+   - **запрос разрешения на уведомления** — не в `initialize()` плагина (iOS глотает диалог на splash);
+   - повтор на lifecycle `resume`/`show`, если окно только что стало активным;
    - daily backup, `process_due_subscriptions`, `schedule_reminders`.
 
 На `page.web is True` (`flet run --android` / web) нативные Dart-сервисы не вешаются.
