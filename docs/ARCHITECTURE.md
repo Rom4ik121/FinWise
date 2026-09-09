@@ -72,7 +72,7 @@ Dart/Flutter-мосты, подключаемые только в нативно
 
 Порядок важен для телефонов (избежать белого экрана и «Unknown control»):
 
-1. **Splash** — тёмный градиент `#0B1220` → `#121A2B`, Material-иконка кошелька, «FinWise», индикатор загрузки (`build_launch_splash`). Только визуальные контролы.
+1. **Loading** — `before_main` → `prepare_launch_page`: тёмный фон `#0B1220`, `ProgressRing`, «Загрузка…» (`build_launch_splash`). Только визуальные контролы; native splash в сборках отключён.
 2. Config → логирование → `init_db` → `build_container(..., init_database=False)`.
 3. `_seed_if_needed` — upsert валют из `assets/data/currencies.json` и настройки (язык с устройства; валюта — после первого счёта).
 4. Фоновые задачи на `page.run_task`:
@@ -83,7 +83,8 @@ Dart/Flutter-мосты, подключаемые только в нативно
 6. `FinanseApp.start()` — тема, PIN-гейт, навигация, UI.
 7. Post-start (после первого кадра, с паузой ~1с на iOS):
    - **запрос разрешения на уведомления** — не в `initialize()` плагина (iOS глотает диалог на splash);
-   - повтор на lifecycle `resume`/`show`, если окно только что стало активным;
+   - повтор на lifecycle `resume`/`show`;
+   - подтверждение OS-баннером (`push.ready`), если разрешение выдано;
    - daily backup, `process_due_subscriptions`, `schedule_reminders`.
 
 На `page.web is True` (`flet run --android` / web) нативные Dart-сервисы не вешаются.

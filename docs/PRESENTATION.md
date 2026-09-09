@@ -71,15 +71,12 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 ## 4. Splash
 
-`widgets/splash_screen.py` → `build_launch_splash`:
+`widgets/splash_screen.py` → `prepare_launch_page` / `build_launch_splash`:
 
-- Градиент **`#0B1220` → `#121A2B`**
-- Material-иконка кошелька (`ACCOUNT_BALANCE_WALLET`)
-- Заголовок **FinWise**
-- Разделитель + `ProgressRing`
-- **Без** слогана «Личный учёт финансов»
-
-Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.  
+- Тёмный градиент **`#0B1220` → `#121A2B`**
+- `ProgressRing` + «Загрузка…» (без дублирующей бренд-заставки)
+- `before_main` в `lib/main.py` + `page.window.bgcolor` — без белой вспышки
+- Native splash в сборках **отключён** (`[tool.flet.splash] android/ios/web = false`); adaptive icon: `#0B1220`  
 Скрипт `scripts/build_apk.ps1` может ещё передавать `#000000` — при сборке APK предпочтительно выровнять цвет под бренд.
 
 ---
@@ -111,9 +108,9 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 Публичный kit: `lib.presentation.components` — карточки, диалоги, инпуты, `adaptive_text` / `money_label` / `card_grid` / `page_frame` / `card_with_actions`.  
 Реализации: карточки счетов / операций / целей / долгов / подписок в `widgets/`.  
 `QuickAddSheet` (в т.ч. микрофон); `TransferSheet`; `CategoryPicker`; `CurrencyTickerPicker`;  
-`DateTimeField`; `LockScreen`; Splash; Charts (пончик, линия);  
+`AccountStripPicker` — круговая карусель счетов (иконка, цвет, название, баланс; листание замыкается) в формах операций / переводов / целей / долгов / подписок; `DateTimeField` — горизонтальная лента дней текущего месяца + полноэкранный календарь (`push_overlay`); в сетке видны все 7 дней недели и числа соседних месяцев.  
 `DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor`;  
-`pdf_export_sheet` — период, счета и разделы PDF-отчёта.
+`pdf_export_sheet` — период, счета и разделы PDF-отчёта; кнопка **Экспорт PDF** закреплена внизу листа (в шапке — компактная иконка). Сборка PDF идёт в фоне (`asyncio.to_thread`), matplotlib только с backend **Agg**.
 
 Клавиатура форм: `form_keyboard.py`. Ввод сумм: `money_input.py`.
 
@@ -151,7 +148,7 @@ Native splash / adaptive icon в `flet.toml` и Codemagic: `#0B1220`.
 - Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от `page.width`.
 - Все экраны — `page_frame` (динамические gutters). Счета 1–3 колонки; цели/долги/подписки/бюджеты — 1–2.
 - Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
-- Touch targets ≥ **40** logical px (`tap_button_style`, calendar cells, nav pads).
+- Touch targets ≥ **40** logical px (`tap_button_style`, calendar cell **height**, nav pads). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
 - Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
 - Графики: `chart_layout` / `compact_chart_size` от `page.width/height`.
 - ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный).

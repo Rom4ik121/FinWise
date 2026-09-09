@@ -1016,6 +1016,7 @@ class SettingsPage(ft.Column):
             await self._offer_file(path, kind="PDF")
         except Exception as exc:  # noqa: BLE001
             self._io_error_snack(exc)
+            raise
 
     async def backup(self) -> None:
         try:

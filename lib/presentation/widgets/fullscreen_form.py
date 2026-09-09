@@ -111,6 +111,7 @@ def build_form_shell(
     leading: Optional[ft.Control] = None,
     actions: Optional[Sequence[ft.Control]] = None,
     wrap_body: bool = True,
+    footer: Optional[ft.Control] = None,
 ) -> ft.Control:
     """Shared chrome: gradient backdrop, glass header, padded scroll body."""
     skin = get_active_skin()
@@ -175,6 +176,7 @@ def build_form_shell(
                             controls=scroll_kids,
                         ),
                     ),
+                    *([footer] if footer is not None else []),
                 ],
             ),
         ),
@@ -193,15 +195,26 @@ def open_fullscreen_form(
     save_label: str | None = None,
     show_save: bool = True,
     wrap_body: bool = True,
+    save_compact: bool = False,
+    footer: Optional[ft.Control] = None,
+    on_close: Optional[Callable[[], None]] = None,
 ) -> CloseFn:
     """Show a full-screen form with close + optional save in the header.
 
     Returns a ``close`` callback the caller can invoke after a successful save.
+    ``save_compact`` keeps a tappable icon in the header on narrow phones.
+    ``footer`` stays visible below the scroll body (primary CTA).
+    ``on_close`` runs after the overlay is dismissed (X, apply, or caller).
     """
     dismiss_fullscreen(page, key=overlay_key)
 
     def _close(_e: Any = None) -> None:
         dismiss_fullscreen(page, key=overlay_key)
+        if on_close is not None:
+            try:
+                on_close()
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _save_click(_e: ft.ControlEvent | None = None) -> None:
         if on_save is not None:
@@ -209,13 +222,24 @@ def open_fullscreen_form(
 
     actions: list[ft.Control] = []
     if show_save and on_save is not None:
-        actions.append(
-            form_save_button(
-                save_label or tr("action.save", lang),
-                icon=save_icon,
-                on_click=lambda e: run_async(page, _save_click, e),
+        if save_compact:
+            actions.append(
+                ft.IconButton(
+                    icon=save_icon,
+                    icon_color=ft.Colors.PRIMARY,
+                    tooltip=save_label or tr("action.save", lang),
+                    on_click=lambda e: run_async(page, _save_click, e),
+                    style=tap_button_style(horizontal=10, vertical=10),
+                )
             )
-        )
+        else:
+            actions.append(
+                form_save_button(
+                    save_label or tr("action.save", lang),
+                    icon=save_icon,
+                    on_click=lambda e: run_async(page, _save_click, e),
+                )
+            )
 
     close_btn = ft.IconButton(
         icon=ft.Icons.CLOSE,
@@ -244,6 +268,7 @@ def open_fullscreen_form(
             leading=close_btn,
             actions=actions,
             wrap_body=wrap_body,
+            footer=footer,
         ),
     )
     push_overlay(page, overlay)

@@ -322,7 +322,7 @@ def test_neon_glass_cards() -> None:
         set_active_skin(previous)
 
 
-def test_splash_logo_is_large() -> None:
+def test_launch_splash_is_loading_only() -> None:
     from lib.presentation.widgets.splash_screen import build_launch_splash
 
     splash = build_launch_splash(language="ru")
@@ -343,13 +343,9 @@ def test_splash_logo_is_large() -> None:
     rings = [c for c in found if isinstance(c, ft.ProgressRing)]
     images = [c for c in found if isinstance(c, ft.Image)]
     assert not images
+    assert not icons
     assert rings
-    assert icons and icons[0].size >= 100
-    assert icons[0].icon == ft.Icons.ACCOUNT_BALANCE_WALLET or getattr(
-        icons[0], "name", None
-    ) in (ft.Icons.ACCOUNT_BALANCE_WALLET, "ACCOUNT_BALANCE_WALLET", None)
-    assert any(getattr(t, "value", "") == "FinWise" for t in texts)
-    assert not any("учёт" in str(getattr(t, "value", "")).lower() for t in texts)
+    assert any("Загрузка" in str(getattr(t, "value", "")) for t in texts)
 
 
 def test_fill_loading_keeps_existing_controls() -> None:

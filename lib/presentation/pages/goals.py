@@ -57,6 +57,7 @@ from lib.presentation.utils import (
     tr,
     try_convert_amount,
 )
+from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -502,16 +503,11 @@ class GoalsPage(ft.Column):
                 autofocus=True,
             )
             convert_hint = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-            account_dd = ft.Dropdown(
-                label=tr("field.account", lang),
+            account_picker = AccountStripPicker(
+                self._page,
+                accounts,
+                lang=lang,
                 value=accounts[0].id,
-                options=[
-                    ft.DropdownOption(
-                        key=a.id,
-                        text=f"{a.name} · {format_money(a.balance, a.currency)}",
-                    )
-                    for a in accounts
-                ],
             )
             open_items = [
                 i for i in goal.items if not i.is_closed
@@ -531,9 +527,9 @@ class GoalsPage(ft.Column):
                     ],
                 )
 
-            def _refresh_conversion(_e: ft.ControlEvent | None = None) -> None:
+            def _refresh_conversion(_aid: str | None = None) -> None:
                 account = next(
-                    (a for a in accounts if a.id == account_dd.value), accounts[0]
+                    (a for a in accounts if a.id == account_picker.value), accounts[0]
                 )
                 try:
                     amount = parse_amount(amount_tf.value)
@@ -588,7 +584,7 @@ class GoalsPage(ft.Column):
             attach_grouped_digits(
                 amount_tf, lang, extra_on_change=_refresh_conversion
             )
-            bind_dropdown_select(account_dd, _refresh_conversion)
+            account_picker.bind_changed(_refresh_conversion)
             if item_dd is not None:
                 bind_dropdown_select(item_dd, _refresh_conversion)
 
@@ -600,7 +596,7 @@ class GoalsPage(ft.Column):
                 except (InvalidOperation, ValueError):
                     snack(self._page, tr("invalid_amount", lang), error=True)
                     return
-                account_id = account_dd.value or accounts[0].id
+                account_id = account_picker.value or accounts[0].id
                 account = next((a for a in accounts if a.id == account_id), accounts[0])
                 if amount > account.balance:
                     snack(self._page, tr("error.insufficient_funds", lang), error=True)
@@ -702,7 +698,7 @@ class GoalsPage(ft.Column):
                 else:
                     snack(self._page, tr("action.saved", lang))
 
-            body_fields: list[ft.Control] = [account_dd]
+            body_fields: list[ft.Control] = [account_picker]
             if item_dd is not None:
                 body_fields.append(item_dd)
             body_fields.extend([amount_tf, convert_hint])
@@ -1104,16 +1100,11 @@ class GoalsPage(ft.Column):
                 label=tr("field.amount", lang),
                 autofocus=True,
             )
-            account_dd = ft.Dropdown(
-                label=tr("field.account", lang),
+            account_picker = AccountStripPicker(
+                self._page,
+                accounts,
+                lang=lang,
                 value=accounts[0].id,
-                options=[
-                    ft.DropdownOption(
-                        key=a.id,
-                        text=f"{a.name} · {format_money(a.balance, a.currency)}",
-                    )
-                    for a in accounts
-                ],
             )
 
             async def _save() -> None:
@@ -1135,7 +1126,7 @@ class GoalsPage(ft.Column):
                     await withdraw_uc.execute(
                         goal.id,
                         amount,
-                        account_id=account_dd.value or accounts[0].id,
+                        account_id=account_picker.value or accounts[0].id,
                     )
                 except Exception as exc:  # noqa: BLE001
                     snack_exception(self._page, exc, lang=lang)
@@ -1160,7 +1151,7 @@ class GoalsPage(ft.Column):
                 title=f"{tr('goal.withdraw', lang)} · {goal.name}",
                 lang=lang,
                 overlay_key="goal_withdraw",
-                body=[account_dd, amount_tf],
+                body=[account_picker, amount_tf],
                 on_save=_save,
                 save_icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
             )

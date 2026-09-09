@@ -138,11 +138,16 @@ def register_local_auth_service(page: "ft.Page") -> bool:
     try:
         from flet_local_auth import FinanseLocalAuth
 
-        from lib.infrastructure.services.flet_services import attach_page_service
+        from lib.infrastructure.services.flet_services import (
+            attach_page_service,
+            existing_page_service,
+        )
 
-        auth = FinanseLocalAuth()
-        if not attach_page_service(page, auth):
-            return False
+        auth = existing_page_service(page, FinanseLocalAuth)
+        if auth is None:
+            auth = FinanseLocalAuth()
+            if not attach_page_service(page, auth):
+                return False
         set_local_auth_service(auth)
         logger.info("Mobile biometric service registered (platform=%s)", page.platform)
         return True

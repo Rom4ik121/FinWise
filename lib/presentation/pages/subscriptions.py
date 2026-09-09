@@ -22,12 +22,13 @@ from lib.domain.use_cases.subscriptions import (
     monthly_equivalent,
 )
 from lib.presentation.account_icons import account_icon_control, entity_icon_groups
-from lib.presentation.dropdown_options import (
-    account_dropdown_options,
-    icon_dropdown_option,
-)
+from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.form_keyboard import configure_field, wire_field_chain
 from lib.presentation.layout import h_scroll, make_v_scroll
+from lib.presentation.widgets.account_strip_picker import AccountStripPicker
+from lib.presentation.widgets.confirm_dialog import confirm_dialog
+from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
+from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.components.layout.grid import card_grid
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
@@ -1107,16 +1108,17 @@ class SubscriptionsPage(ft.Column):
             label=tr("field.amount", lang),
             value=sub.amount if sub else "",
         )
-        account_dd = ft.Dropdown(
-            label=tr("field.account", lang),
+        account_picker = AccountStripPicker(
+            self._page,
+            self._accounts,
+            lang=lang,
             value=sub.account_id if sub else self._accounts[0].id,
-            options=account_dropdown_options(self._accounts),
         )
         default_ccy = (
             sub.currency
             if sub
             else next(
-                (a.currency for a in self._accounts if a.id == account_dd.value),
+                (a.currency for a in self._accounts if a.id == account_picker.value),
                 self._accounts[0].currency,
             )
         )
@@ -1403,7 +1405,7 @@ class SubscriptionsPage(ft.Column):
                     snack(self._page, tr("invalid_amount", lang), error=True)
                     return
             account = next(
-                (a for a in self._accounts if a.id == account_dd.value),
+                (a for a in self._accounts if a.id == account_picker.value),
                 self._accounts[0],
             )
             if locked_status:
@@ -1478,7 +1480,7 @@ class SubscriptionsPage(ft.Column):
                     name_tf,
                     amount_tf,
                     currency_picker,
-                    account_dd,
+                    account_picker,
                     comment_tf,
                 ],
                 icon=ft.Icons.AUTORENEW,

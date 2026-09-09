@@ -15,10 +15,11 @@ from lib.presentation.analytics_period import (
     EXPORT_PERIOD_KEYS,
     resolve_export_period,
 )
+from lib.presentation.responsive import clamp_content_width
 from lib.presentation.skins import get_active_skin
-from lib.presentation.styles import form_section, labeled_switch
+from lib.presentation.styles import form_save_button, form_section, labeled_switch
 from lib.presentation.theme import is_dark_mode
-from lib.presentation.utils import format_date, safe_update, snack, tr
+from lib.presentation.utils import format_date, run_async, safe_update, snack, tr
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.fullscreen_form import CloseFn, open_fullscreen_form
 
@@ -300,6 +301,15 @@ def open_pdf_export_sheet(
     )
 
     close_holder: dict[str, CloseFn] = {}
+    busy = {"on": False}
+    form_w = clamp_content_width(page, margin=28, max_width=560)
+    status = ft.Text(
+        "",
+        size=12,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+        text_align=ft.TextAlign.CENTER,
+    )
+    progress = ft.ProgressRing(width=18, height=18, stroke_width=2.5, visible=False)
 
     def _collect() -> PdfExportChoice | None:
         custom_from = date_from_field.value
@@ -367,14 +377,74 @@ def open_pdf_export_sheet(
             sections=flags,
         )
 
+    def _set_busy(on: bool) -> None:
+        export_btn.disabled = on
+        progress.visible = on
+        status.value = tr("settings.export_pdf_working", lang) if on else ""
+        safe_update(export_btn)
+        safe_update(progress)
+        safe_update(status)
+
     async def _save() -> None:
+        if busy["on"]:
+            return
         choice = _collect()
         if choice is None:
+            return
+        busy["on"] = True
+        _set_busy(True)
+        try:
+            await on_export(choice)
+        except Exception:  # noqa: BLE001
+            busy["on"] = False
+            _set_busy(False)
             return
         closer = close_holder.get("close")
         if closer is not None:
             closer()
-        await on_export(choice)
+        else:
+            busy["on"] = False
+            _set_busy(False)
+
+    export_btn = form_save_button(
+        tr("settings.export_pdf", lang),
+        icon=ft.Icons.PICTURE_AS_PDF,
+        on_click=lambda e: run_async(page, _save),
+    )
+    try:
+        export_btn.width = form_w
+    except Exception:  # noqa: BLE001
+        pass
+
+    footer = ft.Container(
+        padding=ft.Padding.only(left=14, right=14, top=10, bottom=14),
+        border=ft.Border.only(
+            top=ft.BorderSide(
+                1, ft.Colors.with_opacity(0.35, ft.Colors.OUTLINE_VARIANT)
+            )
+        ),
+        content=ft.Container(
+            alignment=ft.Alignment.TOP_CENTER,
+            content=ft.Container(
+                width=form_w,
+                content=ft.Column(
+                    spacing=8,
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            tight=True,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[progress, status],
+                        ),
+                        export_btn,
+                    ],
+                ),
+            ),
+        ),
+    )
 
     closer = open_fullscreen_form(
         page,
@@ -385,8 +455,10 @@ def open_pdf_export_sheet(
         lang=lang,
         overlay_key="pdf_export_sheet",
         wrap_body=False,
+        save_compact=True,
         save_icon=ft.Icons.PICTURE_AS_PDF,
         save_label=tr("settings.export_pdf", lang),
+        footer=footer,
         body=body,
         on_save=_save,
     )

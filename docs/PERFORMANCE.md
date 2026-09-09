@@ -50,6 +50,8 @@
 
 Используется на: cashflow dashboard, analytics, account detail, sparkline debts/subs/budgets lookback, export JSON/CSV/PDF paths, currency migrate/align, month budget scan, `GetTransactionStatsUseCase`.
 
+Запись PDF (reportlab + matplotlib Agg) уходит в `asyncio.to_thread`, чтобы форма экспорта не зависала на телефоне.
+
 Фильтр репозитория **`has_debt`** — sparklines долгов не сканируют весь ledger.
 
 Лента операций (UI): день/диапазон + пагинация страницы; теги фильтруются в Python **до** LIMIT; поиск ограничен scan limit.

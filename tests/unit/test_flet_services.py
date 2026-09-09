@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from lib.infrastructure.services.flet_services import attach_page_service
+from lib.infrastructure.services.flet_services import (
+    attach_page_service,
+    existing_page_service,
+)
 
 
 class _Page:
@@ -45,3 +48,4 @@ def test_attach_registers_on_native_page() -> None:
     assert len(page.services) == 2
     assert attach_page_service(page, _A()) is True
     assert len(page.services) == 2
+    assert existing_page_service(page, _A) is first

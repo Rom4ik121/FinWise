@@ -1,4 +1,4 @@
-"""Branded launch screen shown while FinWise initializes."""
+"""Launch loading screen shown while FinWise initializes."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ _FG = "#FFFFFF"
 
 
 def build_launch_splash(*, language: str = "ru") -> ft.Control:
-    """Splash: app gradient, Material wallet icon, FinWise, loader — no tagline."""
+    """Minimal loading screen — dark gradient + spinner (no duplicate branded splash)."""
     return ft.Container(
         expand=True,
         bgcolor=_SPLASH_BOTTOM,
@@ -27,33 +27,40 @@ def build_launch_splash(*, language: str = "ru") -> ft.Control:
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,
-            spacing=16,
+            spacing=14,
             tight=True,
             controls=[
-                ft.Icon(
-                    ft.Icons.ACCOUNT_BALANCE_WALLET,
-                    size=120,
-                    color=_FG,
-                ),
-                ft.Text(
-                    tr("app.name", language),
-                    size=36,
-                    weight=ft.FontWeight.W_700,
-                    color=_FG,
-                ),
-                ft.Container(
-                    width=72,
-                    height=3,
-                    border_radius=2,
-                    bgcolor=_FG,
-                ),
-                ft.Container(height=20),
                 ft.ProgressRing(
-                    width=34,
-                    height=34,
+                    width=40,
+                    height=40,
                     color=_FG,
                     stroke_width=3,
+                ),
+                ft.Text(
+                    tr("loading", language),
+                    size=14,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
             ],
         ),
     )
+
+
+def prepare_launch_page(page: ft.Page, *, language: str = "ru") -> None:
+    """Paint the loading shell as early as Flet allows (``before_main`` hook)."""
+    page.padding = 0
+    page.bgcolor = _SPLASH_BOTTOM
+    try:
+        page.theme_mode = ft.ThemeMode.DARK
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        window = getattr(page, "window", None)
+        if window is not None:
+            window.bgcolor = _SPLASH_BOTTOM
+    except Exception:  # noqa: BLE001
+        pass
+    if not page.controls:
+        page.add(build_launch_splash(language=language))
+    page.update()

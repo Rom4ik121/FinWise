@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -114,20 +115,22 @@ async def export_configured_pdf(
             (localize_category_name(cat, lang), amt)
             for cat, amt in stats.by_category
         ]
-        return svc.export_account_period_pdf(
-            account_name=account.name,
-            currency=account.currency,
-            period_label=choice.period_label,
-            balance=account.balance,
-            income=stats.income,
-            expense=stats.expense,
-            ops_income=stats.income if account.is_corporate else stats.ops_income,
-            ops_expense=stats.expense if account.is_corporate else stats.ops_expense,
-            by_category=cats if choice.sections.categories else (),
-            expenses=expense_rows,
-            by_period=series if choice.sections.charts else (),
-            language=lang,
-            sections=choice.sections,
+        return await asyncio.to_thread(
+            lambda: svc.export_account_period_pdf(
+                account_name=account.name,
+                currency=account.currency,
+                period_label=choice.period_label,
+                balance=account.balance,
+                income=stats.income,
+                expense=stats.expense,
+                ops_income=stats.income if account.is_corporate else stats.ops_income,
+                ops_expense=stats.expense if account.is_corporate else stats.ops_expense,
+                by_category=cats if choice.sections.categories else (),
+                expenses=expense_rows,
+                by_period=series if choice.sections.charts else (),
+                language=lang,
+                sections=choice.sections,
+            )
         )
 
     income = Decimal("0")
@@ -195,21 +198,23 @@ async def export_configured_pdf(
     if flags.subscriptions and getattr(c, "list_subscriptions", None) is not None:
         subs = await c.list_subscriptions.execute()
 
-    return svc.export_summary_pdf(
-        accounts=selected if flags.accounts else (),
-        transactions=txs,
-        goals=goals,
-        debts=debts,
-        subscriptions=subs,
-        language=lang,
-        period_label=choice.period_label,
-        scope_label=_scope_label(choice, lang),
-        currency=base,
-        total_balance=quantize_money(balance),
-        income=quantize_money(income),
-        expense=quantize_money(expense),
-        by_category=by_category,
-        by_period=by_period,
-        tx_rows=tx_rows,
-        sections=flags,
+    return await asyncio.to_thread(
+        lambda: svc.export_summary_pdf(
+            accounts=selected if flags.accounts else (),
+            transactions=txs,
+            goals=goals,
+            debts=debts,
+            subscriptions=subs,
+            language=lang,
+            period_label=choice.period_label,
+            scope_label=_scope_label(choice, lang),
+            currency=base,
+            total_balance=quantize_money(balance),
+            income=quantize_money(income),
+            expense=quantize_money(expense),
+            by_category=by_category,
+            by_period=by_period,
+            tx_rows=tx_rows,
+            sections=flags,
+        )
     )

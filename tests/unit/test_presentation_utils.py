@@ -123,3 +123,9 @@ def test_user_facing_error_hides_technical_text() -> None:
         user_facing_error(ValueError("Account not found: abc"), "ru")
         == "Что-то пошло не так. Попробуйте ещё раз."
     )
+    assert user_facing_error(
+        RuntimeError(
+            "reportlab is not installed; add it to dependencies for PDF export"
+        ),
+        "en",
+    ) == "Could not create the PDF"

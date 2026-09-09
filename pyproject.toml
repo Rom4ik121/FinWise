@@ -115,6 +115,10 @@ color = "#0B1220"
 dark_color = "#0B1220"
 icon_bgcolor = "#0B1220"
 icon_dark_bgcolor = "#0B1220"
+# Python paints the loading screen immediately — skip duplicate native splash.
+android = false
+ios = false
+web = false
 
 # Fill team_id after joining Apple Developer Program (Membership → Team ID).
 # Ad Hoc / development profiles must include your iPhone 12 UDID.

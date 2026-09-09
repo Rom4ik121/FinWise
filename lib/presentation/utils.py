@@ -72,6 +72,7 @@ _DOMAIN_ERROR_KEYS: dict[str, str] = {
     "Reminder time is invalid": "settings.reminder_time_invalid",
     "reminder_time must be HH:MM": "settings.reminder_time_invalid",
     "reminder_time out of range": "settings.reminder_time_invalid",
+    "reportlab is not installed; add it to dependencies for PDF export": "settings.export_pdf_failed",
     "Goal is archived": "goal.archived_block",
     "Goal is already completed": "goal.completed_block",
     "Debt is archived": "debt.archived_block",
@@ -122,6 +123,7 @@ _DOMAIN_ERROR_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Category already exists", "category.duplicate"),
     ("Unknown exchange", "account.exchange.unknown"),
     ("reminder_", "error.generic"),
+    ("reportlab is not installed", "settings.export_pdf_failed"),
 )
 
 _TECHNICAL_RE = re.compile(
@@ -444,6 +446,8 @@ def user_facing_error(
         return tr("goal.completed_block", lang)
     if "insufficient" in lower:
         return tr("error.insufficient_funds", lang)
+    if "reportlab" in lower:
+        return tr("settings.export_pdf_failed", lang)
     if (
         "not permitted" in lower
         or "errno 1" in lower

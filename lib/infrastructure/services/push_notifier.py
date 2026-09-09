@@ -46,6 +46,8 @@ class MobileNotificationsBridge(Protocol):
 
 
 _mobile_service: MobileNotificationsBridge | None = None
+_push_page: Any | None = None
+_push_tasks: set[asyncio.Task[Any]] = set()
 _seq = 0
 
 # Back-compat aliases used by older tests.
@@ -56,6 +58,12 @@ def set_android_notifications(service: MobileNotificationsBridge | None) -> None
     """Register the mobile OS notification service."""
     global _mobile_service
     _mobile_service = service
+
+
+def set_push_page(page: Any | None) -> None:
+    """Keep the Flet page so sync ``dispatch_push`` can use ``page.run_task``."""
+    global _push_page
+    _push_page = page
 
 
 def get_android_notifications() -> MobileNotificationsBridge | None:
@@ -128,6 +136,24 @@ def reminder_fire_at(
         return fire_utc
     # Still arm an OS alert for due/overdue items (app may be killed).
     return moment + timedelta(seconds=20)
+
+
+def future_os_fire_at(
+    when: Optional[datetime],
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    """UTC instant to zoned-schedule, or ``None`` to show immediately."""
+    if when is None:
+        return None
+    when_utc = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    when_utc = when_utc.astimezone(timezone.utc)
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    if when_utc <= moment + timedelta(seconds=2):
+        return None
+    return when_utc
 
 
 def _icon_path() -> str:
@@ -270,6 +296,7 @@ async def show_os_notification(
                 play_sound=True,
                 enable_vibration=True,
             )
+            logger.info("OS notification shown id=%s kind=%s", nid, kind)
             return True
         except Exception:  # noqa: BLE001
             logger.exception("Android OS notification failed")
@@ -304,12 +331,7 @@ async def schedule_os_notification(
             else next_notification_id()
         )
 
-    when_utc: Optional[datetime] = None
-    if when is not None:
-        when_utc = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
-        when_utc = when_utc.astimezone(timezone.utc)
-        if when_utc <= datetime.now(timezone.utc) + timedelta(seconds=20):
-            when_utc = None
+    when_utc = future_os_fire_at(when)
 
     svc = _mobile_service
     schedule = getattr(svc, "schedule_notification", None) if svc is not None else None
@@ -337,6 +359,19 @@ async def schedule_os_notification(
     )
 
 
+def _log_push_task(task: asyncio.Task[Any]) -> None:
+    _push_tasks.discard(task)
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    except Exception:  # noqa: BLE001
+        logger.exception("OS push task crashed")
+        return
+    if exc is not None:
+        logger.exception("OS push failed", exc_info=exc)
+
+
 def dispatch_push(
     title: str,
     body: str,
@@ -349,6 +384,24 @@ def dispatch_push(
     if push_disabled_by_env():
         return
 
+    async def _go() -> bool:
+        return await show_os_notification(
+            title,
+            body,
+            notification_id=notification_id,
+            kind=kind,
+            related_id=related_id,
+        )
+
+    page = _push_page
+    run_task = getattr(page, "run_task", None) if page is not None else None
+    if callable(run_task):
+        try:
+            run_task(_go)
+            return
+        except Exception:  # noqa: BLE001
+            logger.debug("page.run_task push failed; trying asyncio", exc_info=True)
+
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -357,18 +410,12 @@ def dispatch_push(
             if not _show_windows_toast(title, body):
                 _show_linux_notification(title, body)
         else:
-            logger.debug("Skipping Android push outside event loop")
+            logger.warning("Skipping mobile OS push: no running event loop")
         return
 
-    loop.create_task(
-        show_os_notification(
-            title,
-            body,
-            notification_id=notification_id,
-            kind=kind,
-            related_id=related_id,
-        )
-    )
+    task = loop.create_task(_go())
+    _push_tasks.add(task)
+    task.add_done_callback(_log_push_task)
 
 
 def register_android_notifications(page: Any) -> bool:
@@ -390,10 +437,16 @@ def register_android_notifications(page: Any) -> bool:
 
     try:
         from flet_local_notifications import FinanseLocalNotifications
+        from lib.infrastructure.services.flet_services import existing_page_service
 
-        service = FinanseLocalNotifications()
-        if attach_page_service(page, service):
-            set_android_notifications(service)
+        bound = existing_page_service(page, FinanseLocalNotifications)
+        if bound is None:
+            bound = FinanseLocalNotifications()
+            if not attach_page_service(page, bound):
+                bound = None
+        if bound is not None:
+            set_android_notifications(bound)
+            set_push_page(page)
             logger.info("Local notification service registered")
             return True
     except Exception:  # noqa: BLE001
@@ -408,12 +461,18 @@ def register_android_notifications(page: Any) -> bool:
             PagePlatform.ANDROID_TV,
         }:
             return False
-        from lib.infrastructure.services.flet_services import attach_page_service
+        from lib.infrastructure.services.flet_services import (
+            attach_page_service,
+            existing_page_service,
+        )
 
-        service = FletAndroidNotifications()
-        if not attach_page_service(page, service):
-            return False
-        set_android_notifications(service)
+        bound = existing_page_service(page, FletAndroidNotifications)
+        if bound is None:
+            bound = FletAndroidNotifications()
+            if not attach_page_service(page, bound):
+                return False
+        set_android_notifications(bound)
+        set_push_page(page)
         logger.info("Android push notification service registered")
         return True
     except Exception:  # noqa: BLE001

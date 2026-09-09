@@ -5,6 +5,7 @@ from __future__ import annotations
 from lib.presentation.responsive import (
     MIN_TAP,
     calendar_cell_size,
+    calendar_day_width,
     clamp_content_width,
     compact_chart_size,
     form_control_width,
@@ -44,6 +45,8 @@ def test_form_and_calendar_fit_narrow() -> None:
     assert form_control_width(se) is None  # type: ignore[arg-type]
     assert clamp_content_width(se, margin=24, max_width=400) <= 320  # type: ignore[arg-type]
     assert calendar_cell_size(se) >= MIN_TAP  # type: ignore[arg-type]
+    day_w = calendar_day_width(se)  # type: ignore[arg-type]
+    assert 7 * day_w + 6 * 4 <= 320 - 40
     w, h = compact_chart_size(se)  # type: ignore[arg-type]
     assert w <= 320
     assert 100 <= h <= 180

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -23,6 +24,20 @@ logger = logging.getLogger("finanse.infrastructure.services.export")
 
 _PDF_FONT = "FinWiseSans"
 _PDF_FONT_BOLD = "FinWiseSans-Bold"
+
+# GUI backends hang on phones (no display). Set before any matplotlib import.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
+
+def _ensure_matplotlib_agg() -> None:
+    """Force the headless Agg backend before pyplot is imported."""
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("matplotlib Agg backend skipped", exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -133,6 +148,7 @@ def _register_unicode_pdf_fonts() -> tuple[str, str, Path | None]:
 
 
 def _apply_matplotlib_unicode_font(ttf_path: Path | None) -> None:
+    _ensure_matplotlib_agg()
     if ttf_path is None or not ttf_path.is_file():
         return
     try:
@@ -407,6 +423,7 @@ class ExportService:
                 "reportlab is not installed; add it to dependencies for PDF export"
             ) from exc
 
+        _ensure_matplotlib_agg()
         lang = (language or "en").lower()
         if lang not in ("ru", "en", "uz"):
             lang = "en"
@@ -807,6 +824,7 @@ class ExportService:
                 "reportlab is not installed; add it to dependencies for PDF export"
             ) from exc
 
+        _ensure_matplotlib_agg()
         lang = (language or "en").lower()
         if lang not in ("ru", "en", "uz"):
             lang = "en"
@@ -820,6 +838,7 @@ class ExportService:
         path = self._resolve(filename or f"account_report_{safe}_{stamp}.pdf")
 
         font_reg, font_bold, ttf_path = _register_unicode_pdf_fonts()
+        _ensure_matplotlib_agg()
         _apply_matplotlib_unicode_font(ttf_path)
 
         def _money(value: Decimal) -> str:
@@ -1102,61 +1121,63 @@ class ExportService:
         if not rows or total <= 0:
             return None
         try:
-            import matplotlib
-
-            matplotlib.use("Agg")
+            _ensure_matplotlib_agg()
             import matplotlib.pyplot as plt
         except ImportError:
             return None
-        for regular, _bold in _unicode_font_candidates():
-            if regular.is_file():
-                _apply_matplotlib_unicode_font(regular)
-                break
-        labels = [name[:20] for name, _ in rows]
-        sizes = [float(amt) for _name, amt in rows]
-        palette = [
-            "#0D9488",
-            "#2563EB",
-            "#F59E0B",
-            "#E11D48",
-            "#8B5CF6",
-            "#14B8A6",
-            "#F97316",
-            "#64748B",
-            "#06B6D4",
-            "#84CC16",
-            "#EC4899",
-            "#A855F7",
-        ]
-        colors = [palette[i % len(palette)] for i in range(len(sizes))]
-        path = self.export_dir / f"_tmp_pie_{datetime.now(timezone.utc).timestamp()}.png"
-        fig, ax = plt.subplots(figsize=(6.2, 4.4), facecolor="white")
-        wedges, texts, autotexts = ax.pie(
-            sizes,
-            labels=None,
-            autopct="%1.1f%%",
-            startangle=90,
-            colors=colors,
-            pctdistance=0.72,
-            wedgeprops={"linewidth": 1.5, "edgecolor": "white"},
-            textprops={"fontsize": 8, "color": "#0F172A"},
-        )
-        for t in autotexts:
-            t.set_fontsize(8)
-            t.set_fontweight("bold")
-        ax.legend(
-            wedges,
-            labels,
-            loc="center left",
-            bbox_to_anchor=(1.0, 0.5),
-            fontsize=8,
-            frameon=False,
-        )
-        ax.axis("equal")
-        fig.tight_layout()
-        fig.savefig(path, dpi=160, bbox_inches="tight", facecolor="white")
-        plt.close(fig)
-        return path
+        try:
+            for regular, _bold in _unicode_font_candidates():
+                if regular.is_file():
+                    _apply_matplotlib_unicode_font(regular)
+                    break
+            labels = [name[:20] for name, _ in rows]
+            sizes = [float(amt) for _name, amt in rows]
+            palette = [
+                "#0D9488",
+                "#2563EB",
+                "#F59E0B",
+                "#E11D48",
+                "#8B5CF6",
+                "#14B8A6",
+                "#F97316",
+                "#64748B",
+                "#06B6D4",
+                "#84CC16",
+                "#EC4899",
+                "#A855F7",
+            ]
+            colors = [palette[i % len(palette)] for i in range(len(sizes))]
+            path = self.export_dir / f"_tmp_pie_{datetime.now(timezone.utc).timestamp()}.png"
+            fig, ax = plt.subplots(figsize=(6.2, 4.4), facecolor="white")
+            wedges, texts, autotexts = ax.pie(
+                sizes,
+                labels=None,
+                autopct="%1.1f%%",
+                startangle=90,
+                colors=colors,
+                pctdistance=0.72,
+                wedgeprops={"linewidth": 1.5, "edgecolor": "white"},
+                textprops={"fontsize": 8, "color": "#0F172A"},
+            )
+            for t in autotexts:
+                t.set_fontsize(8)
+                t.set_fontweight("bold")
+            ax.legend(
+                wedges,
+                labels,
+                loc="center left",
+                bbox_to_anchor=(1.0, 0.5),
+                fontsize=8,
+                frameon=False,
+            )
+            ax.axis("equal")
+            fig.tight_layout()
+            fig.savefig(path, dpi=160, bbox_inches="tight", facecolor="white")
+            plt.close(fig)
+            return path
+        except Exception:  # noqa: BLE001
+            logger.warning("PDF pie chart failed", exc_info=True)
+            return None
 
     def _render_cashflow_line_png(
         self,
@@ -1166,37 +1187,39 @@ class ExportService:
         if len(series) < 2:
             return None
         try:
-            import matplotlib
-
-            matplotlib.use("Agg")
+            _ensure_matplotlib_agg()
             import matplotlib.pyplot as plt
         except ImportError:
             return None
-        for regular, _bold in _unicode_font_candidates():
-            if regular.is_file():
-                _apply_matplotlib_unicode_font(regular)
-                break
-        L = _account_pdf_strings((language or "en").lower())
-        labels = [p[0][-5:] if len(p[0]) >= 5 else p[0] for p in series]
-        income = [float(p[1]) for p in series]
-        expense = [float(p[2]) for p in series]
-        path = self.export_dir / f"_tmp_line_{datetime.now(timezone.utc).timestamp()}.png"
-        fig, ax = plt.subplots(figsize=(7.4, 3.5), facecolor="white")
-        ax.plot(labels, income, label=L["income_short"], color="#0D9488", linewidth=2.2)
-        ax.plot(labels, expense, label=L["expense_short"], color="#E11D48", linewidth=2.2)
-        ax.fill_between(range(len(labels)), income, alpha=0.12, color="#0D9488")
-        ax.fill_between(range(len(labels)), expense, alpha=0.12, color="#E11D48")
-        ax.legend(fontsize=8, frameon=False)
-        ax.set_facecolor("#F8FAFC")
-        ax.grid(True, axis="y", color="#E2E8F0", linewidth=0.8)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.tick_params(axis="x", labelrotation=45, labelsize=7)
-        ax.tick_params(axis="y", labelsize=8)
-        fig.tight_layout()
-        fig.savefig(path, dpi=160, bbox_inches="tight", facecolor="white")
-        plt.close(fig)
-        return path
+        try:
+            for regular, _bold in _unicode_font_candidates():
+                if regular.is_file():
+                    _apply_matplotlib_unicode_font(regular)
+                    break
+            L = _account_pdf_strings((language or "en").lower())
+            labels = [p[0][-5:] if len(p[0]) >= 5 else p[0] for p in series]
+            income = [float(p[1]) for p in series]
+            expense = [float(p[2]) for p in series]
+            path = self.export_dir / f"_tmp_line_{datetime.now(timezone.utc).timestamp()}.png"
+            fig, ax = plt.subplots(figsize=(7.4, 3.5), facecolor="white")
+            ax.plot(labels, income, label=L["income_short"], color="#0D9488", linewidth=2.2)
+            ax.plot(labels, expense, label=L["expense_short"], color="#E11D48", linewidth=2.2)
+            ax.fill_between(range(len(labels)), income, alpha=0.12, color="#0D9488")
+            ax.fill_between(range(len(labels)), expense, alpha=0.12, color="#E11D48")
+            ax.legend(fontsize=8, frameon=False)
+            ax.set_facecolor("#F8FAFC")
+            ax.grid(True, axis="y", color="#E2E8F0", linewidth=0.8)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.tick_params(axis="x", labelrotation=45, labelsize=7)
+            ax.tick_params(axis="y", labelsize=8)
+            fig.tight_layout()
+            fig.savefig(path, dpi=160, bbox_inches="tight", facecolor="white")
+            plt.close(fig)
+            return path
+        except Exception:  # noqa: BLE001
+            logger.warning("PDF cashflow chart failed", exc_info=True)
+            return None
 
     def _resolve(self, filename: str) -> Path:
         path = Path(filename)

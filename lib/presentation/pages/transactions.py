@@ -21,20 +21,15 @@ from lib.presentation.category_lookup import index_categories, lookup_category
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.count_up import mark_money_text, play_count_ups
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.dropdown_options import (
-    account_dropdown_options,
-    icon_dropdown_option,
-)
-from lib.presentation.frequent_account import (
-    account_option_label,
-    prepare_tx_account_choices,
-)
+from lib.presentation.dropdown_options import icon_dropdown_option
+from lib.presentation.frequent_account import prepare_tx_account_choices
 from lib.presentation.money_input import (
     make_amount_field,
     parse_amount,
     parse_optional_amount,
 )
 from lib.presentation.utils import format_date, format_money, run_async, safe_update, snack, snack_exception, tr, bind_dropdown_select
+from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.date_time_field import DateTimeField
@@ -981,15 +976,12 @@ class TransactionsPage(ft.Column):
             fee_tf.visible = show
             safe_update(fee_tf)
 
-        account_dd = ft.Dropdown(
-            label=tr("field.account", lang),
+        account_picker = AccountStripPicker(
+            self._page,
+            accounts,
+            lang=lang,
             value=default_account_id,
-            options=account_dropdown_options(
-                accounts,
-                label_fn=lambda a: account_option_label(
-                    a, frequent_id=frequent_id, lang=lang
-                ),
-            ),
+            frequent_id=frequent_id,
         )
         edit_account = next(
             (a for a in accounts if a.id == default_account_id), None
@@ -1047,6 +1039,7 @@ class TransactionsPage(ft.Column):
             label=tr("field.date", lang),
             value=tx.date if tx else datetime.now(timezone.utc),
             with_time=True,
+            quick_strip=True,
         )
         from lib.presentation.widgets.attachment_picker import AttachmentPicker
 
@@ -1064,7 +1057,7 @@ class TransactionsPage(ft.Column):
                 return
 
             account = next(
-                (a for a in accounts if a.id == account_dd.value), accounts[0]
+                (a for a in accounts if a.id == account_picker.value), accounts[0]
             )
             tags = [
                 p.strip().lstrip("#")
@@ -1202,7 +1195,7 @@ class TransactionsPage(ft.Column):
                 amount_tf,
                 items_editor,
                 fee_tf,
-                account_dd,
+                account_picker,
                 category_picker,
                 goal_dd,
                 date_field,

@@ -95,8 +95,8 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 ### `ExportService`
 
 - CSV операций.
-- PDF-сводка и отчёт по счёту — reportlab / matplotlib; кириллица через `assets/fonts/LiberationSans*.ttf` (не Helvetica).
-- Настраиваемый экспорт: период (в т.ч. свои даты), scope счетов (все / личные / корпоративные / выбранные), разделы (`PdfSectionFlags`).
+- PDF-сводка и отчёт по счёту — reportlab / matplotlib (**Agg**, иначе GUI-backend зависает на телефоне); кириллица через `assets/fonts/LiberationSans*.ttf` (не Helvetica).
+- Настраиваемый экспорт: период (в т.ч. свои даты), scope счетов (все / личные / корпоративные / выбранные), разделы (`PdfSectionFlags`). Тяжёлая запись PDF — `asyncio.to_thread`, чтобы UI не замерзал.
 
 ### `ExportDataUseCase` + шифрование JSON
 
@@ -113,7 +113,7 @@ Wipe таблиц с учётом FK — «сброс данных» в наст
 | Модуль | Роль |
 |--------|------|
 | `notification_service.py` | Очередь in-app уведомлений; `push` → `dispatch_push` |
-| `push_notifier.py` | Mobile (`FinanseLocalNotifications` + launcher icon), Windows toast, Linux `notify-send` with `assets/icon.png`; **не** тянуть `flet-android-notifications` в IPA. iOS: **не** звать `requestPermissions` в `initialize()` (диалог на splash глотается); запрос после первого кадра + на `resume`. IPA: патч `AppDelegate.swift` (`UNUserNotificationCenter.delegate`) через `scripts/patch_ios_appdelegate.py`, иначе нет пункта Настройки → Уведомления и баннеров |
+| `push_notifier.py` | Mobile (`FinanseLocalNotifications`), Windows toast, Linux `notify-send`. iOS: ask permission after first frame (not in `initialize()`); AppDelegate must set `UNUserNotificationCenter.delegate` **and** `willPresent` (иначе баннеры молчат, пока приложение открыто). Не подменять уже прикреплённый Flet-сервис новым экземпляром. Ближайшие напоминания `zonedSchedule` (порог 2с), не схлопывать 20с в `show()`. Android: `@drawable/ic_stat_finwise` (не adaptive mipmap). |
 | `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней вперёд |
 
 Env: **`FINANCE_DISABLE_PUSH=1`** — отключить OS-push (в pytest включено autouse).

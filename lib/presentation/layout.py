@@ -17,6 +17,7 @@ from lib.presentation.responsive import (  # noqa: F401
     MIN_TAP,
     breakpoint,
     calendar_cell_size,
+    calendar_day_width,
     card_padding,
     clamp_content_width,
     compact_chart_size,

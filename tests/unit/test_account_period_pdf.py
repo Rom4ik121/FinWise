@@ -178,3 +178,12 @@ def test_account_pdf_strings_cover_langs() -> None:
         assert s["balance"]
         assert s["income"]
         assert s["expense"]
+
+
+def test_matplotlib_pdf_forces_agg_backend() -> None:
+    from lib.infrastructure.services.export_service import _ensure_matplotlib_agg
+
+    _ensure_matplotlib_agg()
+    import matplotlib
+
+    assert matplotlib.get_backend().lower() == "agg"

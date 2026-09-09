@@ -216,8 +216,12 @@ class FinanseApp:
         register_local_auth_service(page)
         register_android_notifications(page)
 
-        page.controls.clear()
-        page.add(self._stage)
+        # Swap splash → shell in one step so Flutter never paints a blank frame.
+        if len(page.controls) == 1:
+            page.controls[0] = self._stage
+        else:
+            page.controls.clear()
+            page.add(self._stage)
         from lib.presentation.ui_feedback import bind_ui_feedback
 
         bind_ui_feedback(page)

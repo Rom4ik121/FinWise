@@ -26,6 +26,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "often",
         "uz": "tez-tez",
     },
+    "account.swipe_hint": {
+        "ru": "Крутите счета влево или вправо — список по кругу",
+        "en": "Spin accounts left or right — the list loops",
+        "uz": "Hisoblarni chapga yoki o‘ngga aylantiring — ro‘yxat doira bo‘ylab",
+    },
+    "account.prev": {
+        "ru": "Предыдущий счёт",
+        "en": "Previous account",
+        "uz": "Oldingi hisob",
+    },
+    "account.next": {
+        "ru": "Следующий счёт",
+        "en": "Next account",
+        "uz": "Keyingi hisob",
+    },
 
     "account.stats.title": {
         "ru": "Счёт",
@@ -813,6 +828,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Разделы",
         "en": "Sections",
         "uz": "Bo‘limlar",
+    },
+    "dashboard.hide_sections": {
+        "ru": "Скрыть",
+        "en": "Hide",
+        "uz": "Yashirish",
+    },
+    "dashboard.show_sections": {
+        "ru": "Показать",
+        "en": "Show",
+        "uz": "Ko‘rsatish",
+    },
+    "dashboard.shortcuts_hint": {
+        "ru": "Цели, долги, бюджеты и ещё",
+        "en": "Goals, debts, budgets and more",
+        "uz": "Maqsadlar, qarzlar, byudjetlar va boshqalar",
     },
     "dashboard.budgets": {
         "ru": "Бюджеты месяца",
@@ -1690,6 +1720,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Минута",
         "en": "Minute",
         "uz": "Daqiqa",
+    },
+    "date.month_days": {
+        "ru": "Дни месяца",
+        "en": "Days of the month",
+        "uz": "Oy kunlari",
     },
     "field.direction": {
         "ru": "Направление",
@@ -3577,6 +3612,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Настроить PDF-отчёт",
         "en": "Set up PDF report",
         "uz": "PDF hisobotni sozlash",
+    },
+    "settings.export_pdf_working": {
+        "ru": "Собираем PDF…",
+        "en": "Building PDF…",
+        "uz": "PDF tayyorlanmoqda…",
+    },
+    "settings.export_pdf_failed": {
+        "ru": "Не удалось создать PDF",
+        "en": "Could not create the PDF",
+        "uz": "PDF yaratib bo‘lmadi",
     },
     "settings.export_period": {
         "ru": "Период",

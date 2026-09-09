@@ -8,6 +8,7 @@ from pathlib import Path
 from lib.infrastructure.services.push_notifier import (
     _icon_path,
     dispatch_push,
+    future_os_fire_at,
     push_disabled_by_env,
     reminder_fire_at,
     stable_notification_id,
@@ -75,3 +76,14 @@ def test_request_push_permissions_false_without_service_on_ios(monkeypatch) -> N
     import asyncio
 
     asyncio.run(_run())
+
+
+def test_future_os_fire_at_keeps_twenty_second_arm() -> None:
+    now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
+    when = now + timedelta(seconds=20)
+    assert future_os_fire_at(when, now=now) == when
+
+
+def test_future_os_fire_at_due_now_shows_immediately() -> None:
+    now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
+    assert future_os_fire_at(now, now=now) is None

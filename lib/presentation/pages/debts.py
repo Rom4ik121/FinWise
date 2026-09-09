@@ -22,7 +22,6 @@ from lib.presentation.notification_badges import (
     pending_related_ids,
 )
 from lib.presentation.dropdown_options import (
-    account_dropdown_option,
     icon_dropdown_option,
 )
 from lib.core.config import ACCOUNT_COLORS
@@ -59,6 +58,7 @@ from lib.presentation.utils import (
     tr,
     try_convert_amount,
 )
+from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
 from lib.presentation.widgets.date_time_field import DateTimeField
@@ -535,16 +535,11 @@ class DebtsPage(ft.Column):
                 default_principal = debt.next_payment_amount
 
             convert_hint = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-            account_dd = ft.Dropdown(
-                label=tr("field.account", lang),
+            account_picker = AccountStripPicker(
+                self._page,
+                accounts,
+                lang=lang,
                 value=default_account,
-                options=[
-                    ft.DropdownOption(
-                        key=a.id,
-                        text=f"{a.name} · {format_money(a.balance, a.currency)}",
-                    )
-                    for a in accounts
-                ],
             )
 
             principal_tf: Optional[ft.TextField] = None
@@ -567,12 +562,12 @@ class DebtsPage(ft.Column):
                 from lib.presentation.form_keyboard import wire_field_chain
 
                 wire_field_chain(self._page, [principal_tf, interest_tf])
-                body = [account_dd, principal_tf, interest_tf, convert_hint]
+                body = [account_picker, principal_tf, interest_tf, convert_hint]
 
-                def _refresh_conversion(_e: ft.ControlEvent | None = None) -> None:
+                def _refresh_conversion(_aid: str | None = None) -> None:
                     assert principal_tf is not None and interest_tf is not None
                     account = next(
-                        (a for a in accounts if a.id == account_dd.value), accounts[0]
+                        (a for a in accounts if a.id == account_picker.value), accounts[0]
                     )
                     try:
                         principal = parse_amount(principal_tf.value or "0")
@@ -611,7 +606,7 @@ class DebtsPage(ft.Column):
                 attach_grouped_digits(
                     interest_tf, lang, extra_on_change=_refresh_conversion
                 )
-                bind_dropdown_select(account_dd, _refresh_conversion)
+                account_picker.bind_changed(_refresh_conversion)
             else:
                 amount_tf = make_amount_field(
                     lang,
@@ -637,12 +632,12 @@ class DebtsPage(ft.Column):
                 from lib.presentation.form_keyboard import wire_field_chain
 
                 wire_field_chain(self._page, [amount_tf])
-                body = [account_dd, amount_tf, convert_hint]
+                body = [account_picker, amount_tf, convert_hint]
 
-                def _refresh_conversion(_e: ft.ControlEvent | None = None) -> None:
+                def _refresh_conversion(_aid: str | None = None) -> None:
                     assert amount_tf is not None
                     account = next(
-                        (a for a in accounts if a.id == account_dd.value), accounts[0]
+                        (a for a in accounts if a.id == account_picker.value), accounts[0]
                     )
                     try:
                         amount = parse_amount(amount_tf.value)
@@ -674,10 +669,10 @@ class DebtsPage(ft.Column):
                 attach_grouped_digits(
                     amount_tf, lang, extra_on_change=_refresh_conversion
                 )
-                bind_dropdown_select(account_dd, _refresh_conversion)
+                account_picker.bind_changed(_refresh_conversion)
 
             async def _save() -> None:
-                account_id = account_dd.value or accounts[0].id
+                account_id = account_picker.value or accounts[0].id
                 account = next(
                     (a for a in accounts if a.id == account_id), accounts[0]
                 )
@@ -1446,7 +1441,7 @@ class DebtsPage(ft.Column):
                     direction_dd,
                 ]
             )
-            account_dd: Optional[ft.Dropdown] = None
+            account_dd: Optional[AccountStripPicker] = None
             record_cash = ft.Checkbox(
                 label=tr("debt.record_cash", lang),
                 value=True,
@@ -1455,16 +1450,12 @@ class DebtsPage(ft.Column):
             if debt and debt.account_id and any(a.id == debt.account_id for a in accounts):
                 default_acc = debt.account_id
             if accounts and default_acc:
-                account_dd = ft.Dropdown(
+                account_dd = AccountStripPicker(
+                    self._page,
+                    accounts,
+                    lang=lang,
                     label=tr("debt.default_account", lang),
                     value=default_acc,
-                    options=[
-                        account_dropdown_option(
-                            a,
-                            text=f"{a.name} · {format_money(a.balance, a.currency)}",
-                        )
-                        for a in accounts
-                    ],
                 )
             account_bits: list[ft.Control] = []
             if debt is None and account_dd is not None:

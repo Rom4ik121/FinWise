@@ -13,6 +13,7 @@ from lib.domain.entities.transaction import TransactionType
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups, mark_progress
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls, ui_animation
+from lib.presentation.haptics import haptic
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
     DEBT_ALERT_KINDS,
@@ -98,6 +99,7 @@ class DashboardPage(ft.Column):
         self._chart_slot: ft.Container | None = None
         self._sections_body: ft.Column | None = None
         self._sections_chevron: ft.Icon | None = None
+        self._sections_hint: ft.Text | None = None
         self._sections_slot: ft.Container | None = None
         self._budget_slot: ft.Container | None = None
         self._add_slot: ft.Container | None = None
@@ -279,6 +281,7 @@ class DashboardPage(ft.Column):
             pass
 
     def _toggle_sections(self, _e: ft.ControlEvent | None = None) -> None:
+        haptic("light")
         self._sections_open = not self._sections_open
         self._apply_visibility()
 
@@ -434,11 +437,14 @@ class DashboardPage(ft.Column):
         if self._sections_body is not None:
             self._sections_body.visible = self._sections_open
             safe_update(self._sections_body)
+        if self._sections_hint is not None:
+            self._sections_hint.visible = not self._sections_open
+            safe_update(self._sections_hint)
         if self._sections_chevron is not None:
             self._sections_chevron.icon = (
-                ft.Icons.KEYBOARD_ARROW_DOWN
+                ft.Icons.EXPAND_LESS
                 if self._sections_open
-                else ft.Icons.KEYBOARD_ARROW_UP
+                else ft.Icons.EXPAND_MORE
             )
             safe_update(self._sections_chevron)
 
@@ -677,41 +683,83 @@ class DashboardPage(ft.Column):
         *,
         goals_badge: int,
         debts_badge: int,
-        subs_badge: int,
         budgets_badge: int,
+        subs_badge: int,
     ) -> ft.Control:
+        skin = get_active_skin()
+        open_now = self._sections_open
         chevron = ft.Icon(
-            (
-                ft.Icons.KEYBOARD_ARROW_DOWN
-                if self._sections_open
-                else ft.Icons.KEYBOARD_ARROW_UP
-            ),
-            size=22,
+            ft.Icons.EXPAND_LESS if open_now else ft.Icons.EXPAND_MORE,
+            size=20,
             color=ft.Colors.ON_SURFACE_VARIANT,
         )
         self._sections_chevron = chevron
+        hint = ft.Text(
+            tr("dashboard.shortcuts_hint", lang),
+            size=12,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            visible=not open_now,
+        )
+        self._sections_hint = hint
         header = ft.Container(
             ink=True,
             on_click=self._toggle_sections,
-            padding=ft.Padding.symmetric(vertical=4),
+            border_radius=14,
+            padding=ft.Padding.symmetric(vertical=2),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Text(
-                        tr("dashboard.shortcuts", lang),
-                        size=15,
-                        weight=ft.FontWeight.W_700,
-                        color=ft.Colors.ON_SURFACE,
+                    ft.Row(
+                        spacing=10,
+                        tight=True,
                         expand=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Container(
+                                width=32,
+                                height=32,
+                                border_radius=10,
+                                bgcolor=skin.badge_bg(dark=True),
+                                alignment=ft.Alignment.CENTER,
+                                content=ft.Icon(
+                                    ft.Icons.APPS_OUTLINED,
+                                    size=18,
+                                    color=skin.badge_fg(dark=True),
+                                ),
+                            ),
+                            ft.Column(
+                                spacing=0,
+                                tight=True,
+                                expand=True,
+                                controls=[
+                                    ft.Text(
+                                        tr("dashboard.shortcuts", lang),
+                                        size=15,
+                                        weight=ft.FontWeight.W_700,
+                                        color=ft.Colors.ON_SURFACE,
+                                    ),
+                                    hint,
+                                ],
+                            ),
+                        ],
                     ),
-                    chevron,
+                    ft.Container(
+                        width=32,
+                        height=32,
+                        border_radius=16,
+                        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                        alignment=ft.Alignment.CENTER,
+                        content=chevron,
+                    ),
                 ],
             ),
         )
         body = ft.Column(
             spacing=8,
-            visible=self._sections_open,
+            visible=open_now,
             controls=[
                 ft.Row(
                     spacing=8,
@@ -771,7 +819,10 @@ class DashboardPage(ft.Column):
             ],
         )
         self._sections_body = body
-        return ft.Column(spacing=8, tight=True, controls=[header, body])
+        return card_surface(
+            ft.Column(spacing=12, tight=True, controls=[header, body]),
+            padding=14,
+        )
 
     def _analytics_button(self, lang: str) -> ft.Container:
         """Full-width entry to the analytics secondary screen."""

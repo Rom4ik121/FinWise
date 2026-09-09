@@ -13,19 +13,17 @@ from lib.domain.entities.account import Account
 from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.transaction import Transaction, TransactionType
 from lib.domain.use_cases.transactions import FEE_CATEGORY, make_fee_expense
-from lib.presentation.dropdown_options import account_dropdown_options, icon_dropdown_option
-from lib.presentation.frequent_account import (
-    account_option_label,
-    prepare_tx_account_choices,
-)
+from lib.presentation.frequent_account import prepare_tx_account_choices
 from lib.presentation.money_input import (
     format_amount_value,
     make_amount_field,
     parse_amount,
     parse_optional_amount,
 )
+from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.styles import form_section
 from lib.presentation.utils import bind_dropdown_select, run_async, safe_update, snack, snack_exception, tr
+from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.attachment_picker import AttachmentPicker
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.date_time_field import DateTimeField
@@ -187,19 +185,14 @@ async def _show_form(
         label=tr("field.fee", lang),
         expand=True,
     )
-    account_dd = ft.Dropdown(
-        label=tr("field.account", lang),
+    account_picker = AccountStripPicker(
+        page,
+        accounts,
+        lang=lang,
         value=default_account_id,
-        options=account_dropdown_options(
-            accounts,
-            label_fn=lambda a: account_option_label(
-                a, frequent_id=default_account_id, lang=lang
-            ),
-        ),
-        expand=True,
-        visible=locked_account is None,
-        disabled=locked_account is not None,
+        frequent_id=default_account_id,
     )
+    account_picker.visible = locked_account is None
     locked_account_label = (
         ft.Text(
             tr(
@@ -280,19 +273,15 @@ async def _show_form(
         existing=(list(existing.attachments) if editing else None),
     )
     # Corporate (locked) workspace or edit: pick any past/future date.
-    allow_custom_date = editing or (
-        locked_account is not None
-        and bool(getattr(locked_account, "is_corporate", False))
+    # Personal add also gets a date so the month strip can pick today / nearby days.
+    date_field = DateTimeField(
+        page,
+        lang=lang,
+        label=tr("field.date", lang),
+        value=(existing.date if editing else datetime.now(timezone.utc)),
+        with_time=True,
+        quick_strip=True,
     )
-    date_field: DateTimeField | None = None
-    if allow_custom_date:
-        date_field = DateTimeField(
-            page,
-            lang=lang,
-            label=tr("field.date", lang),
-            value=(existing.date if editing else datetime.now(timezone.utc)),
-            with_time=True,
-        )
     from lib.presentation.form_keyboard import configure_field, wire_field_chain
 
     configure_field(comment_tf, "text")
@@ -300,7 +289,7 @@ async def _show_form(
     wire_field_chain(page, [amount_tf, fee_tf, comment_tf, tags_tf])
 
     async def _save() -> None:
-        account = next((a for a in accounts if a.id == account_dd.value), None)
+        account = next((a for a in accounts if a.id == account_picker.value), None)
         if account is None:
             snack(page, tr("error.no_accounts", lang), error=True)
             return
@@ -452,7 +441,7 @@ async def _show_form(
                         if locked_account_label is not None
                         else []
                     ),
-                    account_dd,
+                    account_picker,
                     category_picker,
                 ],
                 icon=ft.Icons.CATEGORY,
@@ -460,7 +449,7 @@ async def _show_form(
             form_section(
                 tr("form.section.details", lang),
                 [
-                    *([date_field] if date_field is not None else []),
+                    date_field,
                     comment_tf,
                     tags_tf,
                     attachments,

@@ -15,14 +15,8 @@ from lib.presentation.money_input import (
     parse_amount,
     parse_optional_amount,
 )
-from lib.presentation.dropdown_options import (
-    account_dropdown_option,
-    account_dropdown_options,
-    icon_dropdown_option,
-)
 from lib.presentation.styles import form_section
 from lib.presentation.utils import (
-    bind_dropdown_select,
     format_money,
     load_rate_book,
     run_async,
@@ -31,6 +25,7 @@ from lib.presentation.utils import (
     snack_exception,
     tr,
 )
+from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 
 if TYPE_CHECKING:
@@ -88,13 +83,6 @@ def open_transfer(
     run_async(page, _open)
 
 
-def _transfer_account_label(account: Account, *, lang: str) -> str:
-    base = f"{account.name} ({account.currency})"
-    if getattr(account, "is_corporate", False):
-        return f"{base} · {tr('account.corporate_badge', lang)}"
-    return base
-
-
 async def _show_form(
     page: ft.Page,
     state: "AppState",
@@ -114,21 +102,19 @@ async def _show_form(
     else:
         to_id = next((a.id for a in accounts if a.id != from_id), accounts[0].id)
 
-    options = account_dropdown_options(
+    from_picker = AccountStripPicker(
+        page,
         accounts,
-        label_fn=lambda a: _transfer_account_label(a, lang=lang),
-    )
-    from_dd = ft.Dropdown(
+        lang=lang,
         label=tr("transfer.from", lang),
         value=from_id,
-        options=options,
-        expand=True,
     )
-    to_dd = ft.Dropdown(
+    to_picker = AccountStripPicker(
+        page,
+        accounts,
+        lang=lang,
         label=tr("transfer.to", lang),
         value=to_id,
-        options=list(options),
-        expand=True,
     )
     amount_tf = make_amount_field(
         lang,
@@ -141,11 +127,12 @@ async def _show_form(
         label=tr("field.fee", lang),
         expand=True,
     )
-    fee_account_dd = ft.Dropdown(
+    fee_picker = AccountStripPicker(
+        page,
+        accounts,
+        lang=lang,
         label=tr("transfer.fee_account", lang),
         value=from_id,
-        options=list(options),
-        expand=True,
     )
     convert_hint = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
     comment_tf = ft.TextField(label=tr("field.comment", lang), expand=True)
@@ -159,8 +146,8 @@ async def _show_form(
 
     def _sync_fee_account_options() -> None:
         """Offer from/to first, then the rest of active accounts."""
-        source = _account(from_dd.value)
-        dest = _account(to_dd.value)
+        source = _account(from_picker.value)
+        dest = _account(to_picker.value)
         ordered: list[Account] = []
         seen: set[str] = set()
         for account in (source, dest, *accounts):
@@ -168,26 +155,19 @@ async def _show_form(
                 continue
             seen.add(account.id)
             ordered.append(account)
-        fee_account_dd.options = [
-            account_dropdown_option(
-                a, text=_transfer_account_label(a, lang=lang)
-            )
-            for a in ordered
-        ]
-        if fee_account_dd.value not in seen:
-            fee_account_dd.value = source.id
-        fee_acc = _account(fee_account_dd.value)
+        current_fee = fee_picker.value if fee_picker.value in seen else source.id
+        fee_picker.set_accounts(ordered, value=current_fee, notify=False)
+        fee_acc = _account(fee_picker.value)
         fee_tf.label = f"{tr('field.fee', lang)} ({fee_acc.currency})"
         try:
-            safe_update(fee_account_dd)
             safe_update(fee_tf)
         except Exception:  # noqa: BLE001
             pass
 
     def _refresh_hint(_e: ft.ControlEvent | None = None) -> None:
-        source = _account(from_dd.value)
-        dest = _account(to_dd.value)
-        fee_acc = _account(fee_account_dd.value)
+        source = _account(from_picker.value)
+        dest = _account(to_picker.value)
+        fee_acc = _account(fee_picker.value)
         try:
             amount = parse_amount(amount_tf.value)
             fee = parse_optional_amount(fee_tf.value)
@@ -239,12 +219,18 @@ async def _show_form(
         convert_hint.color = ft.Colors.ON_SURFACE_VARIANT
         safe_update(convert_hint)
 
-    def _on_accounts_changed(_e: ft.ControlEvent | None = None) -> None:
+    def _on_accounts_changed(_aid: str | None = None) -> None:
+        source = _account(from_picker.value)
+        amount_tf.label = f"{tr('field.amount', lang)} ({source.currency})"
+        try:
+            safe_update(amount_tf)
+        except Exception:  # noqa: BLE001
+            pass
         _sync_fee_account_options()
         _refresh_hint()
 
-    def _on_fee_account_changed(_e: ft.ControlEvent | None = None) -> None:
-        fee_acc = _account(fee_account_dd.value)
+    def _on_fee_account_changed(_aid: str | None = None) -> None:
+        fee_acc = _account(fee_picker.value)
         fee_tf.label = f"{tr('field.fee', lang)} ({fee_acc.currency})"
         try:
             safe_update(fee_tf)
@@ -254,10 +240,11 @@ async def _show_form(
 
     attach_grouped_digits(amount_tf, lang, extra_on_change=_refresh_hint)
     attach_grouped_digits(fee_tf, lang, extra_on_change=_refresh_hint)
-    bind_dropdown_select(from_dd, _on_accounts_changed)
-    bind_dropdown_select(to_dd, _on_accounts_changed)
-    bind_dropdown_select(fee_account_dd, _on_fee_account_changed)
+    from_picker.bind_changed(_on_accounts_changed)
+    to_picker.bind_changed(_on_accounts_changed)
+    fee_picker.bind_changed(_on_fee_account_changed)
     _sync_fee_account_options()
+    _on_accounts_changed()
 
     async def _save() -> None:
         try:
@@ -268,9 +255,9 @@ async def _show_form(
         except (InvalidOperation, ValueError):
             snack(page, tr("invalid_amount", lang), error=True)
             return
-        source = _account(from_dd.value)
-        dest = _account(to_dd.value)
-        fee_acc = _account(fee_account_dd.value)
+        source = _account(from_picker.value)
+        dest = _account(to_picker.value)
+        fee_acc = _account(fee_picker.value)
         if source.id == dest.id:
             snack(page, tr("transfer.same_account", lang), error=True)
             return
@@ -301,7 +288,7 @@ async def _show_form(
         body=[
             form_section(
                 tr("form.section.route", lang),
-                [from_dd, to_dd],
+                [from_picker, to_picker],
                 icon=ft.Icons.SWAP_HORIZ,
             ),
             form_section(
@@ -311,7 +298,7 @@ async def _show_form(
             ),
             form_section(
                 tr("form.section.fee", lang),
-                [fee_tf, fee_account_dd],
+                [fee_tf, fee_picker],
                 icon=ft.Icons.RECEIPT_LONG,
             ),
             form_section(

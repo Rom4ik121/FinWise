@@ -20,7 +20,7 @@
 
 Info.plist должен запрашивать Face ID, микрофон, распознавание речи.
 
-Сборка IPA патчит `ios/Runner/AppDelegate.swift` (`scripts/patch_ios_appdelegate.py`): без `UNUserNotificationCenter.delegate` iPhone не показывает системный диалог и баннеры.
+Сборка IPA патчит `ios/Runner/AppDelegate.swift` (`scripts/patch_ios_appdelegate.py`): `UNUserNotificationCenter.delegate` + `willPresent` (баннеры, пока FinWise открыт).
 
 Без **новой** IPA правки плагинов / Python на устройстве не появятся.
 

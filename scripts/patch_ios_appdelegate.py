@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 MARKER = "FinWiseLocalNotifications"
+PRESENT_MARKER = "FinWiseLocalNotificationsPresent"
 
 IMPORT_BLOCK = """import flutter_local_notifications
 import UserNotifications
@@ -30,11 +31,24 @@ HOOK_BLOCK = f"""    // {MARKER}: required for iOS local notification permission
     }}
 """
 
+WILL_PRESENT_METHOD = f"""
+  // {PRESENT_MARKER}: show banners while FinWise is in the foreground.
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {{
+    if #available(iOS 14.0, *) {{
+      completionHandler([.banner, .sound, .badge, .list])
+    }} else {{
+      completionHandler([.alert, .sound, .badge])
+    }}
+  }}
+"""
+
 
 def patch_text(text: str) -> str:
     """Return AppDelegate.swift with notification hooks inserted."""
-    if MARKER in text:
-        return text
     out = text
     if "import flutter_local_notifications" not in out:
         if "import Flutter" in out:
@@ -53,6 +67,12 @@ def patch_text(text: str) -> str:
             out = out.replace(needle, HOOK_BLOCK + "    " + needle.lstrip(), 1)
         else:
             out += "\n" + HOOK_BLOCK
+    if PRESENT_MARKER not in out:
+        idx = out.rfind("}")
+        if idx != -1:
+            out = out[:idx] + WILL_PRESENT_METHOD + out[idx:]
+        else:
+            out += WILL_PRESENT_METHOD
     return out
 
 

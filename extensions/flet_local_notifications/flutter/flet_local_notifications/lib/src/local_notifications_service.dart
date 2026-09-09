@@ -83,7 +83,7 @@ class FinanseLocalNotificationsService extends FletService {
       case "schedule_notification":
         return _schedule(args);
       case "cancel_notification":
-        await _plugin.cancel((args?["id"] as num?)?.toInt() ?? 0);
+        await _plugin.cancel((_asMap(args)["id"] as num?)?.toInt() ?? 0);
         return true;
       case "cancel_all":
         await _plugin.cancelAll();
@@ -184,51 +184,63 @@ class FinanseLocalNotificationsService extends FletService {
     return true;
   }
 
-  NotificationDetails _details(dynamic args) {
-    final channelId = (args?["channel_id"] as String?) ?? "finwise_reminders";
+  NotificationDetails _details(dynamic args, {bool androidIcon = true}) {
+    final map = _asMap(args);
+    final channelId = (map["channel_id"] as String?) ?? "finwise_reminders";
     final channelName =
-        (args?["channel_name"] as String?) ?? "FinWise reminders";
-    // App launcher icon so the OS tray / shade shows FinWise branding.
-    const launcherIcon = '@mipmap/ic_launcher';
+        (map["channel_name"] as String?) ?? "FinWise reminders";
+    const darwin = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      presentBanner: true,
+      presentList: true,
+      interruptionLevel: InterruptionLevel.active,
+    );
     return NotificationDetails(
       android: AndroidNotificationDetails(
         channelId,
         channelName,
         channelDescription: "Debt, subscription, and goal alerts",
-        importance: Importance.high,
-        priority: Priority.high,
+        importance: Importance.max,
+        priority: Priority.max,
         playSound: true,
         enableVibration: true,
-        icon: launcherIcon,
-        largeIcon: const DrawableResourceAndroidBitmap(launcherIcon),
-        ticker: 'FinWise',
+        icon: androidIcon ? "@drawable/ic_stat_finwise" : null,
+        ticker: "FinWise",
+        category: AndroidNotificationCategory.reminder,
+        visibility: NotificationVisibility.public,
       ),
-      iOS: const DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        presentBanner: true,
-        presentList: true,
-      ),
-      macOS: const DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        presentBanner: true,
-        presentList: true,
-      ),
+      iOS: darwin,
+      macOS: darwin,
     );
   }
 
+  Map<String, dynamic> _asMap(dynamic args) {
+    if (args is Map) {
+      return args.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return {};
+  }
+
   Future<bool> _show(dynamic args) async {
-    final id = (args?["id"] as num?)?.toInt() ?? 1;
-    await _plugin.show(
-      id,
-      (args?["title"] as String?) ?? "FinWise",
-      (args?["body"] as String?) ?? "",
-      _details(args),
-    );
-    return true;
+    final map = _asMap(args);
+    final id = (map["id"] as num?)?.toInt() ?? 1;
+    final title = (map["title"] as String?) ?? "FinWise";
+    final body = (map["body"] as String?) ?? "";
+    try {
+      await _plugin.show(id, title, body, _details(map));
+      return true;
+    } catch (err) {
+      debugPrint("show with notification icon failed: $err");
+    }
+    try {
+      await _plugin.show(id, title, body, _details(map, androidIcon: false));
+      return true;
+    } catch (err) {
+      debugPrint("show fallback failed: $err");
+      return false;
+    }
   }
 
   tz.TZDateTime _toTz(DateTime when) {
@@ -244,23 +256,24 @@ class FinanseLocalNotificationsService extends FletService {
   }
 
   Future<bool> _schedule(dynamic args) async {
-    final whenIso = args?["when_iso"] as String?;
+    final map = _asMap(args);
+    final whenIso = map["when_iso"] as String?;
     if (whenIso == null || whenIso.isEmpty) {
-      return _show(args);
+      return _show(map);
     }
     DateTime when;
     try {
       when = DateTime.parse(whenIso);
     } catch (_) {
-      return _show(args);
+      return _show(map);
     }
     if (when.isBefore(DateTime.now().toUtc().subtract(const Duration(seconds: 5)))) {
-      return _show(args);
+      return _show(map);
     }
-    final id = (args?["id"] as num?)?.toInt() ?? 1;
-    final title = (args?["title"] as String?) ?? "FinWise";
-    final body = (args?["body"] as String?) ?? "";
-    final details = _details(args);
+    final id = (map["id"] as num?)?.toInt() ?? 1;
+    final title = (map["title"] as String?) ?? "FinWise";
+    final body = (map["body"] as String?) ?? "";
+    final details = _details(map);
     final at = _toTz(when);
     try {
       await _plugin.zonedSchedule(

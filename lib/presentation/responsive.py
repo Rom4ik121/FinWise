@@ -477,12 +477,15 @@ def tap_icon_button(
     )
 
 
+def calendar_day_width(page: ft.Page | None = None) -> int:
+    """Width of one of 7 weekday columns so Sunday is never clipped."""
+    inner = max(240.0, page_width(page) - 56)
+    return max(32, int((inner - 24) / 7))
+
+
 def calendar_cell_size(page: ft.Page | None = None) -> int:
-    """Day-cell edge length — at least MIN_TAP on phones."""
-    # 7 cells + gaps must fit; on SE (~320-48 pad) ≈ 38px.
-    usable = clamp_content_width(page, margin=32, max_width=420)
-    cell = int((usable - 12) / 7)
-    return max(MIN_TAP, min(48, cell))
+    """Day-cell HEIGHT — at least MIN_TAP; width is ``calendar_day_width``."""
+    return max(MIN_TAP, min(52, calendar_day_width(page) + 8))
 
 
 def compact_chart_size(page: ft.Page | None = None) -> tuple[int, int]:

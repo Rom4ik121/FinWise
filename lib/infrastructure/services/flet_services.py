@@ -13,6 +13,19 @@ from typing import Any
 logger = logging.getLogger("finanse.infrastructure.services.flet_services")
 
 
+def existing_page_service(page: Any, service_type: type) -> Any | None:
+    """Return the attached instance of ``service_type``, if any."""
+    if page is None:
+        return None
+    try:
+        for item in getattr(page, "services", None) or []:
+            if type(item) is service_type:
+                return item
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def attach_page_service(
     page: Any,
     service: Any,

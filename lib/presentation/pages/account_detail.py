@@ -228,10 +228,6 @@ class AccountDetailPage(ft.Column):
                 if selected
                 else glass_layer()
             ),
-            border=ft.Border.all(
-                1,
-                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
-            ),
             ink=True,
             on_click=on_click,
             content=ft.Text(
@@ -271,10 +267,7 @@ class AccountDetailPage(ft.Column):
         for key, chip in self._period_chip_map.items():
             selected = key == self._period
             chip.bgcolor = skin.badge_bg(dark=dark) if selected else None
-            chip.border = ft.Border.all(
-                1,
-                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
-            )
+            chip.border = None
             label = chip.content
             if isinstance(label, ft.Text):
                 label.color = (
@@ -758,6 +751,7 @@ class AccountDetailPage(ft.Column):
             )
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=lang)
+            raise
 
     def _edit_tx_from_detail(self, tx) -> None:
         """Edit on this account screen — never jump to global Transactions."""

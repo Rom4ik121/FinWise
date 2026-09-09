@@ -321,10 +321,6 @@ class AnalyticsPage(ft.Column):
                 if selected
                 else glass_layer()
             ),
-            border=ft.Border.all(
-                1,
-                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
-            ),
             ink=True,
             animate=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
             on_click=on_click,
@@ -427,10 +423,7 @@ class AnalyticsPage(ft.Column):
         for key, chip in mapping.items():
             selected = key == selected_key
             chip.bgcolor = skin.badge_bg(dark=dark) if selected else None
-            chip.border = ft.Border.all(
-                1,
-                skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
-            )
+            chip.border = None
             label = chip.content
             if isinstance(label, ft.Text):
                 label.color = (

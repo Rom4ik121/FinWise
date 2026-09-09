@@ -198,17 +198,10 @@ async def _flet_main(page: ft.Page) -> None:
     """Async Flet target: wire container, background task, UI."""
     global _rate_task, _reminder_task, _daily_backup_task
 
-    from lib.presentation.widgets.splash_screen import build_launch_splash
+    from lib.presentation.widgets.splash_screen import prepare_launch_page
 
-    # Match native splash / classic dark shell so phones never flash white.
-    page.padding = 0
-    page.bgcolor = "#0B1220"
-    try:
-        page.theme_mode = ft.ThemeMode.DARK
-    except Exception:  # noqa: BLE001
-        pass
-    page.add(build_launch_splash())
-    page.update()
+    # ``before_main`` usually paints this already; keep idempotent for tests.
+    prepare_launch_page(page)
 
     config = get_default_config()
     setup_logging(log_dir=config.log_dir)
@@ -259,11 +252,11 @@ async def _flet_main(page: ft.Page) -> None:
                     logger.debug(
                         "Could not write push permission flag", exc_info=True
                     )
-                if granted and settings.notifications_enabled:
-                    try:
-                        await notify_push_ready(normalize_lang(settings.language))
-                    except Exception:  # noqa: BLE001
-                        logger.exception("push ready banner failed")
+            if granted and settings.notifications_enabled:
+                try:
+                    await notify_push_ready(normalize_lang(settings.language))
+                except Exception:  # noqa: BLE001
+                    logger.exception("push ready banner failed")
         except Exception:  # noqa: BLE001
             logger.exception("Push permission request failed")
 
@@ -328,7 +321,9 @@ def run(config: Optional[AppConfig] = None) -> None:
             os.environ.get("FLET_SERVER_IP"),
             os.environ.get("FLET_SERVER_PORT"),
         )
-        ft.run(_flet_main)
+        from lib.presentation.widgets.splash_screen import prepare_launch_page
+
+        ft.run(_flet_main, before_main=prepare_launch_page)
         return
 
     view_raw = (os.environ.get("FLET_VIEW") or "desktop").strip().lower()
@@ -351,10 +346,12 @@ def run(config: Optional[AppConfig] = None) -> None:
     if kwargs.get("host") in {"*", "all"}:
         kwargs["host"] = "0.0.0.0"
 
+    from lib.presentation.widgets.splash_screen import prepare_launch_page
+
     logger.info(
         "Flet launch view=%s host=%s port=%s",
         kwargs.get("view", ft.AppView.FLET_APP),
         kwargs.get("host"),
         kwargs.get("port") or "auto",
     )
-    ft.run(_flet_main, **kwargs)
+    ft.run(_flet_main, before_main=prepare_launch_page, **kwargs)

@@ -648,6 +648,8 @@ def form_header_bar(
                     controls=list(actions or []),
                     tight=True,
                     spacing=4,
+                    wrap=False,
+                    expand=False,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
