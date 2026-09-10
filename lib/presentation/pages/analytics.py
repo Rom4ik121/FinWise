@@ -32,7 +32,13 @@ from lib.presentation.styles import (
 )
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.ui_motion import restore_scroll, reset_ui_animating, set_ui_animating, snapshot_scroll
+from lib.presentation.ui_motion import (
+    chart_enter,
+    restore_scroll,
+    reset_ui_animating,
+    set_ui_animating,
+    snapshot_scroll,
+)
 from lib.presentation.skins import get_active_skin
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
@@ -125,6 +131,7 @@ class AnalyticsPage(ft.Column):
         self._period_chip_map: dict[str, ft.Container] = {}
         self._section_chip_map: dict[str, ft.Container] = {}
         self._animate_charts = False
+        self._charts_entered_keys: set[str] = set()
         self._section_hosts: dict[str, ft.Container] = {}
         self._section_lists: dict[str, ft.ListView] = {}
         self._section_offsets: dict[str, float] = {}
@@ -631,6 +638,13 @@ class AnalyticsPage(ft.Column):
             page=self._page,
             animate=bool(self._animate_charts),
         )
+        pie = chart_enter(
+            self,
+            pie,
+            self._page,
+            refresh=bool(self._animate_charts),
+            key=f"pie:{title}",
+        )
         from lib.presentation.responsive import fit_font
 
         legend_size = fit_font(12, self._page, minimum=10, maximum=14)
@@ -971,19 +985,25 @@ class AnalyticsPage(ft.Column):
                         tight=True,
                         controls=[
                             section_title(tr("dashboard.dynamics", lang)),
-                            build_line_chart_image(
-                                period_labels,
-                                series_income,
-                                series_expense,
-                                title="",
-                                width=chart_w,
-                                height=max(chart_h, 180),
-                                dark=dark,
-                                language=lang,
-                                show_income=True,
-                                show_expense=True,
-                                page=self._page,
-                                animate=bool(self._animate_charts),
+                            chart_enter(
+                                self,
+                                build_line_chart_image(
+                                    period_labels,
+                                    series_income,
+                                    series_expense,
+                                    title="",
+                                    width=chart_w,
+                                    height=max(chart_h, 180),
+                                    dark=dark,
+                                    language=lang,
+                                    show_income=True,
+                                    show_expense=True,
+                                    page=self._page,
+                                    animate=bool(self._animate_charts),
+                                ),
+                                self._page,
+                                refresh=bool(self._animate_charts),
+                                key="line",
                             ),
                         ],
                     ),

@@ -7,11 +7,14 @@ from lib.presentation.ui_motion import (
     DUR_FAST,
     DUR_MED,
     DUR_SLOW,
+    apply_overlay_enter,
     cache_reduced_motion,
+    chart_enter,
     motion_animation,
     motion_ms,
     prefers_reduced_motion,
     reduce_motion_from_env,
+    wrap_enter,
 )
 
 
@@ -65,3 +68,76 @@ def test_skeleton_list_builds() -> None:
     assert row is not None
     host = skeleton_list(rows=3)
     assert len(host.controls) == 3
+
+
+def test_wrap_enter_skips_when_not_playing() -> None:
+    import flet as ft
+
+    inner = ft.Container()
+    assert wrap_enter(inner, play=False) is inner
+
+
+def test_wrap_enter_wraps_when_playing() -> None:
+    import flet as ft
+
+    inner = ft.Container()
+    host = wrap_enter(inner, play=True)
+    assert host is not inner
+    assert getattr(host, "opacity", 1) == 0
+
+
+def test_wrap_enter_respects_reduce_motion(monkeypatch) -> None:
+    import flet as ft
+
+    monkeypatch.setenv("FINANCE_REDUCE_MOTION", "1")
+    inner = ft.Container()
+    assert wrap_enter(inner, play=True) is inner
+    monkeypatch.delenv("FINANCE_REDUCE_MOTION", raising=False)
+
+
+def test_chart_enter_plays_once_per_key() -> None:
+    import flet as ft
+
+    class _Owner:
+        pass
+
+    owner = _Owner()
+    first = ft.Text("a")
+    second = ft.Text("b")
+    wrapped = chart_enter(owner, first, refresh=False, key="pie")
+    skipped = chart_enter(owner, second, refresh=False, key="pie")
+    refreshed = chart_enter(owner, second, refresh=True, key="pie")
+    assert wrapped is not first
+    assert skipped is second
+    assert refreshed is not second
+
+
+def test_apply_overlay_enter_stamps_opacity() -> None:
+    import flet as ft
+
+    box = ft.Container()
+    apply_overlay_enter(box)
+    assert box.opacity == 0
+
+
+def test_settings_accordion_toggles_without_page() -> None:
+    import flet as ft
+
+    from lib.presentation.pages.settings import _settings_section
+
+    section = _settings_section(
+        "T",
+        ft.Icons.SETTINGS,
+        [ft.Text("x")],
+        expanded=False,
+    )
+    apply = (section.data or {}).get("apply")
+    body = (section.data or {}).get("body")
+    assert callable(apply)
+    assert body is not None
+    assert body.visible is False
+    apply(True)
+    assert body.visible is True
+    assert body.opacity == 1
+    apply(False)
+    assert body.visible is False

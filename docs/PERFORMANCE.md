@@ -111,7 +111,7 @@
 | Модуль | Роль |
 |--------|------|
 | `count_up.py` | Count-up денег при Refresh (~0.55 с); скрытый баланс / простые % KPI пропускаются |
-| `ui_motion.py` | `replace_controls`, scroll memory, animate flag |
+| `ui_motion.py` | `replace_controls`, scroll memory, animate flag, `wrap_enter` / `chart_enter`, overlay fade |
 | `reload_gate.py` | Слияние `reload()`; скрытые вкладки **не** перезагружаются, пока снова на экране |
 | `fullscreen_form.py` | `push_overlay` / dismiss: один слот на ключ, дерево формы сбрасывается (без утечки overlay на телефоне) |
 | `widgets/period_scale.py` | Шкала периода на summary rings |

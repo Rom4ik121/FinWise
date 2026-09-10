@@ -137,7 +137,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 | `ui_feedback.py` | Зелёный/красный chip поверх overlay |
 | `tx_query.py` | Paged load транзакций (500 / 25k) через use case |
 | `reload_gate.py` | Coalesce частых reload |
-| `ui_motion.py` | `replace_controls`, scroll memory, ease-out tokens (150–280ms), Reduce Motion, press scale |
+| `ui_motion.py` | `replace_controls`, scroll memory, ease-out tokens (150–280ms), Reduce Motion, press scale, `wrap_enter` / `chart_enter`, overlay enter stamp |
 | `haptics.py` | Light impact on taps / success / error; cooldown so it never spam-buzzes |
 | `icon_registry.py` / `account_icons.py` | Иконки и валютные глифы |
 | `analytics_period.py` | `enumerate_period_keys`, `fill_time_series` |
@@ -154,6 +154,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
 - Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
 - Motion: tab fade ~220ms ease-out (not bounce); overlays fade/slide; cards scale to 0.98 on press; toasts ease in from the top. iOS Reduce Motion / `FINANCE_REDUCE_MOTION=1` skips animation. Neon glass blur is capped (~8–10) so it does not strain the eyes.
+- Charts (analytics / account / dashboard) fade+slide in on first paint and manual refresh only — silent `ReloadGate` reloads skip to avoid jank. PDF export chips/actions and icon/color pickers use the same press + selection haptic language. Settings accordion eases expand/collapse (opacity + scale, delayed hide). Lock screen stays static.
 - First paint of empty lists uses **skeleton rows**, not a blank flash. Hidden-tab reloads stay coalesced (`ReloadGate` + `AppState.notify(coalesce=True)`).
 - Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
 - Графики: `chart_layout` / `compact_chart_size` от `page.width/height`.

@@ -16,6 +16,7 @@ from lib.domain.entities.category import (
 )
 from lib.domain.entities.transaction import TransactionType
 from lib.presentation.styles import page_header
+from lib.presentation.ui_motion import bind_press, overlay_enter_style
 from lib.presentation.utils import category_icon, run_async, safe_update, snack, snack_exception, tr
 from lib.infrastructure.services.localization import localize_category_name
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
@@ -287,7 +288,7 @@ class CategoryPicker(ft.Column):
                     ),
                 )
             )
-            return ft.Container(
+            tile = ft.Container(
                 border_radius=14,
                 bgcolor=(
                     ft.Colors.PRIMARY_CONTAINER
@@ -329,12 +330,18 @@ class CategoryPicker(ft.Column):
                     ],
                 ),
             )
+            bind_press(tile, haptic_kind="selection", page=self._page)
+            return tile
 
         tiles: list[ft.Control] = [
-            ft.FilledButton(
-                tr("category.create", lang),
-                icon=ft.Icons.ADD,
-                on_click=lambda _e: _select(_CREATE_KEY),
+            bind_press(
+                ft.FilledButton(
+                    tr("category.create", lang),
+                    icon=ft.Icons.ADD,
+                    on_click=lambda _e: _select(_CREATE_KEY),
+                ),
+                haptic_kind="light",
+                page=self._page,
             ),
             ft.Text(
                 tr("category.create_hint", lang),
@@ -364,6 +371,7 @@ class CategoryPicker(ft.Column):
             bottom=0,
             bgcolor=ft.Colors.SURFACE,
             data=_PICKER_KEY,
+            **overlay_enter_style(self._page),
             content=ft.SafeArea(
                 expand=True,
                 content=ft.Column(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import flet as ft
@@ -32,6 +33,13 @@ from lib.presentation.styles import (
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
 from lib.presentation.components.layout.page_shell import page_column, page_frame
+from lib.presentation.ui_motion import (
+    DUR_MED,
+    bind_press,
+    motion_animation,
+    motion_ms,
+    prefers_reduced_motion,
+)
 from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, snack_exception, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -46,31 +54,108 @@ def _settings_section(
     *,
     expanded: bool = False,
     on_toggle: Optional[Callable[[ft.Container, bool], None]] = None,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     """Expandable card block with icon title (accordion-friendly)."""
-    body = ft.Column(
+    state = {"open": bool(expanded)}
+    token = {"n": 0}
+    body_inner = ft.Column(
         spacing=12,
         tight=True,
-        visible=expanded,
         controls=list(controls),
     )
-    chevron = ft.Icon(
-        ft.Icons.EXPAND_LESS if expanded else ft.Icons.EXPAND_MORE,
-        size=22,
-        color=ft.Colors.ON_SURFACE_VARIANT,
+    body = ft.Container(
+        content=body_inner,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        alignment=ft.Alignment.TOP_CENTER,
+        visible=bool(expanded),
+        opacity=1 if expanded else 0,
+        scale=1,
+        animate_opacity=motion_animation(DUR_MED, page),
+        animate_scale=motion_animation(DUR_MED, page),
+    )
+    chevron = ft.Container(
+        width=24,
+        height=24,
+        alignment=ft.Alignment.CENTER,
+        rotate=ft.Rotate(math.pi if expanded else 0),
+        animate_rotation=motion_animation(DUR_MED, page),
+        content=ft.Icon(
+            ft.Icons.EXPAND_MORE,
+            size=22,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+        ),
     )
 
-    def _apply(open_: bool) -> None:
-        body.visible = open_
-        chevron.icon = ft.Icons.EXPAND_LESS if open_ else ft.Icons.EXPAND_MORE
+    def _sync_chrome(open_: bool) -> None:
+        chevron.rotate = ft.Rotate(math.pi if open_ else 0)
         try:
-            safe_update(body)
             safe_update(chevron)
         except Exception:  # noqa: BLE001
             pass
 
+    def _apply(open_: bool) -> None:
+        if state["open"] == open_:
+            _sync_chrome(open_)
+            return
+        state["open"] = open_
+        token["n"] += 1
+        gen = token["n"]
+        _sync_chrome(open_)
+        reduced = prefers_reduced_motion(page) or page is None
+        if reduced or motion_ms(DUR_MED, page) == 0:
+            body.visible = open_
+            body.opacity = 1 if open_ else 0
+            body.scale = 1
+            try:
+                safe_update(body)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        if open_:
+            body.visible = True
+            body.opacity = 0
+            body.scale = 0.97
+            try:
+                safe_update(body)
+            except Exception:  # noqa: BLE001
+                pass
+
+            async def _reveal() -> None:
+                await asyncio.sleep(0.016)
+                if token["n"] != gen:
+                    return
+                body.opacity = 1
+                body.scale = 1
+                try:
+                    safe_update(body)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            run_async(page, _reveal)
+            return
+
+        body.opacity = 0
+        body.scale = 0.97
+        try:
+            safe_update(body)
+        except Exception:  # noqa: BLE001
+            pass
+
+        async def _hide() -> None:
+            await asyncio.sleep(motion_ms(DUR_MED, page) / 1000 or 0.01)
+            if token["n"] != gen:
+                return
+            body.visible = False
+            try:
+                safe_update(body)
+            except Exception:  # noqa: BLE001
+                pass
+
+        run_async(page, _hide)
+
     def _toggle(_e: ft.ControlEvent | None = None) -> None:
-        will_open = not body.visible
+        will_open = not state["open"]
         if on_toggle is not None:
             on_toggle(section, will_open)
         else:
@@ -102,6 +187,7 @@ def _settings_section(
             ],
         ),
     )
+    bind_press(header, haptic_kind="light", page=page)
     section = card_surface(
         ft.Column(
             spacing=12,
@@ -110,7 +196,7 @@ def _settings_section(
         ),
         padding=16,
     )
-    section.data = {"apply": _apply, "body": body}
+    section.data = {"apply": _apply, "body": body, "open": lambda: state["open"]}
     return section
 
 
@@ -220,6 +306,7 @@ class SettingsPage(ft.Column):
                 controls,
                 expanded=expanded,
                 on_toggle=_accordion,
+                page=self._page,
             )
             self._sections.append(block)
             return block
@@ -1174,33 +1261,48 @@ class SettingsPage(ft.Column):
         done: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
 
         def _close(password: str | None) -> None:
-            dlg.open = False
-            safe_update(self._page)
+            pop = getattr(self._page, "pop_dialog", None)
+            if callable(pop):
+                try:
+                    pop()
+                except Exception:  # noqa: BLE001
+                    dlg.open = False
+                    safe_update(self._page)
+            else:
+                dlg.open = False
+                safe_update(self._page)
             if not done.done():
                 done.set_result(password)
 
+        cancel_btn = ft.TextButton(
+            tr("action.cancel", self._state.language),
+            on_click=lambda _e: _close(None),
+        )
+        restore_btn = ft.FilledButton(
+            tr("action.restore", self._state.language),
+            on_click=lambda _e: _close((pwd.value or "").strip()),
+        )
+        bind_press(cancel_btn, haptic_kind="light", page=self._page)
+        bind_press(restore_btn, haptic_kind="light", page=self._page)
         dlg = ft.AlertDialog(
             modal=True,
+            shape=ft.RoundedRectangleBorder(radius=20),
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
             title=ft.Text(title),
             content=pwd,
-            actions=[
-                ft.TextButton(
-                    tr("action.cancel", self._state.language),
-                    on_click=lambda _e: _close(None),
-                ),
-                ft.FilledButton(
-                    tr("action.restore", self._state.language),
-                    on_click=lambda _e: _close((pwd.value or "").strip()),
-                ),
-            ],
+            actions=[cancel_btn, restore_btn],
         )
-        self._page.overlay.append(dlg)
-        dlg.open = True
-        safe_update(self._page)
+        show = getattr(self._page, "show_dialog", None)
+        if callable(show):
+            show(dlg)
+        else:
+            self._page.overlay.append(dlg)
+            dlg.open = True
+            safe_update(self._page)
         password = await done
         try:
             self._page.overlay.remove(dlg)
-        except ValueError:
+        except (ValueError, AttributeError):
             pass
         safe_update(self._page)
         return password

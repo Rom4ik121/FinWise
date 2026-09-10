@@ -26,7 +26,7 @@ from lib.presentation.account_icons import (
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.count_up import play_count_ups
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.ui_motion import replace_controls
+from lib.presentation.ui_motion import overlay_enter_style, replace_controls
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.styles import (
     ICON_CATALOG_GLYPH,
@@ -1066,6 +1066,7 @@ class AccountsPage(ft.Column):
             expand=True,
             bgcolor=ft.Colors.SURFACE,
             alignment=ft.Alignment.TOP_CENTER,
+            **overlay_enter_style(self._page),
             content=build_form_shell(
                 self._page,
                 title=title,

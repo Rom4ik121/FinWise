@@ -12,7 +12,7 @@ from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.transaction import TransactionType
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups, mark_progress
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.ui_motion import replace_controls, ui_animation
+from lib.presentation.ui_motion import chart_enter, replace_controls, ui_animation
 from lib.presentation.haptics import haptic
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
@@ -90,6 +90,7 @@ class DashboardPage(ft.Column):
         self._sections_open = True
         self._balance_cache: dict = {}
         self._animate_charts = False
+        self._charts_entered_keys: set[str] = set()
         # Stable slots for in-place toggle mutate (avoid full ListView rebuild).
         self._balance_label: ft.Text | None = None
         self._balance_code_label: ft.Text | None = None
@@ -418,19 +419,25 @@ class DashboardPage(ft.Column):
             if not self._hide_chart:
                 zeros = [Decimal("0")] * max(len(incomes), 1)
                 chart_w, chart_h = compact_chart_size(self._page)
-                self._chart_slot.content = build_line_chart_image(
-                    periods,
-                    incomes if not hidden else zeros,
-                    expenses if not hidden else zeros,
-                    width=chart_w,
-                    height=chart_h,
-                    language=lang,
-                    dark=True,
-                    show_income=True,
-                    show_expense=True,
-                    page=self._page,
-                    compact=True,
-                    animate=bool(animate_chart) and not hidden,
+                self._chart_slot.content = chart_enter(
+                    self,
+                    build_line_chart_image(
+                        periods,
+                        incomes if not hidden else zeros,
+                        expenses if not hidden else zeros,
+                        width=chart_w,
+                        height=chart_h,
+                        language=lang,
+                        dark=True,
+                        show_income=True,
+                        show_expense=True,
+                        page=self._page,
+                        compact=True,
+                        animate=bool(animate_chart) and not hidden,
+                    ),
+                    self._page,
+                    refresh=bool(animate_chart) and not hidden,
+                    key="hero",
                 )
             safe_update(self._chart_slot)
 
@@ -647,6 +654,14 @@ class DashboardPage(ft.Column):
             page=self._page,
             compact=True,
             animate=bool(self._animate_charts),
+        )
+        self._charts_entered_keys.discard("hero")
+        chart = chart_enter(
+            self,
+            chart,
+            self._page,
+            refresh=bool(self._animate_charts),
+            key="hero",
         )
         chart_slot = ft.Container(
             ink=True,

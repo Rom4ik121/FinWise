@@ -12,6 +12,7 @@ from lib.presentation.currency_options import (
     _currency_display_name,
     load_currency_catalog,
 )
+from lib.presentation.ui_motion import bind_press, overlay_enter_style
 from lib.presentation.utils import safe_update, tr
 
 
@@ -211,7 +212,7 @@ class CurrencyTickerPicker(ft.Container):
 
         def _row_tile(row: dict[str, str]) -> ft.Control:
             selected = row["code"] == self._value
-            return ft.Container(
+            tile = ft.Container(
                 border_radius=14,
                 bgcolor=(
                     ft.Colors.PRIMARY_CONTAINER
@@ -269,6 +270,8 @@ class CurrencyTickerPicker(ft.Container):
                     ],
                 ),
             )
+            bind_press(tile, haptic_kind="selection", page=self._page)
+            return tile
 
         def _fill(query: str = "") -> None:
             rows = [r for r in self._rows if currency_row_matches(r, query)]
@@ -324,6 +327,7 @@ class CurrencyTickerPicker(ft.Container):
             bottom=0,
             bgcolor=ft.Colors.SURFACE,
             data=overlay_key,
+            **overlay_enter_style(self._page),
             content=ft.SafeArea(
                 expand=True,
                 content=ft.Container(

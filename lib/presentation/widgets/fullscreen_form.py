@@ -19,6 +19,7 @@ from lib.presentation.theme import is_dark_mode
 from lib.presentation.responsive import clamp_content_width, tap_button_style
 from lib.presentation.ui_motion import (
     DUR_MED,
+    apply_overlay_enter,
     bump_overlay_gen,
     motion_ms,
     overlay_enter_style,
@@ -135,6 +136,7 @@ def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
 
 def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
     """Show ``overlay`` (must set ``data`` key), reusing an existing slot."""
+    apply_overlay_enter(overlay, page)
     key = getattr(overlay, "data", None)
     if not key:
         page.overlay.append(overlay)

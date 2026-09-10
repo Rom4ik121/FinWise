@@ -232,6 +232,89 @@ def overlay_enter_style(page: ft.Page | None = None) -> dict[str, Any]:
     }
 
 
+def apply_overlay_enter(
+    overlay: ft.Control,
+    page: ft.Page | None = None,
+) -> ft.Control:
+    """Stamp fade/slide onto a sheet (idempotent with :func:`overlay_enter_style`)."""
+    for key, value in overlay_enter_style(page).items():
+        try:
+            setattr(overlay, key, value)
+        except Exception:  # noqa: BLE001
+            pass
+    return overlay
+
+
+class EnterHost(ft.Container):
+    """One-shot fade + slight Y slide. Plays on first mount only."""
+
+    def __init__(
+        self,
+        content: ft.Control,
+        page: ft.Page | None = None,
+        *,
+        dy: float = 0.02,
+    ) -> None:
+        super().__init__(
+            content=content,
+            opacity=0,
+            offset=ft.Offset(0, dy),
+            animate_opacity=motion_animation(DUR_MED, page),
+            animate_offset=motion_animation(DUR_MED, page),
+        )
+        self._play = True
+
+    def did_mount(self) -> None:
+        try:
+            super().did_mount()
+        except Exception:  # noqa: BLE001
+            pass
+        if not self._play:
+            return
+        try:
+            self.opacity = 1
+            self.offset = ft.Offset(0, 0)
+            safe_update(self)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def wrap_enter(
+    content: ft.Control,
+    page: ft.Page | None = None,
+    *,
+    play: bool = True,
+    dy: float = 0.02,
+) -> ft.Control:
+    """Light fade/slide around images or canvas. No-op when motion is off."""
+    if not play or prefers_reduced_motion(page) or content is None:
+        return content
+    return EnterHost(content, page, dy=dy)
+
+
+def chart_enter(
+    owner: Any,
+    chart: ft.Control,
+    page: ft.Page | None = None,
+    *,
+    refresh: bool = False,
+    key: str = "chart",
+) -> ft.Control:
+    """Fade a chart on first paint or explicit refresh; skip silent reloads."""
+    entered = getattr(owner, "_charts_entered_keys", None)
+    if not isinstance(entered, set):
+        entered = set()
+        try:
+            setattr(owner, "_charts_entered_keys", entered)
+        except Exception:  # noqa: BLE001
+            pass
+    first = key not in entered
+    play = bool(refresh) or first
+    if play:
+        entered.add(key)
+    return wrap_enter(chart, page, play=play)
+
+
 def bump_overlay_gen(control: ft.Control) -> int:
     """Invalidate in-flight overlay fade-out. Returns the new generation."""
     gen = int(getattr(control, _OVERLAY_GEN, 0) or 0) + 1
