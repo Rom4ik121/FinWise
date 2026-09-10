@@ -100,7 +100,9 @@ Observer: `subscribe` / `notify` (с coalesce).
 - **Частый счёт** для дохода/расхода: `frequent_account.py` — самый используемый не-transfer счёт; подпись «часто» в quick-add и редакторе операций.
 - **Reload coalesce:** `reload_gate.py` — поиск/фильтры не штормят БД; скрытые вкладки не reload'ятся на каждый save (явный `mark_shown` / `mark_hidden`).
 - **Scroll / rebuild:** `ui_motion.replace_controls` сохраняет позицию списка. Главная при повторном reload мутирует слоты (баланс/ярлыки/бюджеты), не пересобирает ListView. Fullscreen-формы reuse'ят один overlay-слот (`push_overlay`); закрытие обнуляет дерево без `page.update()`.
-- Ошибки: `snack_exception` / `user_facing_error` — доменные тексты → i18n; technical English → `error.generic`; без traceback.
+- Ошибки: `snack_exception` / `user_facing_error` — доменные тексты → i18n; technical English → `error.generic`; без traceback. Пустой Save на формах (счета, операции, долги, цели, подписки, бюджеты) не молчит: `form_validation.py` ставит `TextField.error` и красный тост поверх fullscreen (`ui_feedback.flash_error`).
+- Списки: нижний padding ListView (~104 px), чтобы контент не прятался под floating nav / home indicator.
+- Категория из операции: `CategoryPicker` открывает полноценный редактор (имя / иконка / цвет), кнопка «Создать» сверху списка.
 ---
 
 ## 6. Компоненты (`components/` + `widgets/`)
@@ -112,7 +114,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 `DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor`;  
 `pdf_export_sheet` — период, счета и разделы PDF-отчёта; кнопка **Экспорт PDF** закреплена внизу листа (в шапке — компактная иконка). Сборка PDF идёт в фоне (`asyncio.to_thread`), matplotlib только с backend **Agg**.
 
-Клавиатура форм: `form_keyboard.py`. Ввод сумм: `money_input.py`.
+Клавиатура форм: `form_keyboard.py`. Ввод сумм: `money_input.py` (caret всегда в конце при группировке, иначе «50» схлопывается в «5»). Валидация: `form_validation.py`.
 
 ---
 
@@ -121,7 +123,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Экспорт: `offer_saved_file` → `save_file(..., src_bytes=...)` → `materialize_saved_file`.  
   Отмена пользователя → `None`, без ложного «успеха».
 - Телефон: share sheet.
-- Restore: `pick_files(with_data=True)`, классификация sqlite / json.
+- Restore: `pick_files(with_data=True)`, классификация `.fwbackup` / sqlite / json / `.key`.
 
 ---
 
@@ -130,7 +132,9 @@ Observer: `subscribe` / `notify` (с coalesce).
 | Модуль | Роль |
 |--------|------|
 | `responsive.py` | Breakpoints xs–xl, `scale_font` / `scale_size`, `grid_columns`, `tx_tile_metrics`, `entity_card_metrics`, `content_inset` |
-| `utils.py` | `format_money`, `run_async`, `snack`, RateBook helpers, `user_facing_error`, `snack_exception` |
+| `utils.py` | `format_money`, `run_async`, `snack` (успех и ошибка → top toast), RateBook helpers, `user_facing_error`, `snack_exception` |
+| `form_validation.py` | Имя / сумма: поле + тост, видно над fullscreen |
+| `ui_feedback.py` | Зелёный/красный chip поверх overlay |
 | `tx_query.py` | Paged load транзакций (500 / 25k) через use case |
 | `reload_gate.py` | Coalesce частых reload |
 | `ui_motion.py` | `replace_controls`, scroll memory, animate flag |
@@ -148,7 +152,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от `page.width`.
 - Все экраны — `page_frame` (динамические gutters). Счета 1–3 колонки; цели/долги/подписки/бюджеты — 1–2.
 - Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
-- Touch targets ≥ **40** logical px (`tap_button_style`, calendar cell **height**, nav pads). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
+- Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
 - Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
 - Графики: `chart_layout` / `compact_chart_size` от `page.width/height`.
 - ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный).

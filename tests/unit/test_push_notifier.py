@@ -9,6 +9,7 @@ from lib.infrastructure.services.push_notifier import (
     _icon_path,
     dispatch_push,
     future_os_fire_at,
+    notification_settings_url,
     push_disabled_by_env,
     reminder_fire_at,
     stable_notification_id,
@@ -87,3 +88,38 @@ def test_future_os_fire_at_keeps_twenty_second_arm() -> None:
 def test_future_os_fire_at_due_now_shows_immediately() -> None:
     now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
     assert future_os_fire_at(now, now=now) is None
+
+
+def test_notification_settings_url_ios(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    monkeypatch.setattr(pn, "_looks_like_ios", lambda: True)
+    assert pn.notification_settings_url() == "app-settings:"
+
+
+def test_notification_settings_url_android(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    monkeypatch.setattr(pn, "_looks_like_ios", lambda: False)
+    monkeypatch.setattr("lib.core.config._is_android", lambda: True)
+    url = pn.notification_settings_url()
+    assert url is not None
+    assert "APP_NOTIFICATION_SETTINGS" in url
+    assert "com.finanse.app" in url
+
+
+def test_open_system_settings_uses_native_then_launch(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    class _Svc:
+        async def open_system_settings(self) -> bool:
+            return True
+
+    monkeypatch.setattr(pn, "_mobile_service", _Svc())
+
+    async def _run() -> None:
+        assert await pn.open_system_notification_settings(page=None) is True
+
+    import asyncio
+
+    asyncio.run(_run())

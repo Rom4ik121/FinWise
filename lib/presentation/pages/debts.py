@@ -17,6 +17,7 @@ from lib.domain.use_cases.debts import (
     debt_interest_from_tags,
 )
 from lib.domain.use_cases.debt_insights import bucket_payments_by_month
+from lib.presentation.form_validation import require_name, require_positive_amount
 from lib.presentation.notification_badges import (
     DEBT_ALERT_KINDS,
     pending_related_ids,
@@ -1537,12 +1538,11 @@ class DebtsPage(ft.Column):
             )
 
             async def _save() -> None:
-                try:
-                    amount = parse_amount(amount_tf.value)
-                    if amount <= 0:
-                        raise InvalidOperation
-                except (InvalidOperation, ValueError):
-                    snack(self._page, tr("invalid_amount", lang), error=True)
+                name = require_name(name_tf, self._page, lang)
+                if not name:
+                    return
+                amount = require_positive_amount(amount_tf, self._page, lang)
+                if amount is None:
                     return
                 rate = None
                 if (rate_tf.value or "").strip():
@@ -1577,7 +1577,7 @@ class DebtsPage(ft.Column):
                         remaining_amount=1,
                         direction=DebtDirection.I_OWE,
                     ).id,
-                    counterparty=(name_tf.value or "").strip() or "—",
+                    counterparty=name,
                     amount=amount,
                     remaining_amount=debt.remaining_amount if debt else amount,
                     currency=(currency_picker.value or "RUB").upper(),

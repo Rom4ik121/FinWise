@@ -930,6 +930,7 @@ class DashboardPage(ft.Column):
                     EmptyState(
                         tr("empty.accounts", lang),
                         icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
+                        hint=tr("onboarding.home_hint", lang),
                         action_label=tr("empty.accounts_action", lang),
                         on_action=lambda _e: self._open_first_account(),
                     )

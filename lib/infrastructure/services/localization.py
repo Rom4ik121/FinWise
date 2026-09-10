@@ -439,6 +439,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Details",
         "uz": "Tafsilotlar",
     },
+    "form.name_required": {
+        "ru": "Введите название",
+        "en": "Enter a name",
+        "uz": "Nom kiriting",
+    },
     "form.section.main": {
         "ru": "Основное",
         "en": "Main",
@@ -498,6 +503,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Доход и расход",
         "en": "Income & expense",
         "uz": "Daromad va xarajat",
+    },
+    "category.create_hint": {
+        "ru": "Имя, иконка и цвет — категория появится в операциях и бюджетах.",
+        "en": "Name, icon, and color — the category shows up in transactions and budgets.",
+        "uz": "Nom, belgi va rang — kategoriya amaliyot va byudjetlarda ko‘rinadi.",
     },
     "category.create": {
         "ru": "Новая категория",
@@ -1453,6 +1463,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Мне должны",
         "en": "Owed to me",
         "uz": "Menga qarzdorlar",
+    },
+    "onboarding.home_hint": {
+        "ru": "Добавьте счёт — затем операции, цели и бюджеты. Данные только на этом устройстве.",
+        "en": "Add an account, then transactions, goals, and budgets. Data stays on this device.",
+        "uz": "Hisob qo‘shing — keyin amaliyot, maqsad va byudjetlar. Ma’lumot shu qurilmada qoladi.",
     },
     "empty.accounts": {
         "ru": "Создайте свой первый счёт",
@@ -3608,6 +3623,31 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Schedule",
         "uz": "Jadval",
     },
+    "settings.notifications_open_settings": {
+        "ru": "Открыть настройки системы",
+        "en": "Open system settings",
+        "uz": "Tizim sozlamalarini ochish",
+    },
+    "settings.notifications_denied": {
+        "ru": "Разрешение на уведомления отклонено. Включите их в настройках системы.",
+        "en": "Notification permission was denied. Enable it in system settings.",
+        "uz": "Bildirishnoma ruxsati rad etildi. Tizim sozlamalarida yoqing.",
+    },
+    "settings.notifications_settings_failed": {
+        "ru": "Не удалось открыть системные настройки уведомлений",
+        "en": "Could not open system notification settings",
+        "uz": "Tizim bildirishnoma sozlamalarini ochib bo‘lmadi",
+    },
+    "settings.share_backup_hint": {
+        "ru": "Кнопка «Резервная копия» сохраняет зашифрованный файл .fwbackup (база, ключ бирж и фото). Старые .db тоже открываются.",
+        "en": "Backup saves an encrypted .fwbackup (database, exchange key, and photos). Older .db files still restore.",
+        "uz": "Zaxira shifrlangan .fwbackup saqlaydi (baza, birja kaliti va suratlar). Eski .db ham tiklanadi.",
+    },
+    "settings.restore_bundle_password": {
+        "ru": "Пароль резервной копии",
+        "en": "Backup password",
+        "uz": "Zaxira paroli",
+    },
     "settings.export_hint": {
         "ru": "Соберите PDF-отчёт: период, счета и нужные разделы.",
         "en": "Build a PDF report: pick a period, accounts, and sections.",
@@ -3777,6 +3817,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "PIN сохранён",
         "en": "PIN saved",
         "uz": "PIN saqlandi",
+    },
+    "settings.pin_saved_detail": {
+        "ru": "PIN сохранён. Он понадобится, чтобы открыть приложение.",
+        "en": "PIN saved. You’ll need it to unlock the app.",
+        "uz": "PIN saqlandi. Ilovani ochish uchun u kerak bo‘ladi.",
     },
     "settings.rates": {
         "ru": "Курсы валют",

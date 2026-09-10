@@ -162,7 +162,7 @@ def make_v_scroll(*, spacing: int = 12, eager: bool = False) -> ft.ListView:
         ft.ListView(
             expand=True,
             spacing=spacing,
-            padding=ft.Padding.only(bottom=40),
+            padding=ft.Padding.only(bottom=104),
             auto_scroll=False,
             build_controls_on_demand=not eager,
             scroll=_hidden_scrollbar(),
@@ -178,10 +178,10 @@ def v_scroll_body(
     """Expanding vertical scroll area for page body content."""
     inner_pad: ft.Padding
     if padding is None:
-        inner_pad = ft.Padding.only(bottom=40)
+        inner_pad = ft.Padding.only(bottom=104)
     elif isinstance(padding, int):
         inner_pad = ft.Padding.only(
-            left=padding, right=padding, top=padding, bottom=padding + 24
+            left=padding, right=padding, top=padding, bottom=padding + 72
         )
     else:
         inner_pad = padding
@@ -191,7 +191,7 @@ def v_scroll_body(
         content=ft.ListView(
             expand=True,
             spacing=spacing,
-            padding=ft.Padding.only(bottom=40),
+            padding=ft.Padding.only(bottom=104),
             auto_scroll=False,
             scroll=_hidden_scrollbar(),
             controls=list(controls),

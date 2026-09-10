@@ -15,6 +15,7 @@
 | Компонент | Зачем |
 |-----------|--------|
 | Editable-пакеты из `requirements.txt` (`flet_local_auth`, `flet_local_notifications`) | Face ID, локальные пуши |
+| matplotlib Agg | PDF charts (in-app dashboard charts use Flet canvas, **not** matplotlib). Kept in the IPA so PDF export stays correct. |
 | Mobile-safe **ccxt** via `vendor/ccxt` (`[tool.flet.dev_packages]`) | Биржи по API; пакет генерируется `scripts/vendor_ccxt_mobile.py` перед `flet build` |
 | `cryptography` **&lt; 50** | Совместимость с `pypi.flet.dev` wheels |
 | Splash `#0B1220` | Бренд (как в `flet.toml` / Codemagic scripts) |
@@ -209,14 +210,19 @@ Still blocking a store listing (owner / Apple account):
 3. Codemagic **App Store** provisioning profile (not only Ad Hoc) → workflow `ios-appstore`
 4. Privacy labels: financial info on-device; no tracking (`NSPrivacyTracking=false`)
 5. TestFlight internal testers, then review
-6. Decide whether to keep exchange CCXT (network + API keys) in the first store version
+6. **CCXT / exchanges stay in v1.0** (product decision — do not strip)
 
 Not implemented (product call, do not ship unused permissions):
 
 - Speech / microphone (removed from docs; do not add Info.plist keys)
 - iCloud Drive / CloudKit sync
-- Keychain storage for `.secret_box_key` (file next to the DB today)
 - Touch ID (Face ID / iris only by policy)
+
+Shipped in this branch:
+
+- iOS Keychain for the secret-box master key (file fallback on desktop/Android; migrate + delete file after a successful Keychain write)
+- Encrypted ``.fwbackup`` share bundle (database + key + receipt photos); restore still accepts older ``.db`` / sidecar ``.key`` / embedded ``_finanse_secret_box`` / ``FWEX``
+- Native Settings deep-link when notification permission is denied
 
 ---
 

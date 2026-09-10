@@ -16,7 +16,10 @@ from lib.infrastructure.services.data_reset_service import DataResetService
 from lib.infrastructure.services.encryption_service import EncryptionService
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 from lib.infrastructure.services.localization import normalize_lang
-from lib.infrastructure.services.push_notifier import request_push_permissions
+from lib.infrastructure.services.push_notifier import (
+    open_system_notification_settings,
+    request_push_permissions,
+)
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.styles import (
     card_surface,
@@ -389,7 +392,7 @@ class SettingsPage(ft.Column):
         scroll_body = ft.ListView(
             expand=True,
             spacing=14,
-            padding=ft.Padding.only(bottom=40),
+            padding=ft.Padding.only(bottom=104),
             auto_scroll=False,
             controls=[
                 section(
@@ -456,6 +459,13 @@ class SettingsPage(ft.Column):
                         ),
                         labeled_field(
                             tr("settings.reminder_days", lang), self._reminder_days
+                        ),
+                        ft.TextButton(
+                            tr("settings.notifications_open_settings", lang),
+                            icon=ft.Icons.SETTINGS_OUTLINED,
+                            on_click=lambda _e: run_async(
+                                page, self._open_notification_settings
+                            ),
                         ),
                     ],
                 ),
@@ -536,6 +546,7 @@ class SettingsPage(ft.Column):
                         _settings_divider(),
                         _settings_subsection(tr("settings.backup_restore", lang)),
                         form_hint(tr("settings.daily_backup_hint", lang)),
+                        form_hint(tr("settings.share_backup_hint", lang)),
                         ft.Row(
                             wrap=True,
                             spacing=8,
@@ -927,6 +938,12 @@ class SettingsPage(ft.Column):
                     from lib.infrastructure.services.push_notifier import notify_push_ready
 
                     await notify_push_ready(normalize_lang(saved.language))
+                elif not granted:
+                    snack(
+                        self._page,
+                        tr("settings.notifications_denied", lang),
+                        error=True,
+                    )
             except Exception:  # noqa: BLE001
                 pass
         created = await schedule_reminders(
@@ -1022,16 +1039,20 @@ class SettingsPage(ft.Column):
             self._io_error_snack(exc)
             raise
 
+    async def _open_notification_settings(self) -> None:
+        lang = self._state.language
+        ok = await open_system_notification_settings(self._page)
+        if not ok:
+            snack(
+                self._page,
+                tr("settings.notifications_settings_failed", lang),
+                error=True,
+            )
+
     async def backup(self) -> None:
         try:
-            path = BackupService(self._state.container.config).backup()
-            from pathlib import Path
-
-            extras = []
-            key_side = Path(str(path) + ".key")
-            if key_side.is_file():
-                extras.append(key_side)
-            await self._offer_file(path, kind="Backup", extra=extras)
+            path = BackupService(self._state.container.config).backup(bundle=True)
+            await self._offer_file(path, kind="Backup")
         except Exception as exc:  # noqa: BLE001
             self._io_error_snack(exc)
 
@@ -1068,22 +1089,21 @@ class SettingsPage(ft.Column):
             picked = await pick_restore_bytes(
                 self._page,
                 title=tr("action.restore", lang),
-                extensions=["db", "sqlite", "sqlite3", "json", "fwexport"],
+                extensions=[
+                    "fwbackup",
+                    "db",
+                    "sqlite",
+                    "sqlite3",
+                    "json",
+                    "fwexport",
+                ],
             )
             if not picked:
                 backups = service.list_backups()
                 if not backups:
                     snack(self._page, tr("settings.no_backups", lang), error=True)
                     return
-                latest = backups[0]
-                confirm_dialog(
-                    self._page,
-                    title=tr("action.restore", lang),
-                    message=tr("settings.restore_confirm", lang),
-                    confirm_text=tr("action.restore", lang),
-                    cancel_text=tr("action.cancel", lang),
-                    on_confirm=lambda: self._do_restore(latest),
-                )
+                await self._confirm_restore(backups[0])
                 return
             name, payload = picked
             kind = classify_restore_payload(name, payload)
@@ -1093,6 +1113,14 @@ class SettingsPage(ft.Column):
             if kind == "json":
                 snack(self._page, tr("settings.restore_need_db", lang), error=True)
                 return
+            if kind == "fwbackup":
+                if not name.lower().endswith(".fwbackup"):
+                    name = f"{name}.fwbackup"
+                target = service.backup_dir / name
+                service.backup_dir.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+                await self._confirm_restore(target, payload=payload)
+                return
             if kind != "db":
                 snack(self._page, tr("settings.restore_bad_file", lang), error=True)
                 return
@@ -1101,40 +1129,44 @@ class SettingsPage(ft.Column):
             target = service.backup_dir / name
             service.backup_dir.mkdir(parents=True, exist_ok=True)
             target.write_bytes(payload)
-            confirm_dialog(
-                self._page,
-                title=tr("action.restore", lang),
-                message=tr("settings.restore_confirm", lang),
-                confirm_text=tr("action.restore", lang),
-                cancel_text=tr("action.cancel", lang),
-                on_confirm=lambda: self._do_restore(target),
-            )
+            await self._confirm_restore(target)
             return
         backups = service.list_backups()
         if not backups:
             snack(self._page, tr("settings.no_backups", lang), error=True)
             return
-        latest = backups[0]
+        await self._confirm_restore(backups[0])
+
+    async def _confirm_restore(self, backup_path, *, payload: bytes | None = None) -> None:
+        lang = self._state.language
+        from lib.infrastructure.services.backup_service import bundle_needs_password
+
+        password = ""
+        needs_pw = False
+        try:
+            needs_pw = bundle_needs_password(payload if payload is not None else backup_path)
+        except Exception:  # noqa: BLE001
+            needs_pw = False
+        if needs_pw:
+            entered = await self._prompt_secret(
+                title=tr("settings.restore_bundle_password", lang),
+                label=tr("settings.export_password", lang),
+            )
+            if entered is None:
+                return
+            password = entered
         confirm_dialog(
             self._page,
             title=tr("action.restore", lang),
             message=tr("settings.restore_confirm", lang),
             confirm_text=tr("action.restore", lang),
             cancel_text=tr("action.cancel", lang),
-            on_confirm=lambda: self._do_restore(latest),
+            on_confirm=lambda: self._do_restore(backup_path, password=password),
         )
 
-    async def _decrypt_export_payload(self, name: str, payload: bytes) -> None:
-        """Decrypt a ``.fwexport`` blob to a JSON file in the export dir."""
-        import asyncio
-        from pathlib import Path
-
-        from lib.domain.use_cases.export_data import decrypt_export_blob
-        from lib.presentation.file_transfer import safe_filename
-
-        lang = self._state.language
+    async def _prompt_secret(self, *, title: str, label: str) -> str | None:
         pwd = ft.TextField(
-            label=tr("settings.export_password", lang),
+            label=label,
             password=True,
             can_reveal_password=False,
             autofocus=True,
@@ -1149,15 +1181,15 @@ class SettingsPage(ft.Column):
 
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text(tr("settings.export_json_encrypted", lang)),
+            title=ft.Text(title),
             content=pwd,
             actions=[
                 ft.TextButton(
-                    tr("action.cancel", lang),
+                    tr("action.cancel", self._state.language),
                     on_click=lambda _e: _close(None),
                 ),
                 ft.FilledButton(
-                    tr("action.restore", lang),
+                    tr("action.restore", self._state.language),
                     on_click=lambda _e: _close((pwd.value or "").strip()),
                 ),
             ],
@@ -1171,6 +1203,20 @@ class SettingsPage(ft.Column):
         except ValueError:
             pass
         safe_update(self._page)
+        return password
+
+    async def _decrypt_export_payload(self, name: str, payload: bytes) -> None:
+        """Decrypt a ``.fwexport`` blob to a JSON file in the export dir."""
+        from pathlib import Path
+
+        from lib.domain.use_cases.export_data import decrypt_export_blob
+        from lib.presentation.file_transfer import safe_filename
+
+        lang = self._state.language
+        password = await self._prompt_secret(
+            title=tr("settings.export_json_encrypted", lang),
+            label=tr("settings.export_password", lang),
+        )
         if password is None:
             return
         try:
@@ -1189,7 +1235,7 @@ class SettingsPage(ft.Column):
         out.write_bytes(raw)
         await self._offer_file(out, kind="JSON")
 
-    async def _do_restore(self, backup_path) -> None:
+    async def _do_restore(self, backup_path, *, password: str = "") -> None:
         """Replace the live DB, rebind sessions, and reload settings."""
         import asyncio
         from pathlib import Path
@@ -1198,12 +1244,13 @@ class SettingsPage(ft.Column):
 
         c = self._state.container
         path = Path(backup_path)
+        secret = password
         try:
             # Release SQLite file locks before overwriting on Windows.
             await asyncio.to_thread(reset_engine)
             await asyncio.to_thread(
                 lambda: BackupService(c.config).restore(
-                    path, make_safety_copy=False
+                    path, make_safety_copy=False, password=secret
                 )
             )
             factory = get_session_factory(c.config)
@@ -1256,7 +1303,7 @@ class SettingsPage(ft.Column):
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
                 return
-            snack(self._page, tr("settings.pin_saved", lang))
+            snack(self._page, tr("settings.pin_saved_detail", lang))
             await self._state.reload_pin_gate(notify=False)
 
         run_async(self._page, _persist)

@@ -89,7 +89,14 @@ def attach_grouped_digits(
         formatted = format_amount_input(current, lang)
         if formatted != current:
             field.value = formatted
-            safe_update(field)
+        # Always pin the caret to the end. A caret at offset 0 turns "5"+"0"
+        # into "05", which `_group_int` then strips to "5" until refocus.
+        try:
+            end = len(field.value or "")
+            field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
+        except Exception:  # noqa: BLE001
+            pass
+        safe_update(field)
         if extra_on_change is not None:
             extra_on_change(e)
 

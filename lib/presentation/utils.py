@@ -38,6 +38,9 @@ _DOMAIN_ERROR_KEYS: dict[str, str] = {
     "Budget month must be between 1 and 12": "budgets.month_invalid",
     "Budget year is out of range": "budgets.year_invalid",
     "Invalid encrypted export": "settings.restore_bad_file",
+    "Password required": "settings.restore_bundle_password",
+    "Backup decrypt failed": "settings.restore_bad_file",
+    "Not a FinWise backup bundle": "settings.restore_bad_file",
     "Transfer legs cannot be edited independently": "transfer.edit_blocked",
     "error.exchange_unavailable": "error.exchange_unavailable",
     "Invalid exchange API credentials": "error.exchange_bad_credentials",
@@ -511,6 +514,13 @@ def snack(
     if error:
         # Last-line defense: never show stack traces / SQL / paths in the UI.
         message = _sanitize_error_text(message)
+        try:
+            from lib.presentation.ui_feedback import flash_error
+
+            if flash_error(page, message):
+                return
+        except Exception:  # noqa: BLE001
+            pass
     if not error:
         try:
             from lib.presentation.ui_feedback import flash_saved

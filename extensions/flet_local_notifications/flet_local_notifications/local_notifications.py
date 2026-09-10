@@ -69,3 +69,7 @@ class FinanseLocalNotifications(ft.Service):
 
     async def cancel_all(self) -> bool:
         return bool(await self._invoke_method("cancel_all"))
+
+    async def open_system_settings(self) -> bool:
+        """Open OS Settings so the user can enable notifications after a deny."""
+        return bool(await self._invoke_method("open_system_settings"))

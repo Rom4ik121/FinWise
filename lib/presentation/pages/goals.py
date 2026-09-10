@@ -57,6 +57,7 @@ from lib.presentation.utils import (
     tr,
     try_convert_amount,
 )
+from lib.presentation.form_validation import require_name, require_positive_amount
 from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
@@ -1648,6 +1649,9 @@ class GoalsPage(ft.Column):
         )
 
         async def _save() -> None:
+            name = require_name(name_tf, self._page, lang)
+            if not name:
+                return
             validation_errors = items_editor.validate()
             if validation_errors:
                 snack(self._page, validation_errors[0], error=True)
@@ -1656,10 +1660,12 @@ class GoalsPage(ft.Column):
             try:
                 if items:
                     target = sum(i.target_amount for i in items)
+                    if target <= 0:
+                        raise InvalidOperation
                 else:
-                    target = parse_amount(target_tf.value)
-                if target <= 0:
-                    raise InvalidOperation
+                    target = require_positive_amount(target_tf, self._page, lang)
+                    if target is None:
+                        return
             except (InvalidOperation, ValueError):
                 snack(self._page, tr("invalid_amount", lang), error=True)
                 return
@@ -1671,7 +1677,7 @@ class GoalsPage(ft.Column):
                     planned_monthly = planned_raw
             except (InvalidOperation, ValueError):
                 planned_monthly = None
-            goal_name = (name_tf.value or "").strip() or "Goal"
+            goal_name = name
             entity = Goal(
                 id=goal.id if goal else Goal(name="tmp", target_amount=1).id,
                 name=goal_name,

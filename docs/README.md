@@ -43,7 +43,7 @@ python main.py
 %LOCALAPPDATA%\finanse\finanse\
 ```
 
-Внутри: `finanse.db`, `backups/`, `exports/`, `logs/`, при необходимости `.secret_box_key`.
+Внутри: `finanse.db`, `backups/` (в т.ч. `.fwbackup`), `exports/`, `logs/`, `media/`. На desktop — `.secret_box_key`; на iPhone ключ в Keychain.
 
 **Демо-данные:**
 

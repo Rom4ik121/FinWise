@@ -63,6 +63,7 @@ from lib.presentation.utils import (
     snack_exception,
     tr,
 )
+from lib.presentation.form_validation import require_name, require_positive_amount
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -1367,12 +1368,11 @@ class SubscriptionsPage(ft.Column):
         close_holder: dict[str, object] = {}
 
         async def _save(_e: ft.ControlEvent | None = None) -> None:
-            try:
-                amount = parse_amount(amount_tf.value)
-                if amount <= 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                snack(self._page, tr("invalid_amount", lang), error=True)
+            name = require_name(name_tf, self._page, lang)
+            if not name:
+                return
+            amount = require_positive_amount(amount_tf, self._page, lang)
+            if amount is None:
                 return
             next_date = next_field.value
             start_dt = start_field.value
@@ -1426,11 +1426,11 @@ class SubscriptionsPage(ft.Column):
                         next_billing_date=next_date,
                     ).id
                 ),
-                name=(name_tf.value or "").strip() or "Subscription",
+                name=name,
                 amount=amount,
                 currency=(currency_picker.value or account.currency).upper(),
                 account_id=account.id,
-                category=(name_tf.value or "").strip() or "Subscription",
+                category=name,
                 periodicity=periodicity,
                 custom_interval_days=custom_days,
                 start_date=start,

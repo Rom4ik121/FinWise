@@ -70,7 +70,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 
 ### Ключи бирж
 
-- **`secret_box.py`** — AES-GCM; ключ в файле `.secret_box_key` в каталоге данных.
+- **`secret_box.py`** — AES-GCM. На iPhone мастер-ключ в Keychain (`ios_keychain.py`, Security.framework); миграция с файла `.secret_box_key` и удаление файла после успешной записи. Desktop / Android — файл рядом с БД. `export_master_key_bytes` / `store_master_key` не предполагают, что файл существует.
 - В БД хранится только `credentials_encrypted`.
 
 ### Ошибки UI
@@ -85,9 +85,9 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 
 | Метод | Поведение |
 |-------|-----------|
-| Ручной backup | Timestamped копия `.db` (+ `-wal` / `-shm`) в `backups/`; sidecar `.key` **и** встроенная таблица `_finanse_secret_box` в копии (не в live DB), чтобы один `.db` с iPhone Share восстанавливал ключи бирж |
+| Ручной backup | Timestamped копия `.db` (SQLite backup API + shutil fallback) + sidecar `.key` **и** таблица `_finanse_secret_box` в копии. Кнопка «Резервная копия» шарит зашифрованный **`.fwbackup`** (db + ключ + `media/`) |
 | `ensure_daily_backup()` | Перезаписывает **`finanse_daily.db`** не чаще **одного раза в локальные сутки** (+ штамп `finanse_daily.day`) |
-| Restore | Проверка заголовка SQLite (`b"SQLite format 3\0"`); иначе ошибка; safety-копия текущего файла; ключ из sidecar или embedded-таблицы (таблица затем удаляется из live DB) |
+| Restore | `.fwbackup` (AES-GCM; пароль опционален), сырой `.db`, sidecar `.key`, embedded-таблица, JSON/`FWEX`. После restore таблица ключа снимается с live DB; медиа из бандла заменяет `media/` |
 | list / delete | Управление файлами бэкапов |
 
 Вызов daily: старт приложения + hourly loop в `lib/main.py`.
@@ -113,7 +113,7 @@ Wipe таблиц с учётом FK, мастер-ключа secret_box и ка
 | Модуль | Роль |
 |--------|------|
 | `notification_service.py` | Очередь in-app уведомлений; `push` → `dispatch_push` |
-| `push_notifier.py` | Mobile (`FinanseLocalNotifications`), Windows toast, Linux `notify-send`. iOS: ask permission after first frame (not in `initialize()`); AppDelegate must set `UNUserNotificationCenter.delegate` **and** `willPresent` (иначе баннеры молчат, пока приложение открыто). Не подменять уже прикреплённый Flet-сервис новым экземпляром. Ближайшие напоминания `zonedSchedule` (порог 2с), не схлопывать 20с в `show()`. Android: `@drawable/ic_stat_finwise` (не adaptive mipmap). |
+| `push_notifier.py` | Mobile (`FinanseLocalNotifications`), Windows toast, Linux `notify-send`. iOS: ask permission after first frame (not in `initialize()`); AppDelegate must set `UNUserNotificationCenter.delegate` **and** `willPresent` (иначе баннеры молчат, пока приложение открыто). Если permission denied — кнопка открывает системные настройки (`app-settings:` / Android notification settings). Не подменять уже прикреплённый Flet-сервис новым экземпляром. Ближайшие напоминания `zonedSchedule` (порог 2с), не схлопывать 20с в `show()`. Android: `@drawable/ic_stat_finwise` (не adaptive mipmap). |
 | `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней вперёд |
 
 Env: **`FINANCE_DISABLE_PUSH=1`** — отключить OS-push (в pytest включено autouse).

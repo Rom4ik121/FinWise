@@ -23,6 +23,7 @@ from lib.presentation.responsive import (
     grid_columns,
     swipe_action_strip_width,
     swipe_reveal_offset,
+    tap_icon_button,
 )
 
 _SLIDE_DURATION = 200
@@ -76,6 +77,7 @@ class AccountCard(ft.Container):
         include_sw = ft.Switch(
             value=bool(getattr(account, "include_in_total", True)),
             scale=0.85,
+            tooltip=tr("account.include_in_total", language),
             on_change=(
                 (
                     lambda e, acc=account: on_include_in_total(
@@ -86,17 +88,17 @@ class AccountCard(ft.Container):
                 else None
             ),
         )
-        include_row = ft.Row(
-            spacing=8,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        include_row = ft.Column(
+            spacing=4,
+            tight=True,
             visible=on_include_in_total is not None,
             controls=[
                 ft.Text(
                     tr("account.include_in_total", language),
                     size=fit_font(12, page, columns=cols, minimum=10, maximum=14),
                     color=ft.Colors.ON_SURFACE_VARIANT,
-                    expand=True,
                     max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 include_sw,
             ],
@@ -114,9 +116,45 @@ class AccountCard(ft.Container):
             ),
         )
 
+        self._arrow_container = ft.Container(
+            width=40,
+            height=40,
+            alignment=ft.Alignment.CENTER,
+            ink=True,
+            border_radius=8,
+            on_click=lambda _e: self._toggle(),
+            rotate=ft.Rotate(0),
+            animate_rotation=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
+            content=ft.Icon(
+                ft.Icons.CHEVRON_LEFT_ROUNDED,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                size=20,
+            ),
+        )
+
+        quick_actions: list[ft.Control] = []
+        if on_edit is not None:
+            quick_actions.append(
+                tap_icon_button(
+                    icon=ft.Icons.EDIT_OUTLINED,
+                    tooltip=tr("action.edit", language),
+                    on_click=lambda _e, acc=account: on_edit(acc),
+                )
+            )
+        if on_delete is not None:
+            quick_actions.append(
+                tap_icon_button(
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    icon_color=ft.Colors.ERROR,
+                    tooltip=tr("action.delete", language),
+                    on_click=lambda _e, acc=account: on_delete(acc),
+                )
+            )
+
         header = ft.Row(
-            spacing=12,
+            spacing=8,
             expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.START,
             controls=[
                 account_icon_badge(
                     icon_key,
@@ -140,22 +178,15 @@ class AccountCard(ft.Container):
                         muted_text(subtitle, page=page),
                     ],
                 ),
+                self._arrow_container,
             ],
         )
-
-        self._arrow_container = ft.Container(
-            width=28,
-            alignment=ft.Alignment.CENTER,
-            ink=True,
-            border_radius=8,
-            on_click=lambda _e: self._toggle(),
-            rotate=ft.Rotate(0),
-            animate_rotation=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
-            content=ft.Icon(
-                ft.Icons.CHEVRON_LEFT_ROUNDED,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-                size=20,
-            ),
+        actions_row = ft.Row(
+            spacing=4,
+            wrap=True,
+            visible=bool(quick_actions),
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=quick_actions,
         )
 
         figure, code = format_money_parts(account.balance, account.currency)
@@ -189,11 +220,7 @@ class AccountCard(ft.Container):
             spacing=12,
             tight=True,
             controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[header, self._arrow_container],
-                ),
+                header,
                 ft.Column(
                     spacing=4,
                     tight=True,
@@ -204,6 +231,7 @@ class AccountCard(ft.Container):
                 ),
                 corporate_badge,
                 include_row,
+                actions_row,
             ],
         )
 
@@ -215,10 +243,12 @@ class AccountCard(ft.Container):
             1 for h in (on_sync, on_edit, on_delete) if h is not None
         )
         strip_w = swipe_action_strip_width(page, buttons=max(action_count, 1))
-        # Account cards stack actions vertically — keep a modest column width.
-        _action_width = min(96.0, max(72.0, strip_w / max(action_count, 1) + 24))
+        # Horizontal reveal strip — vertical stacks clipped on phone-width cards.
+        _action_width = max(64.0, min(88.0, strip_w / max(action_count, 1)))
         self._reveal_frac = swipe_reveal_offset(
-            page, strip_width=_action_width + 8, buttons=1
+            page,
+            strip_width=_action_width * max(action_count, 1) + 16,
+            buttons=max(action_count, 1),
         )
 
         def _action_tile(
@@ -231,7 +261,7 @@ class AccountCard(ft.Container):
         ) -> ft.Control:
             return ft.Container(
                 width=_action_width,
-                expand=True,
+                height=72,
                 bgcolor=bg,
                 border_radius=12,
                 ink=True,
@@ -244,7 +274,7 @@ class AccountCard(ft.Container):
                     alignment=ft.MainAxisAlignment.CENTER,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Icon(icon, color=fg, size=20),
+                        ft.Icon(icon, color=fg, size=22),
                         ft.Text(
                             label,
                             size=10,
@@ -327,16 +357,12 @@ class AccountCard(ft.Container):
             bgcolor=_opaque,
             padding=ft.Padding.only(right=8, top=8, bottom=8),
             alignment=ft.Alignment.CENTER_RIGHT,
-            content=ft.Container(
-                width=_action_width,
-                expand=True,
-                content=ft.Column(
-                    expand=True,
-                    spacing=8,
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=back_actions,
-                ),
+            content=ft.Row(
+                spacing=8,
+                tight=True,
+                alignment=ft.MainAxisAlignment.END,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=back_actions,
             ),
         )
 

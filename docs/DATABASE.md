@@ -13,7 +13,7 @@
 | iOS | `FLET_APP_STORAGE_*` / иначе `~/Library/Application Support/finanse` внутри sandbox |
 | Android | Только **writable** sandbox: `FLET_APP_STORAGE_DATA`, `/data/user/0/com.finanse.app/files/finanse` и аналоги. **Не** произвольный `~/finanse` на корне `/data` (PermissionError) |
 
-Рядом: `backups/`, `exports/`, `logs/`, при необходимости `.secret_box_key`.
+Рядом: `backups/` (в т.ч. `.fwbackup`), `exports/`, `logs/`. На desktop/Android — `.secret_box_key`; на iPhone ключ в Keychain (файл мигрируется и удаляется).
 
 ---
 
@@ -170,7 +170,8 @@ Head: **0027**. Fresh install: `init_db()` + column patches + FTS ensure; Alembi
 
 | Файл | Смысл |
 |------|--------|
-| `backups/finanse_YYYYMMDD_HHMMSS.db` | Ручной backup (timestamp) |
+| `backups/finanse_YYYYMMDD_HHMMSS.db` | Ручной локальный снимок (timestamp) |
+| `backups/finanse_YYYYMMDD_HHMMSS.fwbackup` | Share/restore бандл (AES-GCM zip: db + ключ + media) |
 | `backups/finanse_daily.db` | Ежедневный rolling-снимок (overwrite раз в сутки) |
 | `backups/finanse_daily.day` | Штамп локального дня последней daily-записи |
 

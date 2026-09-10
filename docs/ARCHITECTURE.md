@@ -110,7 +110,7 @@ Dart/Flutter-мосты, подключаемые только в нативно
 | PIN | Хэш/соль в `settings`; use cases `Get/Set/ClearPinCredentials`; экран `LockScreen`. После set/clear/restore/wipe PIN **перечитывается** (`AppState.reload_pin_gate`), иначе фоновая блокировка использовала бы хэш со старта сессии. |
 | Face ID | Только face/iris на мобильных (отпечаток / Windows Hello fingerprint **не** предлагаются; desktop → PIN) |
 | Автоблокировка | После ≥ **15 с** в фоне на мобильных (`app.py`) |
-| Ключи бирж | AES-GCM (`secret_box`, файл `.secret_box_key`) |
+| Ключи бирж | AES-GCM (`secret_box`; iOS Keychain, иначе файл `.secret_box_key`) |
 | Ошибки UI | `user_facing_error` / `snack_exception`: доменные English → i18n; сырой technical → `error.generic`; без traceback |
 
 ---

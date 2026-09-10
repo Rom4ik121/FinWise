@@ -20,6 +20,11 @@ def test_classify_sqlite_magic() -> None:
     assert classify_restore_payload("notes.txt", payload) == "db"
 
 
+def test_classify_fwbackup_magic() -> None:
+    assert classify_restore_payload("notes.txt", b"FWBK\x01\x00rest") == "fwbackup"
+    assert classify_restore_payload("finanse.fwbackup", b"not-magic") == "fwbackup"
+
+
 def test_classify_json_and_db_names() -> None:
     assert classify_restore_payload("export.json", b'{"version": 1}') == "json"
     assert classify_restore_payload("finanse.db", b"not sqlite") == "db"

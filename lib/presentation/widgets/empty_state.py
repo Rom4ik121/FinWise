@@ -18,6 +18,7 @@ class EmptyState(ft.Container):
         message: str,
         *,
         icon: ft.IconData = ft.Icons.INBOX_OUTLINED,
+        hint: Optional[str] = None,
         action_label: Optional[str] = None,
         on_action: Optional[ft.ControlEventHandler] = None,
         page: ft.Page | None = None,
@@ -47,6 +48,15 @@ class EmptyState(ft.Container):
                 color=ft.Colors.ON_SURFACE,
             ),
         ]
+        if hint:
+            controls.append(
+                ft.Text(
+                    hint,
+                    text_align=ft.TextAlign.CENTER,
+                    size=scale_font(12, page, minimum=11, maximum=15),
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                )
+            )
         if action_label and on_action:
             controls.append(
                 ft.FilledButton(action_label, icon=ft.Icons.ADD, on_click=on_action)

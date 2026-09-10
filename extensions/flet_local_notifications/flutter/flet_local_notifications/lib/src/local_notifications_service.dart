@@ -88,9 +88,38 @@ class FinanseLocalNotificationsService extends FletService {
       case "cancel_all":
         await _plugin.cancelAll();
         return true;
+      case "open_system_settings":
+        return _openSystemSettings();
       default:
         throw Exception("Unknown FinanseLocalNotifications method: $name");
     }
+  }
+
+  Future<bool> _openSystemSettings() async {
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await SystemChannels.platform.invokeMethod<void>(
+          'SystemNavigator.routeToNotificationSettings',
+        );
+        return true;
+      }
+      if (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS) {
+        // Handled in Python via page.launch_url('app-settings:') when this
+        // channel is missing; still try the Flutter settings route.
+        try {
+          await SystemChannels.platform.invokeMethod<void>(
+            'SystemNavigator.routeToNotificationSettings',
+          );
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+    } catch (err) {
+      debugPrint("open_system_settings failed: $err");
+    }
+    return false;
   }
 
   Future<bool> _haptic(dynamic args) async {

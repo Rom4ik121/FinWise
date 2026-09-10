@@ -29,6 +29,7 @@ from lib.presentation.money_input import (
     parse_optional_amount,
 )
 from lib.presentation.utils import format_date, format_money, run_async, safe_update, snack, snack_exception, tr, bind_dropdown_select
+from lib.presentation.form_validation import require_positive_amount
 from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
@@ -1101,9 +1102,9 @@ class TransactionsPage(ft.Column):
                 if fee < 0:
                     raise InvalidOperation
                 if line_items is None:
-                    amount = parse_amount(amount_tf.value)
-                    if amount <= 0:
-                        raise InvalidOperation
+                    amount = require_positive_amount(amount_tf, self._page, lang)
+                    if amount is None:
+                        return
                     items: list = []
                 else:
                     if len(line_items) < 1:

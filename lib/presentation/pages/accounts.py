@@ -45,6 +45,7 @@ from lib.presentation.utils import (
     tr,
     user_facing_error,
 )
+from lib.presentation.form_validation import require_name
 from lib.presentation.widgets.account_card import AccountCard
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
@@ -57,6 +58,7 @@ from lib.presentation.widgets.fullscreen_form import (
     push_overlay,
 )
 from lib.presentation.layout import make_v_scroll
+from lib.presentation.responsive import tap_icon_button
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.transfer_sheet import open_transfer
 if TYPE_CHECKING:
@@ -92,19 +94,19 @@ class AccountsPage(ft.Column):
                     body=self._list,
                     page=page,
                     actions=[
-                        ft.IconButton(
+                        tap_icon_button(
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", state.language),
                             on_click=lambda _e: self._reload_gate.request(True),
                         ),
-                        ft.IconButton(
+                        tap_icon_button(
                             icon=ft.Icons.SWAP_HORIZ_ROUNDED,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("transaction.transfer", state.language),
                             on_click=lambda _e: open_transfer(page, state),
                         ),
-                        ft.IconButton(
+                        tap_icon_button(
                             icon=ft.Icons.ADD,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.add", state.language),
@@ -209,12 +211,12 @@ class AccountsPage(ft.Column):
         from lib.presentation.components.layout.grid import card_grid
 
         cards: list[ft.Control] = []
-        cards.extend(card_grid(personal_cards, self._page))
+        cards.extend(card_grid(personal_cards, self._page, min_card=360, maximum=2))
         if corporate_cards:
             if personal_cards:
                 cards.append(ft.Container(height=8, content=ft.Container()))
             cards.append(section_title(tr("account.corporate_section", lang)))
-            cards.extend(card_grid(corporate_cards, self._page))
+            cards.extend(card_grid(corporate_cards, self._page, min_card=360, maximum=2))
 
         if not personal and not corporate:
             self._list.controls = [
@@ -922,9 +924,9 @@ class AccountsPage(ft.Column):
                     account.currency if account else "USDT"
                 )
             else:
-                name = (name_tf.value or "").strip()
+                name = require_name(name_tf, self._page, lang)
                 if not name:
-                    _fail(tr("field.name", lang))
+                    _set_busy(False)
                     return
                 currency = normalize_currency_code(currency_picker.value or "RUB")
             entity = Account(

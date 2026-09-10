@@ -49,7 +49,8 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Бюджеты (логика) | `test_budget.py` |
 | Биометрия / PIN | `test_biometric.py`, `test_encryption.py`, `test_secret_box.py` |
 | Локализация | `test_localization.py` (все ключи ru/en/uz) |
-| Бэкап | `test_backup_service.py` (в т.ч. daily rolling + SQLite magic) |
+| Бэкап | `test_backup_service.py` (daily rolling, SQLite snapshot, `.fwbackup`, embedded key) |
+| Secret box / Keychain | `test_secret_box.py` |
 | Курсы / RateBook | `test_rate_book.py`, currency helpers |
 | Проекции | `test_goal_projection.py`, `test_debt_projection.py` |
 | Подписки (биллинг) | `test_subscription_billing.py` |
@@ -65,7 +66,8 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Пути iOS/Android | `test_config_ios.py` |
 | iOS IPA patch | `test_ios_notifications.py` (AppDelegate, Info.plist, PrivacyInfo) |
 | PIN / lock | `test_encryption.py`, `test_app_state.py` (`reload_pin_gate`) |
-| Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key) |
+| Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key, fwbackup) |
+| Формы | `test_form_validation.py`, `test_money_input.py` |
 | UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py` |
 
 ---

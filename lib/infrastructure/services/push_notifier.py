@@ -240,6 +240,73 @@ async def request_push_permissions() -> bool:
         return False
 
 
+def notification_settings_url() -> str | None:
+    """OS Settings URL for notification permission (iOS / Android)."""
+    if _looks_like_ios():
+        return "app-settings:"
+    try:
+        from lib.core.config import _is_android
+
+        android = bool(_is_android())
+    except Exception:  # noqa: BLE001
+        android = sys.platform == "android"
+    if not android:
+        return None
+    return (
+        "intent:#Intent;action=android.settings.APP_NOTIFICATION_SETTINGS;"
+        "S.android.provider.extra.APP_PACKAGE=com.finanse.app;end"
+    )
+
+
+async def open_system_notification_settings(page: Any | None = None) -> bool:
+    """Open the OS Settings screen for this app's notification permission."""
+    svc = _mobile_service
+    opener = getattr(svc, "open_system_settings", None) if svc is not None else None
+    if callable(opener):
+        try:
+            if await opener():
+                return True
+        except Exception:  # noqa: BLE001
+            logger.debug("Native open_system_settings failed", exc_info=True)
+    url = notification_settings_url()
+    host = page if page is not None else _push_page
+    if not url or host is None:
+        return False
+    try:
+        launch = getattr(host, "launch_url", None)
+        if callable(launch):
+            result = launch(url)
+            if asyncio.iscoroutine(result):
+                await result
+            return True
+    except Exception:  # noqa: BLE001
+        logger.debug("page.launch_url settings failed", exc_info=True)
+    try:
+        import flet as ft
+
+        from lib.infrastructure.services.flet_services import (
+            attach_page_service,
+            existing_page_service,
+        )
+
+        launcher = existing_page_service(host, ft.UrlLauncher)
+        if launcher is None:
+            launcher = ft.UrlLauncher()
+            if not attach_page_service(host, launcher, native_extension=False):
+                return False
+        mode = getattr(ft, "LaunchMode", None)
+        kwargs = {}
+        if mode is not None:
+            external = getattr(mode, "EXTERNAL_APPLICATION", None)
+            if external is not None:
+                kwargs["mode"] = external
+        await launcher.launch_url(url, **kwargs)
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not open system notification settings")
+        return False
+
+
 def _looks_like_ios() -> bool:
     """True on packaged iPhone / iPad runtimes."""
     try:

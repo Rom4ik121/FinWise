@@ -330,41 +330,19 @@ class CategoryPicker(ft.Column):
                 ),
             )
 
-        tiles: list[ft.Control] = [_tile(c) for c in self._categories]
-        tiles.append(
-            ft.Container(
-                border_radius=14,
-                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
-                border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-                padding=ft.Padding.symmetric(horizontal=12, vertical=12),
-                ink=True,
+        tiles: list[ft.Control] = [
+            ft.FilledButton(
+                tr("category.create", lang),
+                icon=ft.Icons.ADD,
                 on_click=lambda _e: _select(_CREATE_KEY),
-                content=ft.Row(
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Container(
-                            width=40,
-                            height=40,
-                            border_radius=12,
-                            bgcolor=ft.Colors.PRIMARY_CONTAINER,
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(
-                                ft.Icons.ADD,
-                                size=20,
-                                color=ft.Colors.ON_PRIMARY_CONTAINER,
-                            ),
-                        ),
-                        ft.Text(
-                            tr("category.create", lang),
-                            size=15,
-                            weight=ft.FontWeight.W_700,
-                            expand=True,
-                        ),
-                    ],
-                ),
-            )
-        )
+            ),
+            ft.Text(
+                tr("category.create_hint", lang),
+                size=12,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+            ),
+        ]
+        tiles.extend(_tile(c) for c in self._categories)
         if not self._categories:
             list_col.controls = [
                 ft.Container(
@@ -605,7 +583,12 @@ class CategoryPicker(ft.Column):
         async def _save() -> None:
             name = normalize_category_name(name_tf.value)
             if not name:
-                snack(self._page, tr("field.name", lang), error=True)
+                snack(self._page, tr("category.name_required", lang), error=True)
+                name_tf.error = tr("category.name_required", lang)
+                try:
+                    safe_update(name_tf)
+                except Exception:  # noqa: BLE001
+                    pass
                 return
             kind = CategoryKind(kind_dd.value or CategoryKind.BOTH.value)
             try:
@@ -646,6 +629,11 @@ class CategoryPicker(ft.Column):
             snack(self._page, tr("action.saved", lang))
 
         body_controls: list[ft.Control] = [
+            ft.Text(
+                tr("category.create_hint", lang),
+                size=13,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+            ),
             name_tf,
             kind_dd,
             icon_toggle,

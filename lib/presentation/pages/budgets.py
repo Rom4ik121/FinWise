@@ -47,6 +47,7 @@ from lib.presentation.utils import (
     snack_exception,
     tr,
 )
+from lib.presentation.form_validation import require_positive_amount
 from lib.presentation.widgets.budget_sparkline import budget_spend_sparkline
 from lib.presentation.widgets.budget_summary_ring import (
     budget_list_card,
@@ -716,10 +717,10 @@ class BudgetsPage(ft.Column):
             if not name:
                 snack(self._page, tr("budgets.category_required", lang), error=True)
                 return
-            try:
-                limit = parse_amount(limit_tf.value)
-            except (InvalidOperation, ValueError):
-                snack(self._page, tr("budgets.limit_required", lang), error=True)
+            limit = require_positive_amount(
+                limit_tf, self._page, lang, message_key="budgets.limit_required"
+            )
+            if limit is None:
                 return
             try:
                 await self._state.container.set_budget.execute(

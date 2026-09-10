@@ -10,8 +10,8 @@ from typing import Any, Optional
 
 import flet as ft
 
-# Material-ish minimum touch target (logical px).
-MIN_TAP = 40
+# Apple HIG / Material minimum touch target (logical px).
+MIN_TAP = 44
 # Reference width for typography scale (iPhone 14 / common phone).
 _REF_WIDTH = 390.0
 # Below this → compact phone layout; at/above → room for denser chrome.
@@ -439,15 +439,15 @@ def form_control_width(page: ft.Page | None, *, preferred: float = 280) -> Optio
     return usable
 
 
-def tap_padding(*, horizontal: int = 10, vertical: int = 10) -> ft.Padding:
-    """Padding that yields ~40×40 hit areas around 20px icons."""
+def tap_padding(*, horizontal: int = 12, vertical: int = 12) -> ft.Padding:
+    """Padding that yields ~44×44 hit areas around 20px icons."""
     return ft.Padding.symmetric(horizontal=horizontal, vertical=vertical)
 
 
 def tap_button_style(
     *,
-    horizontal: int = 10,
-    vertical: int = 10,
+    horizontal: int = 12,
+    vertical: int = 12,
     radius: int = 12,
 ) -> ft.ButtonStyle:
     """Shared IconButton / TextButton style for finger-friendly taps."""
@@ -464,7 +464,7 @@ def tap_icon_button(
     icon_size: int = 20,
     icon_color: Any = None,
     tooltip: str | None = None,
-    padding: int = 10,
+    padding: int = 12,
 ) -> ft.IconButton:
     """IconButton with a guaranteed minimum touch target."""
     return ft.IconButton(

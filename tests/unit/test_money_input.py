@@ -35,6 +35,11 @@ def test_format_groups_while_typing_ru() -> None:
     assert format_amount_input("1234,", "ru") == "1.234,"
     assert format_amount_input("1234,5", "ru") == "1.234,5"
     assert format_amount_input("1234,50", "ru") == "1.234,50"
+    assert format_amount_input("50", "ru") == "50"
+    assert format_amount_input("50", "en") == "50"
+    # Leading zero while composing "50" from a start-caret must not stick as "05".
+    assert format_amount_input("05", "ru") == "5"
+    assert format_amount_input("05", "en") == "5"
 
 
 def test_format_groups_while_typing_en() -> None:
