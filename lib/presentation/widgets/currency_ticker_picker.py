@@ -184,6 +184,7 @@ class CurrencyTickerPicker(ft.Container):
 
     def open(self) -> None:
         """Open searchable ticker picker as a fullscreen overlay."""
+        from lib.presentation.responsive import form_shell_inset
         from lib.presentation.skins import get_active_skin
         from lib.presentation.styles import card_surface, form_header_bar, polish_form_control
         from lib.presentation.theme import is_dark_mode
@@ -345,10 +346,14 @@ class CurrencyTickerPicker(ft.Container):
                                     tooltip=tr("action.cancel", lang),
                                     on_click=_close,
                                 ),
+                                page=self._page,
                             ),
                             ft.Container(
                                 expand=True,
-                                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                                padding=ft.Padding.symmetric(
+                                    horizontal=form_shell_inset(self._page),
+                                    vertical=12,
+                                ),
                                 content=ft.Column(
                                     expand=True,
                                     spacing=12,

@@ -13,7 +13,7 @@ from lib.presentation.layout import make_v_scroll
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.money_input import make_amount_field, parse_amount
 from lib.presentation.styles import card_surface, muted_text
-from lib.presentation.responsive import card_padding
+from lib.presentation.responsive import MIN_TAP, card_padding
 from lib.presentation.utils import (
     format_money,
     run_async,
@@ -145,7 +145,7 @@ class CurrenciesPage(ft.Column):
             label=tr("currencies.amount", lang),
             value="1",
             extra_on_change=lambda _e: run_async(page, self._recalculate),
-            expand=False,
+            expand=True,
             dense=True,
             border_radius=14,
             filled=True,
@@ -258,8 +258,8 @@ class CurrenciesPage(ft.Column):
 
     def _build_converter_card(self, lang: str) -> ft.Control:
         swap_btn = ft.Container(
-            width=40,
-            height=48,
+            width=MIN_TAP,
+            height=MIN_TAP,
             border_radius=12,
             alignment=ft.Alignment.CENTER,
             ink=True,
@@ -467,6 +467,7 @@ class CurrenciesPage(ft.Column):
                         weight=ft.FontWeight.W_600,
                         text_align=ft.TextAlign.RIGHT,
                         max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                 ],
             ),

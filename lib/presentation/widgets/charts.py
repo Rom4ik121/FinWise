@@ -56,6 +56,7 @@ def chart_layout(page: ft.Page | None = None) -> tuple[int, int]:
     from lib.presentation.responsive import (
         block_inner_width,
         is_narrow,
+        layout_width,
         page_height,
         page_width,
     )
@@ -68,7 +69,8 @@ def chart_layout(page: ft.Page | None = None) -> tuple[int, int]:
     elif page_width(page) < 400:
         height = min(height, 196)
     height = min(height, width + 4)
-    return max(200, width), height
+    cap = int(layout_width(page))
+    return max(160, min(width, cap)), height
 
 
 def _money_formatter(value: float, _pos: int = 0) -> str:

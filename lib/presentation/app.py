@@ -29,14 +29,11 @@ from lib.presentation.styles import glass_layer
 from lib.presentation.theme import apply_theme_from_settings, is_dark_mode
 from lib.presentation.utils import snack, tr
 from lib.presentation.widgets.lock_screen import LockScreen
+from lib.presentation.responsive import breakpoint, nav_chrome_metrics, page_width
 
 logger = logging.getLogger("finanse.presentation.app")
 
 _NAV_RADIUS = 22
-_NAV_MARGIN = ft.Margin.only(left=10, right=10, bottom=6, top=4)
-_NAV_PILL_W = 46.0
-_NAV_PILL_H = 30.0
-_NAV_BAR_H = 54.0
 _NAV_SLIDE = ft.Animation(240, ft.AnimationCurve.EASE_OUT)
 _BACKGROUND_LOCK_SECONDS = 15.0
 
@@ -76,6 +73,7 @@ class FinanseApp:
             switch_out_curve=ft.AnimationCurve.EASE_OUT,
             expand=True,
         )
+        nav_m = nav_chrome_metrics(page)
         self._nav = ft.Row(
             spacing=0,
             alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -85,8 +83,8 @@ class FinanseApp:
         # Sliding selection pill: flex spacers keep it centered in the active slot
         # (no pixel math — that broke when host width was unknown).
         self._nav_indicator = ft.Container(
-            width=_NAV_PILL_W,
-            height=_NAV_PILL_H,
+            width=nav_m["pill_w"],
+            height=nav_m["pill_h"],
             border_radius=14,
             bgcolor=ft.Colors.TRANSPARENT,
             animate=_NAV_SLIDE,
@@ -100,14 +98,14 @@ class FinanseApp:
             animate=_NAV_SLIDE,
         )
         self._nav_stack = ft.Stack(
-            height=_NAV_BAR_H,
+            height=nav_m["bar_h"],
             clip_behavior=ft.ClipBehavior.NONE,
             controls=[
                 ft.Container(
                     left=0,
                     right=0,
                     top=6,
-                    height=_NAV_PILL_H,
+                    height=nav_m["pill_h"],
                     content=ft.Row(
                         spacing=0,
                         controls=[
@@ -127,7 +125,12 @@ class FinanseApp:
             ],
         )
         self._nav_host = ft.Container(
-            margin=_NAV_MARGIN,
+            margin=ft.Margin.only(
+                left=nav_m["margin_h"],
+                right=nav_m["margin_h"],
+                bottom=nav_m["margin_bottom"],
+                top=nav_m["margin_top"],
+            ),
             border_radius=_NAV_RADIUS,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             bgcolor=ft.Colors.SURFACE_CONTAINER,
@@ -172,6 +175,8 @@ class FinanseApp:
         self._active_view: Optional[ft.Control] = None
         self._backgrounded_at: float | None = None
         self._push_prompted: bool = False
+        self._layout_bp: str | None = None
+        self._layout_w: float = 0.0
 
     async def start(self) -> None:
         """Load settings, apply theme, and mount the shell."""
@@ -225,6 +230,7 @@ class FinanseApp:
         self._render(force=True)
         self._flush_notifications()
         self._install_session_lock()
+        self._install_resize_handler()
         self._probe_motion()
 
     def _probe_motion(self) -> None:
@@ -283,6 +289,74 @@ class FinanseApp:
                 self.lock_session()
 
         self.page.on_app_lifecycle_state_change = _on_lifecycle
+
+    def _install_resize_handler(self) -> None:
+        """Keep gutters / nav grouped when the window crosses a breakpoint."""
+        self._layout_bp = breakpoint(self.page)
+        self._layout_w = page_width(self.page)
+        previous = self.page.on_resize
+
+        def _on_resize(e: Any) -> None:
+            if callable(previous):
+                try:
+                    previous(e)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Previous resize handler failed")
+            self._apply_nav_metrics()
+            bp = breakpoint(self.page)
+            width = page_width(self.page)
+            modest = (
+                bp == self._layout_bp
+                and abs(width - self._layout_w) < 64
+            )
+            if modest:
+                try:
+                    from lib.presentation.utils import safe_update
+
+                    safe_update(self._nav_host)
+                except Exception:  # noqa: BLE001
+                    pass
+                return
+            self._layout_bp = bp
+            self._layout_w = width
+            self._forget_cached_views()
+            self._render(force=True)
+
+        self.page.on_resize = _on_resize
+
+    def _apply_nav_metrics(self) -> None:
+        """Resize the floating tab bar for the current viewport."""
+        m = nav_chrome_metrics(self.page)
+        self._nav_host.margin = ft.Margin.only(
+            left=m["margin_h"],
+            right=m["margin_h"],
+            bottom=m["margin_bottom"],
+            top=m["margin_top"],
+        )
+        self._nav_stack.height = m["bar_h"]
+        self._nav_indicator.width = m["pill_w"]
+        self._nav_indicator.height = m["pill_h"]
+        try:
+            track = self._nav_stack.controls[0]
+            track.top = 6
+            track.height = m["pill_h"]
+        except Exception:  # noqa: BLE001
+            pass
+        for i, item in enumerate(self._nav.controls):
+            try:
+                item.padding = ft.Padding.symmetric(
+                    horizontal=m["item_pad_h"],
+                    vertical=m["item_pad_v"],
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            if i < len(self._nav_pills):
+                self._nav_pills[i].width = m["pill_w"]
+                self._nav_pills[i].height = m["pill_h"]
+            if i < len(self._nav_icons):
+                self._nav_icons[i].size = m["icon"]
+            if i < len(self._nav_labels):
+                self._nav_labels[i].size = m["label"]
 
     def _ask_notification_permission(self) -> None:
         """Ask iOS/Android for alerts after the window is active."""
@@ -343,11 +417,14 @@ class FinanseApp:
         if self._nav.controls:
             return
         skin = get_active_skin()
+        nav_m = nav_chrome_metrics(self.page)
         for index, icon, selected_icon, label in self._nav_specs():
-            glyph = ft.Icon(icon, size=22, color=ft.Colors.ON_SURFACE_VARIANT)
+            glyph = ft.Icon(
+                icon, size=nav_m["icon"], color=ft.Colors.ON_SURFACE_VARIANT
+            )
             pill = ft.Container(
-                width=_NAV_PILL_W,
-                height=_NAV_PILL_H,
+                width=nav_m["pill_w"],
+                height=nav_m["pill_h"],
                 alignment=ft.Alignment.CENTER,
                 border_radius=skin.chip_radius,
                 scale=1,
@@ -356,7 +433,7 @@ class FinanseApp:
             )
             caption = ft.Text(
                 label,
-                size=11,
+                size=nav_m["label"],
                 weight=ft.FontWeight.W_500,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
@@ -369,7 +446,10 @@ class FinanseApp:
                 expand=True,
                 ink=False,
                 on_click=lambda _e, i=index: self.state.set_tab(i),
-                padding=ft.Padding.symmetric(horizontal=4, vertical=4),
+                padding=ft.Padding.symmetric(
+                    horizontal=nav_m["item_pad_h"],
+                    vertical=nav_m["item_pad_v"],
+                ),
                 content=ft.Column(
                     spacing=2,
                     tight=True,
@@ -400,6 +480,7 @@ class FinanseApp:
     def _sync_chrome(self) -> None:
         skin = get_active_skin()
         dark = is_dark_mode(self.page, self.state.theme_mode)
+        self._apply_nav_metrics()
         self._stage.gradient = skin.page_gradient(dark=dark)
         self._stage.bgcolor = skin.dark_bg if dark else skin.light_bg
         layer = glass_layer(opacity=0.38)

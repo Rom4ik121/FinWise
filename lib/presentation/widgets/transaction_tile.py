@@ -16,7 +16,7 @@ from lib.presentation.count_up import mark_money_text
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import amount_color
 from lib.presentation.widgets.color_badge import color_badge
-from lib.presentation.responsive import tx_tile_metrics
+from lib.presentation.responsive import MIN_TAP, tx_tile_metrics
 from lib.presentation.utils import (
     category_icon,
     format_date,
@@ -154,7 +154,7 @@ class TransactionTile(ft.Container):
 
         # --- Arrow toggle button (rotates 180° when open) ---
         self._arrow_container = ft.Container(
-            width=40,
+            width=MIN_TAP,
             height=tile_h,
             alignment=ft.Alignment.CENTER,
             ink=True,

@@ -152,9 +152,9 @@ class AnalyticsPage(ft.Column):
                         expand=True,
                         spacing=6,
                         controls=[
-                            ft.Container(height=40, content=self._period_row),
+                            ft.Container(height=44, content=self._period_row),
                             self._kpi_host,
-                            ft.Container(height=40, content=self._section_chips),
+                            ft.Container(height=44, content=self._section_chips),
                             self._pager,
                         ],
                     ),

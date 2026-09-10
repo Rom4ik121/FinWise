@@ -22,6 +22,15 @@ WIDE_MIN = 720
 NARROW_MAX = 360
 # Large tablet / desktop split for card grids.
 DESKTOP_MIN = 1024
+# Centered readable measure on large windows (not a skinny phone column,
+# not a stretched 1600px slab). Wide enough for a 3-up 280px card grid.
+SHELL_MAX_LG = 840
+SHELL_MAX_XL = 960
+# Grouped floating tab bar on large windows (mobile chrome, not a spread).
+NAV_BAR_MAX_LG = 520
+NAV_BAR_MAX_XL = 560
+# ListView clearance under the floating nav + home indicator.
+LIST_NAV_CLEARANCE = 104
 
 Breakpoint = str
 BP_XS = "xs"
@@ -122,16 +131,41 @@ def scale_space(base: float, page: ft.Page | None = None) -> int:
     return scale_size(base, page, floor=0.90, ceil=1.18, minimum=4, maximum=28)
 
 
-def content_inset(page: ft.Page | None = None) -> int:
-    """Horizontal page gutter (list / dashboard body)."""
+def shell_max_width(page: ft.Page | None = None) -> float | None:
+    """Inner content cap on large windows; ``None`` means fill the gutters."""
     bp = breakpoint(page)
+    if bp == BP_LG:
+        return float(SHELL_MAX_LG)
+    if bp == BP_XL:
+        return float(SHELL_MAX_XL)
+    return None
+
+
+def content_inset(page: ft.Page | None = None) -> int:
+    """Horizontal page gutter (list / dashboard body).
+
+    On lg/xl the gutter also *centers* the shell so cards are not a 1600px
+    stretch and not a 400px island in empty space.
+    """
+    bp = breakpoint(page)
+    width = page_width(page)
     if bp == BP_XS:
         return 8
-    if bp == BP_SM:
-        return 10
-    if bp in (BP_LG, BP_XL):
-        return 16
-    return 12
+    if bp in (BP_SM, BP_MD):
+        return 12
+    cap = shell_max_width(page) or float(SHELL_MAX_LG)
+    return int(max(16.0, (width - cap) / 2.0))
+
+
+def layout_width(page: ft.Page | None = None) -> float:
+    """Body width after gutters (capped on tablet / desktop)."""
+    width = page_width(page)
+    usable = max(0.0, width - content_inset(page) * 2)
+    cap = shell_max_width(page)
+    target = min(usable, cap) if cap is not None else usable
+    if target <= 0:
+        return width
+    return max(min(240.0, width), target)
 
 
 def card_padding(page: ft.Page | None = None, *, hero: bool = False) -> int:
@@ -148,7 +182,7 @@ _REF_KPI = 150.0
 
 def content_column_width(page: ft.Page | None = None) -> float:
     """List/body width inside page gutters (not the raw window)."""
-    return max(240.0, page_width(page) - content_inset(page) * 2)
+    return layout_width(page)
 
 
 def block_inner_width(
@@ -334,8 +368,8 @@ def grid_columns(
     min_card: float = 280,
     maximum: int = 3,
 ) -> int:
-    """How many equal-width cards fit in the current viewport."""
-    usable = max(280.0, page_width(page) - content_inset(page) * 2)
+    """How many equal-width cards fit in the *layout* column (not the window)."""
+    usable = layout_width(page)
     cols = max(1, int(usable // min_card))
     return min(maximum, cols)
 
@@ -423,9 +457,82 @@ def clamp_content_width(
     margin: float = 24,
     max_width: float = 720,
 ) -> float:
-    """Usable content width inside horizontal margins (never exceeds max)."""
-    usable = max(280.0, page_width(page) - margin * 2)
-    return min(usable, max_width)
+    """Usable content width inside horizontal margins (never exceeds viewport)."""
+    width = page_width(page)
+    usable = max(0.0, width - float(margin) * 2)
+    if usable <= 0:
+        return min(width, float(max_width))
+    return min(usable, float(max_width))
+
+
+def form_shell_inset(page: ft.Page | None = None) -> int:
+    """Horizontal padding around a fullscreen form / picker sheet."""
+    bp = breakpoint(page)
+    if bp == BP_XS:
+        return 10
+    if bp == BP_SM:
+        return 12
+    return 16
+
+
+def nav_bar_max_width(page: ft.Page | None = None) -> float | None:
+    """Cap the floating tab bar so four items stay grouped on large windows."""
+    bp = breakpoint(page)
+    if bp == BP_LG:
+        return float(NAV_BAR_MAX_LG)
+    if bp == BP_XL:
+        return float(NAV_BAR_MAX_XL)
+    return None
+
+
+def nav_chrome_metrics(page: ft.Page | None = None) -> dict[str, int]:
+    """Floating bottom-nav sizes that fit 320px without clipping labels."""
+    bp = breakpoint(page)
+    cap = nav_bar_max_width(page)
+    width = page_width(page)
+    if cap is not None:
+        margin_h = int(max(12.0, (width - cap) / 2.0))
+    elif bp == BP_XS:
+        margin_h = 6
+    else:
+        margin_h = 10
+    if bp == BP_XS:
+        return {
+            "margin_h": margin_h,
+            "margin_bottom": 6,
+            "margin_top": 4,
+            "bar_h": 52,
+            "pill_w": 40,
+            "pill_h": 28,
+            "label": 10,
+            "icon": 20,
+            "item_pad_h": 2,
+            "item_pad_v": 4,
+        }
+    return {
+        "margin_h": margin_h,
+        "margin_bottom": 8 if cap is not None else 6,
+        "margin_top": 4,
+        "bar_h": 54,
+        "pill_w": 46,
+        "pill_h": 30,
+        "label": 11,
+        "icon": 22,
+        "item_pad_h": 4,
+        "item_pad_v": 4,
+    }
+
+
+def list_nav_padding() -> ft.Padding:
+    """Bottom inset so ListView rows clear the floating nav + home indicator."""
+    return ft.Padding.only(bottom=LIST_NAV_CLEARANCE)
+
+
+def header_title_size(page: ft.Page | None = None, *, base: float = 22) -> int:
+    """Page-title size that still ellipsizes beside 44px header actions."""
+    if is_narrow(page):
+        return scale_font(base, page, minimum=16, maximum=22)
+    return scale_font(base, page, minimum=18, maximum=28)
 
 
 def form_control_width(page: ft.Page | None, *, preferred: float = 280) -> Optional[float]:
@@ -496,4 +603,5 @@ def compact_chart_size(page: ft.Page | None = None) -> tuple[int, int]:
     height = max(104, min(148, int(h * 0.16)))
     if page_width(page) < NARROW_MAX:
         height = max(100, height - 8)
-    return max(200, width), height
+    cap = int(layout_width(page))
+    return max(160, min(width, cap)), height

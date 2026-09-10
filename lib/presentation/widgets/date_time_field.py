@@ -19,6 +19,7 @@ from lib.presentation.responsive import (
     calendar_cell_size,
     calendar_day_width,
     clamp_content_width,
+    form_shell_inset,
     tap_button_style,
 )
 from lib.presentation.styles import form_save_button
@@ -398,7 +399,9 @@ class DateTimeField(ft.Column):
             self._minute_dd.value = f"{minute_q:02d}"
         self._picker_open = True
         self._render_grid()
-        form_w = clamp_content_width(self._page, margin=28, max_width=560)
+        form_w = clamp_content_width(
+            self._page, margin=form_shell_inset(self._page), max_width=560
+        )
         apply_btn = form_save_button(
             tr("action.apply", self._lang),
             icon=ft.Icons.CHECK,
@@ -409,7 +412,12 @@ class DateTimeField(ft.Column):
         except Exception:  # noqa: BLE001
             pass
         footer = ft.Container(
-            padding=ft.Padding.only(left=14, right=14, top=10, bottom=14),
+            padding=ft.Padding.only(
+                left=form_shell_inset(self._page),
+                right=form_shell_inset(self._page),
+                top=10,
+                bottom=14,
+            ),
             content=ft.Container(
                 alignment=ft.Alignment.TOP_CENTER,
                 content=ft.Container(width=form_w, content=apply_btn),

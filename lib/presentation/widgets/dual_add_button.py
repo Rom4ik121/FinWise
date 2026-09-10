@@ -20,7 +20,7 @@ def dual_add_button(
     page: ft.Page | None = None,
 ) -> ft.Container:
     """One long button: left = expense, right = income."""
-    from lib.presentation.responsive import scale_font, scale_size
+    from lib.presentation.responsive import MIN_TAP, scale_font, scale_size
 
     skin = get_active_skin()
     pad_h = scale_size(14, page, minimum=10, maximum=18)
@@ -68,7 +68,7 @@ def dual_add_button(
         return side
 
     return ft.Container(
-        height=52,
+        height=max(MIN_TAP + 8, 52),
         border_radius=16,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         shadow=ft.BoxShadow(

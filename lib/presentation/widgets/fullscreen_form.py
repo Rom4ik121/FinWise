@@ -16,7 +16,12 @@ from lib.presentation.styles import (
     polish_form_control,
 )
 from lib.presentation.theme import is_dark_mode
-from lib.presentation.responsive import clamp_content_width, tap_button_style
+from lib.presentation.responsive import (
+    clamp_content_width,
+    form_shell_inset,
+    is_narrow,
+    tap_button_style,
+)
 from lib.presentation.ui_motion import (
     DUR_MED,
     apply_overlay_enter,
@@ -251,7 +256,8 @@ def build_form_shell(
     """Shared chrome: gradient backdrop, glass header, padded scroll body."""
     skin = get_active_skin()
     dark = is_dark_mode(page)
-    form_w = clamp_content_width(page, margin=28, max_width=560)
+    inset = form_shell_inset(page)
+    form_w = clamp_content_width(page, margin=inset, max_width=560)
     body_controls = _polish_tree(body)
     if wrap_body:
         panel = card_surface(
@@ -300,10 +306,11 @@ def build_form_shell(
                         title,
                         leading=close_leading,
                         actions=list(actions or []),
+                        page=page,
                     ),
                     ft.Container(
                         expand=True,
-                        padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                        padding=ft.Padding.symmetric(horizontal=inset, vertical=12),
                         content=ft.Column(
                             expand=True,
                             spacing=0,
@@ -361,9 +368,10 @@ def open_fullscreen_form(
         if on_save is not None:
             await on_save()
 
+    compact = save_compact or is_narrow(page)
     actions: list[ft.Control] = []
     if show_save and on_save is not None:
-        if save_compact:
+        if compact:
             actions.append(
                 ft.IconButton(
                     icon=save_icon,

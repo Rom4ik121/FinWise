@@ -21,7 +21,8 @@ def page_frame(
     """Standard column children: header, optional toolbar, expanding body.
 
     Screens pass callbacks via ``actions`` / ``leading``; this helper only
-    applies viewport gutters and does not load data.
+    applies viewport gutters (``content_inset`` also centers lg/xl shells)
+    and does not load data.
     """
     _ = lang
     inset = content_inset(page)

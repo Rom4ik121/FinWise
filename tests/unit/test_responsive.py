@@ -8,10 +8,16 @@ from lib.presentation.responsive import (
     calendar_day_width,
     clamp_content_width,
     compact_chart_size,
+    content_inset,
     form_control_width,
+    form_shell_inset,
     is_compact,
     is_wide,
+    layout_width,
+    list_nav_padding,
+    nav_chrome_metrics,
     scale_font,
+    shell_max_width,
     swipe_action_strip_width,
     swipe_reveal_offset,
 )
@@ -44,12 +50,42 @@ def test_form_and_calendar_fit_narrow() -> None:
     se = _FakePage(320)  # type: ignore[arg-type]
     assert form_control_width(se) is None  # type: ignore[arg-type]
     assert clamp_content_width(se, margin=24, max_width=400) <= 320  # type: ignore[arg-type]
+    # Floor of 280 must never exceed the remaining viewport.
+    locked = clamp_content_width(se, margin=56, max_width=280)  # type: ignore[arg-type]
+    assert locked <= 320 - 112
     assert calendar_cell_size(se) >= MIN_TAP  # type: ignore[arg-type]
     day_w = calendar_day_width(se)  # type: ignore[arg-type]
     assert 7 * day_w + 6 * 4 <= 320 - 40
     w, h = compact_chart_size(se)  # type: ignore[arg-type]
     assert w <= 320
     assert 100 <= h <= 180
+    assert form_shell_inset(se) <= 12  # type: ignore[arg-type]
+
+
+def test_shell_centers_on_desktop_without_skinny_island() -> None:
+    desk = _FakePage(1400)  # type: ignore[arg-type]
+    phone = _FakePage(390)  # type: ignore[arg-type]
+    tablet = _FakePage(800)  # type: ignore[arg-type]
+    assert shell_max_width(phone) is None  # type: ignore[arg-type]
+    assert shell_max_width(desk) == 960  # type: ignore[arg-type]
+    body = layout_width(desk)  # type: ignore[arg-type]
+    assert 840 <= body <= 960
+    # Gutters eat the leftover — content is centered, not edge-to-edge.
+    assert content_inset(desk) >= 200  # type: ignore[arg-type]
+    assert abs(1400 - body - content_inset(desk) * 2) < 2  # type: ignore[arg-type]
+    # Common phone fills the gutters (no 400px island).
+    assert layout_width(phone) >= 360  # type: ignore[arg-type]
+    # Large phone / small tablet: two card columns, not a crushed single strip.
+    assert layout_width(tablet) >= 700  # type: ignore[arg-type]
+    nav = nav_chrome_metrics(desk)  # type: ignore[arg-type]
+    # Grouped tab bar, not four icons stretched 1400px apart.
+    assert nav["margin_h"] * 2 + 560 <= 1400
+    assert nav["margin_h"] >= 100
+    se_nav = nav_chrome_metrics(_FakePage(320))  # type: ignore[arg-type]
+    assert se_nav["margin_h"] <= 8
+    assert se_nav["label"] <= 11
+    pad = list_nav_padding()
+    assert pad.bottom == 104
 
 
 def test_breakpoints_and_grid() -> None:
@@ -58,6 +94,7 @@ def test_breakpoints_and_grid() -> None:
         BP_XS,
         breakpoint,
         grid_columns,
+        layout_width,
         scale_size,
         tx_tile_metrics,
     )
@@ -73,6 +110,14 @@ def test_breakpoints_and_grid() -> None:
     metrics = tx_tile_metrics(_FakePage(320))  # type: ignore[arg-type]
     assert metrics["height"] >= 52
     assert metrics["amount_width"] >= 72
+    row = (
+        metrics["icon"]
+        + metrics["amount_width"]
+        + MIN_TAP
+        + 20
+        + 24
+    )
+    assert row <= layout_width(_FakePage(320))  # type: ignore[arg-type]
     from lib.presentation.responsive import entity_card_metrics
 
     entity = entity_card_metrics(_FakePage(320))  # type: ignore[arg-type]

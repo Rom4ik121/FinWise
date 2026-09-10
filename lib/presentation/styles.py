@@ -128,6 +128,8 @@ def section_title(text: str, *, page: ft.Page | None = None) -> ft.Text:
         size=scale_font(15, page),
         weight=ft.FontWeight.W_700,
         color=ft.Colors.ON_SURFACE,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        max_lines=2,
     )
 
 
@@ -235,7 +237,11 @@ def page_header(
     page: ft.Page | None = None,
 ) -> ft.Container:
     """Page top bar — sits below SafeArea, clear of notch / status bar."""
-    from lib.presentation.responsive import content_inset, scale_font
+    from lib.presentation.responsive import (
+        content_inset,
+        header_title_size,
+        is_narrow,
+    )
 
     left: list[ft.Control] = []
     if leading is not None:
@@ -243,21 +249,36 @@ def page_header(
     left.append(
         ft.Text(
             title,
-            size=scale_font(22, page, minimum=18, maximum=28),
+            size=header_title_size(page),
             weight=ft.FontWeight.W_700,
             color=ft.Colors.ON_SURFACE,
             overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=1,
+            max_lines=2 if is_narrow(page) else 1,
             expand=True,
         )
     )
     inset = content_inset(page)
+    actions_row = ft.Row(
+        controls=list(actions or []),
+        tight=True,
+        spacing=0,
+        wrap=is_narrow(page),
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
     return ft.Container(
         # Horizontal inset + comfortable tap height under Dynamic Island / notch.
-        padding=ft.Padding.only(left=inset + 4, right=10, top=12, bottom=8),
+        padding=ft.Padding.only(
+            left=inset + 4,
+            right=inset + 4,
+            top=12,
+            bottom=8,
+        ),
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            wrap=is_narrow(page),
+            spacing=4,
+            run_spacing=4,
             controls=[
                 ft.Row(
                     controls=left,
@@ -266,12 +287,7 @@ def page_header(
                     expand=True,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.Row(
-                    controls=list(actions or []),
-                    tight=True,
-                    spacing=0,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
+                actions_row,
             ],
         ),
     )
@@ -486,7 +502,7 @@ def labeled_switch(label: str, switch: ft.Switch) -> ft.Control:
         spacing=10,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
-            ft.Text(label, size=13, expand=True, max_lines=3),
+            ft.Text(label, size=13, expand=True, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
             switch,
         ],
     )
@@ -638,25 +654,29 @@ def form_header_bar(
     *,
     leading: Optional[ft.Control] = None,
     actions: Optional[Sequence[ft.Control]] = None,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     """Compact form top bar with glass strip (titles stay readable)."""
+    from lib.presentation.responsive import header_title_size, is_narrow
+
     left: list[ft.Control] = []
     if leading is not None:
         left.append(leading)
     left.append(
         ft.Text(
             title,
-            size=18,
+            size=header_title_size(page, base=18),
             weight=ft.FontWeight.W_700,
             color=ft.Colors.ON_SURFACE,
             overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=1,
+            max_lines=2 if is_narrow(page) else 1,
             expand=True,
         )
     )
     skin = get_active_skin()
+    wrap = is_narrow(page)
     return ft.Container(
-        padding=ft.Padding.only(left=8, right=12, top=10, bottom=10),
+        padding=ft.Padding.only(left=8, right=8, top=10, bottom=10),
         border=ft.Border.only(
             bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.OUTLINE_VARIANT))
         ),
@@ -664,6 +684,9 @@ def form_header_bar(
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            wrap=wrap,
+            spacing=4,
+            run_spacing=4,
             controls=[
                 ft.Row(
                     controls=left,
@@ -676,7 +699,7 @@ def form_header_bar(
                     controls=list(actions or []),
                     tight=True,
                     spacing=4,
-                    wrap=False,
+                    wrap=wrap,
                     expand=False,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),

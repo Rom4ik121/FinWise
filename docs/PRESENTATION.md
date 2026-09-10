@@ -101,7 +101,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - **Reload coalesce:** `reload_gate.py` — поиск/фильтры не штормят БД; скрытые вкладки не reload'ятся на каждый save (явный `mark_shown` / `mark_hidden`).
 - **Scroll / rebuild:** `ui_motion.replace_controls` сохраняет позицию списка. Главная при повторном reload мутирует слоты (баланс/ярлыки/бюджеты), не пересобирает ListView. Fullscreen-формы reuse'ят один overlay-слот (`push_overlay`); закрытие обнуляет дерево без `page.update()`.
 - Ошибки: `snack_exception` / `user_facing_error` — доменные тексты → i18n; technical English → `error.generic`; без traceback. Пустой Save на формах (счета, операции, долги, цели, подписки, бюджеты) не молчит: `form_validation.py` ставит `TextField.error` и красный тост поверх fullscreen (`ui_feedback.flash_error`).
-- Списки: нижний padding ListView (~104 px), чтобы контент не прятался под floating nav / home indicator.
+- Списки: нижний padding ListView (`LIST_NAV_CLEARANCE` = 104 px), чтобы контент не прятался под floating nav / home indicator.
 - Категория из операции: `CategoryPicker` открывает полноценный редактор (имя / иконка / цвет), кнопка «Создать» сверху списка.
 ---
 
@@ -131,7 +131,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 | Модуль | Роль |
 |--------|------|
-| `responsive.py` | Breakpoints xs–xl, `scale_font` / `scale_size`, `grid_columns`, `tx_tile_metrics`, `entity_card_metrics`, `content_inset` |
+| `responsive.py` | Breakpoints xs–xl, `layout_width` / `shell_max_width`, `scale_font` / `scale_size`, `grid_columns`, `tx_tile_metrics`, `entity_card_metrics`, `content_inset`, `nav_chrome_metrics` |
 | `utils.py` | `format_money`, `run_async`, `snack` (успех и ошибка → top toast), RateBook helpers, `user_facing_error`, `snack_exception` |
 | `form_validation.py` | Имя / сумма: поле + тост, видно над fullscreen |
 | `ui_feedback.py` | Зелёный/красный chip поверх overlay |
@@ -147,20 +147,23 @@ Observer: `subscribe` / `notify` (с coalesce).
 | `layout.py` | `make_v_scroll`, chip rows + re-export responsive API |
 | `widgets/period_scale.py` | Шкала периода на summary rings |
 
-### Responsive / touch (2026-09-08)
+### Responsive / touch (2026-09-10)
 
-- Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от `page.width`.
-- Все экраны — `page_frame` (динамические gutters). Счета 1–3 колонки; цели/долги/подписки/бюджеты — 1–2.
+- Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от **ширины колонки** (`layout_width`), не сырого окна.
+- Все экраны — `page_frame` (динамические gutters). На **lg/xl** gutters центрируют контент: max **840 / 960** px (2–3 колонки карт), не растяжение на 1600 px и не «островок» 400 px. Счета 1–3 колонки; цели/долги/подписки/бюджеты — 1–2.
+- **xs (~320):** `clamp_content_width` никогда не шире viewport; заголовки ellipsis/wrap; nav margin/label уже; tap ≥ **44**; dual-add в списке, не поверх контента.
+- **sm (~390–430):** основные поля — gutter 12 px.
 - Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
-- Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
+- Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads, account/tx chevrons). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
 - Motion: tab fade ~220ms ease-out (not bounce); overlays fade/slide; cards scale to 0.98 on press; toasts ease in from the top. iOS Reduce Motion / `FINANCE_REDUCE_MOTION=1` skips animation. Neon glass blur is capped (~8–10) so it does not strain the eyes.
 - Charts (analytics / account / dashboard) fade+slide in on first paint and manual refresh only — silent `ReloadGate` reloads skip to avoid jank. PDF export chips/actions and icon/color pickers use the same press + selection haptic language. Settings accordion eases expand/collapse (opacity + scale, delayed hide). Lock screen stays static.
 - Amount fields: live grouping must not `update()` on every keystroke (Flet web caret-at-0 turns `50` into `05`→`5`). `repair_amount_caret_prepend` treats a one-digit prepend as an append.
-- Fullscreen overlays insert **under** the save toast; dismissed sheets set `ignore_interactions` immediately. Flet web never uses `opacity=0` overlays (they still steal taps). Account Edit/Delete sit outside the card’s open-detail hit target.
+- Fullscreen overlays insert **under** the save toast; dismissed sheets set `ignore_interactions` immediately. Flet web never uses `opacity=0` overlays (they still steal taps). Account Edit/Delete sit outside the card’s open-detail hit target. On xs, form Save is a compact 44px icon so the title is not crushed.
 - First paint of empty lists uses **skeleton rows**, not a blank flash. Hidden-tab reloads stay coalesced (`ReloadGate` + `AppState.notify(coalesce=True)`).
 - Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
-- Графики: `chart_layout` / `compact_chart_size` от `page.width/height`.
-- ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный).
+- Графики: `chart_layout` / `compact_chart_size` от `layout_width`.
+- ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный); на lg/xl nav сгруппирован (~520–560 px), вкладки не расползаются на всю ширину окна.
+- Resize: смена breakpoint пересобирает кэш страниц, чтобы сетки и gutters совпали с новым окном.
 
 ---
 

@@ -18,6 +18,7 @@ from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.utils import format_money, format_money_parts, safe_update
 from lib.presentation.responsive import (
+    MIN_TAP,
     fit_font,
     fit_size,
     grid_columns,
@@ -117,8 +118,8 @@ class AccountCard(ft.Container):
         )
 
         self._arrow_container = ft.Container(
-            width=40,
-            height=40,
+            width=MIN_TAP,
+            height=MIN_TAP,
             alignment=ft.Alignment.CENTER,
             ink=True,
             border_radius=8,

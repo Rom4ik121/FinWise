@@ -33,6 +33,7 @@ from lib.presentation.styles import (
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
 from lib.presentation.components.layout.page_shell import page_column, page_frame
+from lib.presentation.layout import list_nav_padding
 from lib.presentation.ui_motion import (
     DUR_MED,
     bind_press,
@@ -164,7 +165,7 @@ def _settings_section(
     header = ft.Container(
         ink=True,
         border_radius=12,
-        padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+        padding=ft.Padding.symmetric(horizontal=2, vertical=6),
         on_click=_toggle,
         content=ft.Row(
             spacing=10,
@@ -479,7 +480,7 @@ class SettingsPage(ft.Column):
         scroll_body = ft.ListView(
             expand=True,
             spacing=14,
-            padding=ft.Padding.only(bottom=104),
+            padding=list_nav_padding(),
             auto_scroll=False,
             controls=[
                 section(

@@ -15,7 +15,7 @@ from lib.presentation.analytics_period import (
     EXPORT_PERIOD_KEYS,
     resolve_export_period,
 )
-from lib.presentation.responsive import clamp_content_width
+from lib.presentation.responsive import clamp_content_width, form_shell_inset
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import form_save_button, form_section, labeled_switch
 from lib.presentation.theme import is_dark_mode
@@ -314,7 +314,7 @@ def open_pdf_export_sheet(
 
     close_holder: dict[str, CloseFn] = {}
     busy = {"on": False}
-    form_w = clamp_content_width(page, margin=28, max_width=560)
+    form_w = clamp_content_width(page, margin=form_shell_inset(page), max_width=560)
     status = ft.Text(
         "",
         size=12,

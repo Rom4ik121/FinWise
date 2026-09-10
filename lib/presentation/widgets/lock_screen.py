@@ -14,6 +14,7 @@ from lib.presentation.theme import is_dark_mode, page_gradient
 from lib.presentation.responsive import (
     clamp_content_width,
     form_control_width,
+    form_shell_inset,
     page_width,
     scale_font,
 )
@@ -63,7 +64,7 @@ class LockScreen(ft.Container):
         self._countdown_task: asyncio.Task[None] | None = None
         field_w = form_control_width(page, preferred=280)
         if field_w is None:
-            field_w = clamp_content_width(page, margin=56, max_width=280)
+            field_w = clamp_content_width(page, margin=form_shell_inset(page) + 40, max_width=280)
         self._pin = ft.TextField(
             label=tr("settings.pin", language),
             password=True,
@@ -115,12 +116,15 @@ class LockScreen(ft.Container):
         ]
 
         dark = is_dark_mode(page)
-        card_w = clamp_content_width(page, margin=24, max_width=400)
+        card_w = clamp_content_width(page, margin=16 if page_width(page) < 360 else 24, max_width=400)
         super().__init__(
             expand=True,
             alignment=ft.Alignment.CENTER,
             gradient=page_gradient(dark),
-            padding=ft.Padding.symmetric(horizontal=16, vertical=24),
+            padding=ft.Padding.symmetric(
+                horizontal=12 if page_width(page) < 360 else 16,
+                vertical=24,
+            ),
             content=ft.Container(
                 width=card_w,
                 padding=24 if page_width(page) < 360 else 28,

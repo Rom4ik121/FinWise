@@ -14,6 +14,7 @@ from lib.presentation.responsive import (  # noqa: F401
     BP_SM,
     BP_XL,
     BP_XS,
+    LIST_NAV_CLEARANCE,
     MIN_TAP,
     breakpoint,
     calendar_cell_size,
@@ -28,12 +29,15 @@ from lib.presentation.responsive import (  # noqa: F401
     is_compact,
     is_narrow,
     is_wide,
+    layout_width,
+    list_nav_padding,
     page_height,
     page_width,
     scale_factor,
     scale_font,
     scale_size,
     scale_space,
+    shell_max_width,
     swipe_action_strip_width,
     swipe_reveal_offset,
     tap_button_style,
@@ -132,7 +136,7 @@ def h_scroll(
     )
 
 
-def h_chip_row(*chips: ft.Control, height: int = 40) -> ft.ListView:
+def h_chip_row(*chips: ft.Control, height: int = 44) -> ft.ListView:
     """Horizontal chip strip that stays at the end instead of jumping back."""
     row = ft.ListView(
         horizontal=True,
@@ -162,7 +166,7 @@ def make_v_scroll(*, spacing: int = 12, eager: bool = False) -> ft.ListView:
         ft.ListView(
             expand=True,
             spacing=spacing,
-            padding=ft.Padding.only(bottom=104),
+            padding=list_nav_padding(),
             auto_scroll=False,
             build_controls_on_demand=not eager,
             scroll=_hidden_scrollbar(),
@@ -178,10 +182,13 @@ def v_scroll_body(
     """Expanding vertical scroll area for page body content."""
     inner_pad: ft.Padding
     if padding is None:
-        inner_pad = ft.Padding.only(bottom=104)
+        inner_pad = list_nav_padding()
     elif isinstance(padding, int):
         inner_pad = ft.Padding.only(
-            left=padding, right=padding, top=padding, bottom=padding + 72
+            left=padding,
+            right=padding,
+            top=padding,
+            bottom=max(padding, LIST_NAV_CLEARANCE),
         )
     else:
         inner_pad = padding
@@ -191,7 +198,7 @@ def v_scroll_body(
         content=ft.ListView(
             expand=True,
             spacing=spacing,
-            padding=ft.Padding.only(bottom=104),
+            padding=list_nav_padding(),
             auto_scroll=False,
             scroll=_hidden_scrollbar(),
             controls=list(controls),

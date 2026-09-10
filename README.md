@@ -85,7 +85,7 @@ FinWise/
 ├── lib/                    # приложение
 ├── extensions/             # Flutter-мосты (Face ID, push)
 ├── assets/                 # иконки, splash, currencies.json (+ черновик i18n/)
-├── migrations/             # Alembic 0001…0023
+├── migrations/             # Alembic 0001…0027
 ├── scripts/                # migrate, seed, APK/IPA
 ├── tests/                  # unit + integration
 └── docs/                   # подробная документация
