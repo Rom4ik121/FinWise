@@ -216,20 +216,40 @@ class AccountCard(ft.Container):
             ],
         )
 
+        # Keep Edit/Delete/switch outside the open-detail hit target. A parent
+        # ``on_click`` (and bind_press) swallows child IconButton taps on web.
+        detail = ft.Container(
+            ink=True,
+            content=ft.Column(
+                spacing=12,
+                tight=True,
+                controls=[
+                    header,
+                    ft.Column(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            balance_row,
+                            *converted_line,
+                        ],
+                    ),
+                    corporate_badge,
+                ],
+            ),
+        )
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(
+            detail,
+            haptic_kind="light",
+            on_click=lambda _e: self._on_front_click(account, on_click, on_edit),
+            page=page,
+        )
         body = ft.Column(
             spacing=12,
             tight=True,
             controls=[
-                header,
-                ft.Column(
-                    spacing=4,
-                    tight=True,
-                    controls=[
-                        balance_row,
-                        *converted_line,
-                    ],
-                ),
-                corporate_badge,
+                detail,
                 include_row,
                 actions_row,
             ],
@@ -296,15 +316,7 @@ class AccountCard(ft.Container):
             border=styled.border,
             offset=ft.Offset(0, 0),
             animate_offset=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
-            ink=True,
             content=body,
-        )
-        from lib.presentation.ui_motion import bind_press
-
-        bind_press(
-            self._front,
-            haptic_kind="light",
-            on_click=lambda _e: self._on_front_click(account, on_click, on_edit),
         )
 
         def _edit_click(_e: ft.ControlEvent) -> None:

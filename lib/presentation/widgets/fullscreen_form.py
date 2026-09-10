@@ -21,6 +21,7 @@ from lib.presentation.ui_motion import (
     DUR_MED,
     apply_overlay_enter,
     bump_overlay_gen,
+    is_web_page,
     motion_ms,
     overlay_enter_style,
     overlay_generation,
@@ -47,7 +48,16 @@ def _hide_overlay_now(item: ft.Control) -> None:
         pass
 
 
+def _disarm_overlay(item: ft.Control) -> None:
+    """Stop hit-testing immediately so a fading sheet cannot steal taps."""
+    try:
+        item.ignore_interactions = True
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _fade_out_overlay(item: ft.Control, gen: int) -> None:
+    _disarm_overlay(item)
     try:
         item.opacity = 0
         item.offset = ft.Offset(0, 0.02)
@@ -73,11 +83,38 @@ def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
         if getattr(item, "data", None) != key:
             continue
         gen = bump_overlay_gen(item)
-        if prefers_reduced_motion(page) or not getattr(item, "visible", True):
+        _disarm_overlay(item)
+        if (
+            prefers_reduced_motion(page)
+            or is_web_page(page)
+            or not getattr(item, "visible", True)
+        ):
             _hide_overlay_now(item)
             continue
         if not _safe_run_async(page, _fade_out_overlay, item, gen):
             _hide_overlay_now(item)
+
+
+def _toast_overlay_index(page: ft.Page) -> int | None:
+    """Index of the save/error toast so forms insert *under* it."""
+    from lib.presentation.ui_feedback import TOAST_OVERLAY_TAG
+
+    for i, item in enumerate(list(page.overlay or [])):
+        if getattr(item, "data", None) == TOAST_OVERLAY_TAG:
+            return i
+    return None
+
+
+def _append_overlay(page: ft.Page, overlay: ft.Control) -> None:
+    """Keep the toast last so it paints above fullscreen sheets."""
+    idx = _toast_overlay_index(page)
+    try:
+        if idx is None:
+            page.overlay.append(overlay)
+        else:
+            page.overlay.insert(idx, overlay)
+    except Exception:  # noqa: BLE001
+        page.overlay.append(overlay)
 
 
 def _find_overlay(page: ft.Page, key: str) -> ft.Control | None:
@@ -108,6 +145,10 @@ def _safe_run_async(page: ft.Page, handler, *args) -> bool:
 
 def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
     """Ease opacity/offset to the resting pose after the first paint."""
+    try:
+        overlay.ignore_interactions = False
+    except Exception:  # noqa: BLE001
+        pass
     if prefers_reduced_motion(page):
         try:
             overlay.opacity = 1
@@ -122,6 +163,7 @@ def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
         try:
             overlay.opacity = 1
             overlay.offset = ft.Offset(0, 0)
+            overlay.ignore_interactions = False
             safe_update(overlay)
         except Exception:  # noqa: BLE001
             pass
@@ -130,6 +172,7 @@ def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
         try:
             overlay.opacity = 1
             overlay.offset = ft.Offset(0, 0)
+            overlay.ignore_interactions = False
         except Exception:  # noqa: BLE001
             pass
 
@@ -139,7 +182,7 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
     apply_overlay_enter(overlay, page)
     key = getattr(overlay, "data", None)
     if not key:
-        page.overlay.append(overlay)
+        _append_overlay(page, overlay)
         safe_update(page)
         _reveal_overlay(page, overlay)
         return
@@ -150,7 +193,7 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
         pass
     slot = _find_overlay(page, str(key))
     if slot is None:
-        page.overlay.append(overlay)
+        _append_overlay(page, overlay)
         bump_overlay_gen(overlay)
         safe_update(page)
         _reveal_overlay(page, overlay)

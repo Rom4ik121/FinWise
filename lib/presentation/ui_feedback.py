@@ -13,7 +13,8 @@ from lib.presentation.utils import run_async, safe_update
 _BANNER_MS = 1700
 _COALESCE_S = 0.4
 _KEY = "_finanse_ui_feedback"
-_TAG = "ui_feedback_toast"
+TOAST_OVERLAY_TAG = "ui_feedback_toast"
+_TAG = TOAST_OVERLAY_TAG
 
 
 class UiFeedback:
@@ -116,16 +117,24 @@ class UiFeedback:
             )
 
     def _raise_banner(self) -> None:
-        """Keep the toast above fullscreen forms."""
+        """Keep the toast above fullscreen forms (last overlay wins)."""
+        overlay = getattr(self.page, "overlay", None)
+        if overlay is None:
+            return
         try:
-            items = list(self.page.overlay or [])
-            if self._banner in items:
-                items.remove(self._banner)
+            while self._banner in overlay:
+                overlay.remove(self._banner)
+            overlay.append(self._banner)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            items = [item for item in list(overlay) if item is not self._banner]
             items.append(self._banner)
             self.page.overlay = items
         except Exception:  # noqa: BLE001
             try:
-                self.page.overlay.append(self._banner)
+                overlay.append(self._banner)
             except Exception:  # noqa: BLE001
                 pass
 

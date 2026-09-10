@@ -134,10 +134,32 @@ def test_dismiss_fullscreen_drops_overlay_tree() -> None:
     dismiss_fullscreen(page, key="editor")  # type: ignore[arg-type]
     assert page.overlay[0].content is None
     assert page.overlay[0].visible is False
+    assert page.overlay[0].ignore_interactions is True
     second = ft.Container(data="editor", content=ft.Text("b"))
     push_overlay(page, second)  # type: ignore[arg-type]
     assert len(page.overlay) == 1
     assert page.overlay[0].content is second.content
+    assert page.overlay[0].ignore_interactions is False
+
+
+def test_push_overlay_inserts_under_toast() -> None:
+    from lib.presentation.ui_feedback import TOAST_OVERLAY_TAG
+    from lib.presentation.widgets.fullscreen_form import push_overlay
+
+    class _Page:
+        def __init__(self) -> None:
+            self.overlay = [ft.Container(data=TOAST_OVERLAY_TAG, height=64)]
+
+        def update(self) -> None:
+            return None
+
+    page = _Page()
+    sheet = ft.Container(data="editor", content=ft.Text("form"))
+    push_overlay(page, sheet)  # type: ignore[arg-type]
+    assert [getattr(c, "data", None) for c in page.overlay] == [
+        "editor",
+        TOAST_OVERLAY_TAG,
+    ]
 
 
 def test_transaction_tile_builds() -> None:

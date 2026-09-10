@@ -399,6 +399,8 @@ class CategoryPicker(ft.Column):
         push_overlay(self._page, overlay)
 
     def _open_editor(self, *, existing_name: str | None) -> None:
+        # Drop the list overlay first so a fading picker cannot cover the editor.
+        dismiss_fullscreen(self._page, key=_PICKER_KEY)
         lang = self._state.language
         existing = next(
             (

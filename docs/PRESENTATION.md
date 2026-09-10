@@ -155,6 +155,8 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
 - Motion: tab fade ~220ms ease-out (not bounce); overlays fade/slide; cards scale to 0.98 on press; toasts ease in from the top. iOS Reduce Motion / `FINANCE_REDUCE_MOTION=1` skips animation. Neon glass blur is capped (~8–10) so it does not strain the eyes.
 - Charts (analytics / account / dashboard) fade+slide in on first paint and manual refresh only — silent `ReloadGate` reloads skip to avoid jank. PDF export chips/actions and icon/color pickers use the same press + selection haptic language. Settings accordion eases expand/collapse (opacity + scale, delayed hide). Lock screen stays static.
+- Amount fields: live grouping must not `update()` on every keystroke (Flet web caret-at-0 turns `50` into `05`→`5`). `repair_amount_caret_prepend` treats a one-digit prepend as an append.
+- Fullscreen overlays insert **under** the save toast; dismissed sheets set `ignore_interactions` immediately. Flet web never uses `opacity=0` overlays (they still steal taps). Account Edit/Delete sit outside the card’s open-detail hit target.
 - First paint of empty lists uses **skeleton rows**, not a blank flash. Hidden-tab reloads stay coalesced (`ReloadGate` + `AppState.notify(coalesce=True)`).
 - Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
 - Графики: `chart_layout` / `compact_chart_size` от `page.width/height`.

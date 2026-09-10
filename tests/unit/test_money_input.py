@@ -8,10 +8,12 @@ import pytest
 
 from lib.presentation.money_input import (
     amount_separators,
+    attach_grouped_digits,
     format_amount_input,
     format_amount_value,
     parse_amount,
     parse_optional_amount,
+    repair_amount_caret_prepend,
 )
 
 
@@ -37,9 +39,41 @@ def test_format_groups_while_typing_ru() -> None:
     assert format_amount_input("1234,50", "ru") == "1.234,50"
     assert format_amount_input("50", "ru") == "50"
     assert format_amount_input("50", "en") == "50"
-    # Leading zero while composing "50" from a start-caret must not stick as "05".
+    # Bare "05" (no previous keystroke) still strips; live typing is repaired
+    # in attach_grouped_digits via repair_amount_caret_prepend.
     assert format_amount_input("05", "ru") == "5"
     assert format_amount_input("05", "en") == "5"
+
+
+def test_repair_caret_prepend_turns_05_into_50() -> None:
+    assert repair_amount_caret_prepend("5", "05") == "50"
+    assert repair_amount_caret_prepend("5", "50") == "50"
+    assert repair_amount_caret_prepend("5", "15") == "51"
+    assert repair_amount_caret_prepend("5", "51") == "51"
+    assert repair_amount_caret_prepend("", "5") == "5"
+    assert repair_amount_caret_prepend("50", "500") == "500"
+    assert repair_amount_caret_prepend("12", "1.234") == "1.234"
+
+
+def test_attach_grouped_digits_keeps_fifty() -> None:
+    import flet as ft
+
+    class _Evt:
+        pass
+
+    field = ft.TextField(value="")
+    attach_grouped_digits(field, "ru")
+    field.value = "5"
+    field.on_change(_Evt())
+    assert field.value == "5"
+    field.value = "50"
+    field.on_change(_Evt())
+    assert field.value == "50"
+    field.value = "5"
+    field.on_change(_Evt())
+    field.value = "05"
+    field.on_change(_Evt())
+    assert field.value == "50"
 
 
 def test_format_groups_while_typing_en() -> None:

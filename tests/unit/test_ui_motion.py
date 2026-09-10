@@ -120,6 +120,30 @@ def test_apply_overlay_enter_stamps_opacity() -> None:
     assert box.opacity == 0
 
 
+def test_overlay_enter_style_web_stays_opaque() -> None:
+    from lib.presentation.ui_motion import overlay_enter_style
+
+    class _Page:
+        web = True
+
+    style = overlay_enter_style(_Page())  # type: ignore[arg-type]
+    assert style["opacity"] == 1
+
+
+def test_bind_press_skips_tap_down_on_icon_button() -> None:
+    import flet as ft
+
+    from lib.presentation.ui_motion import bind_press
+
+    btn = ft.IconButton(icon=ft.Icons.ADD)
+    before = getattr(btn, "on_tap_down", None)
+    clicked = {"n": 0}
+    bind_press(btn, on_click=lambda _e: clicked.__setitem__("n", 1))
+    assert getattr(btn, "on_tap_down", None) is before
+    btn.on_click(type("E", (), {})())
+    assert clicked["n"] == 1
+
+
 def test_settings_accordion_toggles_without_page() -> None:
     import flet as ft
 

@@ -134,6 +134,17 @@ async def probe_reduced_motion(page: ft.Page | None) -> bool:
         return False
 
 
+def is_web_page(page: ft.Page | None) -> bool:
+    """True when the Flet page is running in a browser (weak IME / overlay)."""
+    if page is None:
+        return False
+    if bool(getattr(page, "web", False)):
+        return True
+    plat = getattr(page, "platform", None)
+    name = str(getattr(plat, "value", plat) or "").lower()
+    return name == "web"
+
+
 def bind_press(
     control: ft.Control,
     *,
@@ -142,13 +153,20 @@ def bind_press(
     on_click: Optional[Callable[[Any], Any]] = None,
     page: ft.Page | None = None,
 ) -> ft.Control:
-    """Ink + slight scale on press. Light haptic. No-op when already bound."""
+    """Ink + slight scale on press. Light haptic. No-op when already bound.
+
+    Never ``update()`` mid-gesture: on Flet web that cancels the click.
+    Material buttons already splash — skip ``on_tap_down`` so we do not
+    steal the pointer from ``IconButton`` / ``FilledButton``.
+    """
     if getattr(control, _PRESS_BOUND, False):
         return control
     setattr(control, _PRESS_BOUND, True)
     reduced = prefers_reduced_motion(page)
     previous = on_click or getattr(control, "on_click", None)
-    if not reduced and hasattr(control, "animate_scale"):
+    kind = type(control).__name__.lower()
+    is_button = "button" in kind
+    if not reduced and not is_button and hasattr(control, "animate_scale"):
         try:
             control.animate_scale = motion_animation(DUR_FAST, page)
             if getattr(control, "scale", None) is None:
@@ -161,15 +179,13 @@ def bind_press(
             return
         try:
             control.scale = scale
-            safe_update(control)
         except Exception:  # noqa: BLE001
             pass
 
     def _click(e: Any) -> None:
-        if not reduced:
+        if not reduced and not is_button:
             try:
                 control.scale = 1
-                safe_update(control)
             except Exception:  # noqa: BLE001
                 pass
         try:
@@ -182,7 +198,7 @@ def bind_press(
             previous(e)
 
     try:
-        if hasattr(control, "on_tap_down"):
+        if not is_button and hasattr(control, "on_tap_down"):
             control.on_tap_down = _down
         control.on_click = _click
     except Exception:  # noqa: BLE001
@@ -221,9 +237,19 @@ def play_enter_motion(control: ft.Control) -> None:
 
 
 def overlay_enter_style(page: ft.Page | None = None) -> dict[str, Any]:
-    """Kwargs for a fullscreen overlay that fades/slides in."""
+    """Kwargs for a fullscreen overlay that fades/slides in.
+
+    Flet web hit-tests ``opacity=0`` overlays. Keep them fully opaque in
+    the browser and only slide; native still fades.
+    """
     if prefers_reduced_motion(page):
         return {"opacity": 1, "offset": ft.Offset(0, 0)}
+    if is_web_page(page):
+        return {
+            "opacity": 1,
+            "offset": ft.Offset(0, 0.03),
+            "animate_offset": motion_animation(DUR_MED, page),
+        }
     return {
         "opacity": 0,
         "offset": ft.Offset(0, 0.03),

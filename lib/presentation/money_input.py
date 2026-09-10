@@ -76,27 +76,55 @@ def format_amount_value(value: object, lang: str) -> str:
     return f"-{formatted}" if quantized < 0 else formatted
 
 
+def repair_amount_caret_prepend(previous: str, current: str) -> str:
+    """Undo Flet-web inserting the next digit at caret 0.
+
+    Typing ``5`` then ``0`` with the caret stuck at the start yields ``05``.
+    Grouping then strips the leading zero back to ``5``. If ``current`` is
+    exactly one digit *prepended* to ``previous``, treat it as an append.
+    """
+    prev_int, prev_frac, prev_trail = _split_int_frac(previous)
+    cur_int, cur_frac, cur_trail = _split_int_frac(current)
+    if prev_frac is not None or cur_frac is not None or prev_trail or cur_trail:
+        return current
+    prev_digits = prev_int or ""
+    cur_digits = cur_int or ""
+    if (
+        prev_digits
+        and len(cur_digits) == len(prev_digits) + 1
+        and cur_digits[1:] == prev_digits
+    ):
+        return f"{prev_digits}{cur_digits[0]}"
+    return current
+
+
 def attach_grouped_digits(
     field: ft.TextField,
     lang: str,
     *,
     extra_on_change: Optional[Callable[[ft.ControlEvent], Any]] = None,
 ) -> ft.TextField:
-    """Keep ``field`` grouped as the user types; optionally chain another handler."""
+    """Keep ``field`` grouped as the user types; optionally chain another handler.
+
+    Do **not** rewrite or ``update()`` when the text is unchanged: Flet web
+    resets the caret to 0 on every value write, so ``5`` + ``0`` becomes
+    ``05`` and grouping strips it back to ``5``.
+    """
+    last = {"text": field.value or ""}
 
     def _on_change(e: ft.ControlEvent) -> None:
         current = field.value or ""
-        formatted = format_amount_input(current, lang)
+        repaired = repair_amount_caret_prepend(last["text"], current)
+        formatted = format_amount_input(repaired, lang)
+        last["text"] = formatted
         if formatted != current:
             field.value = formatted
-        # Always pin the caret to the end. A caret at offset 0 turns "5"+"0"
-        # into "05", which `_group_int` then strips to "5" until refocus.
-        try:
-            end = len(field.value or "")
-            field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
-        except Exception:  # noqa: BLE001
-            pass
-        safe_update(field)
+            try:
+                end = len(formatted)
+                field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
+            except Exception:  # noqa: BLE001
+                pass
+            safe_update(field)
         if extra_on_change is not None:
             extra_on_change(e)
 
