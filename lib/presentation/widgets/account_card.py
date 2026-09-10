@@ -297,8 +297,14 @@ class AccountCard(ft.Container):
             offset=ft.Offset(0, 0),
             animate_offset=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
             ink=True,
-            on_click=lambda _e: self._on_front_click(account, on_click, on_edit),
             content=body,
+        )
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(
+            self._front,
+            haptic_kind="light",
+            on_click=lambda _e: self._on_front_click(account, on_click, on_edit),
         )
 
         def _edit_click(_e: ft.ControlEvent) -> None:

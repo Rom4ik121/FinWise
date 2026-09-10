@@ -285,8 +285,14 @@ class TransactionTile(ft.Container):
                 _SLIDE_DURATION, ft.AnimationCurve.EASE_OUT,
             ),
             ink=True,
-            on_click=lambda _e: self._on_front_click(transaction, on_open, on_edit),
             content=front_row,
+        )
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(
+            self._front,
+            haptic_kind="light",
+            on_click=lambda _e: self._on_front_click(transaction, on_open, on_edit),
         )
 
         # --- Back layer (action buttons) — sized to fit narrow phones ---

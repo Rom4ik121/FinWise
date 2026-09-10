@@ -158,7 +158,7 @@ class UiSkin:
     def backdrop_blur(self) -> ft.Blur | None:
         if not self.glass:
             return None
-        sigma = max(14, self.card_blur)
+        sigma = min(10, max(8, self.card_blur // 2))
         return ft.Blur(sigma, sigma, ft.BlurTileMode.CLAMP)
 
     def glass_fill(self, token: str, *, opacity: float | None = None) -> str:

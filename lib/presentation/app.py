@@ -37,7 +37,7 @@ _NAV_MARGIN = ft.Margin.only(left=10, right=10, bottom=6, top=4)
 _NAV_PILL_W = 46.0
 _NAV_PILL_H = 30.0
 _NAV_BAR_H = 54.0
-_NAV_SLIDE = ft.Animation(380, ft.AnimationCurve.EASE_IN_OUT_CUBIC)
+_NAV_SLIDE = ft.Animation(240, ft.AnimationCurve.EASE_OUT)
 _BACKGROUND_LOCK_SECONDS = 15.0
 
 # iOS sends ``inactive`` for Face ID, Control Center, and app-switch
@@ -70,10 +70,10 @@ class FinanseApp:
         self._content = ft.AnimatedSwitcher(
             content=ft.Container(expand=True),
             transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=420,
-            reverse_duration=260,
-            switch_in_curve=ft.AnimationCurve.EASE_OUT_CUBIC,
-            switch_out_curve=ft.AnimationCurve.EASE_IN,
+            duration=220,
+            reverse_duration=160,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_OUT,
             expand=True,
         )
         self._nav = ft.Row(
@@ -225,6 +225,30 @@ class FinanseApp:
         self._render(force=True)
         self._flush_notifications()
         self._install_session_lock()
+        self._probe_motion()
+
+    def _probe_motion(self) -> None:
+        """Honor Reduce Motion without blocking the first frame."""
+        from lib.presentation.ui_motion import probe_reduced_motion
+        from lib.presentation.utils import run_async
+
+        async def _apply() -> None:
+            reduced = await probe_reduced_motion(self.page)
+            if not reduced:
+                return
+            try:
+                self._content.duration = 0
+                self._content.reverse_duration = 0
+            except Exception:  # noqa: BLE001
+                pass
+            for pill in self._nav_pills:
+                try:
+                    pill.animate_scale = None
+                    pill.scale = 1
+                except Exception:  # noqa: BLE001
+                    pass
+
+        run_async(self.page, _apply)
 
     def _install_session_lock(self) -> None:
         """Lock after the app stays backgrounded for ``_BACKGROUND_LOCK_SECONDS``."""
@@ -327,7 +351,7 @@ class FinanseApp:
                 alignment=ft.Alignment.CENTER,
                 border_radius=skin.chip_radius,
                 scale=1,
-                animate_scale=ft.Animation(280, ft.AnimationCurve.EASE_OUT_BACK),
+                animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
                 content=glyph,
             )
             caption = ft.Text(
@@ -634,7 +658,7 @@ class FinanseApp:
         if self._rendered_tab is not None or self._rendered_secondary is not None:
             from lib.presentation.haptics import haptic
 
-            haptic("medium")
+            haptic("light")
 
         self._content.content = ft.Container(
             expand=True,

@@ -62,7 +62,9 @@ class UiFeedback:
             opacity=0,
             bgcolor=ft.Colors.TRANSPARENT,
             ignore_interactions=True,
-            animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
+            animate_opacity=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+            animate_offset=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+            offset=ft.Offset(0, -0.15),
             alignment=ft.Alignment.CENTER,
             padding=ft.Padding.only(top=12),
             content=pill,
@@ -133,7 +135,15 @@ class UiFeedback:
             self._apply_tone(error)
             self._banner_text.value = message
             self._raise_banner()
+            self._banner.offset = ft.Offset(0, -0.12)
+            self._banner.opacity = 0
             self._banner.visible = True
+            try:
+                safe_update(self._banner)
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(0.016)
+            self._banner.offset = ft.Offset(0, 0)
             self._banner.opacity = 1
             try:
                 safe_update(self._banner)
@@ -142,6 +152,7 @@ class UiFeedback:
             wait_ms = 2600 if error else _BANNER_MS
             await asyncio.sleep(wait_ms / 1000)
             self._banner.opacity = 0
+            self._banner.offset = ft.Offset(0, -0.12)
             try:
                 safe_update(self._banner)
             except Exception:  # noqa: BLE001

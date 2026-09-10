@@ -31,12 +31,22 @@ def card_action_button(
     """Full-width outlined or text button for the strip under a card."""
     style = card_action_button_style(page)
     factory = ft.OutlinedButton if outlined else ft.TextButton
+
+    def _fire(_e: ft.ControlEvent | None = None) -> None:
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("light")
+        except Exception:  # noqa: BLE001
+            pass
+        on_click()
+
     return factory(
         label,
         icon=icon,
         expand=True,
         style=style,
-        on_click=lambda _e: on_click(),
+        on_click=_fire,
     )
 
 

@@ -191,6 +191,12 @@ class LockScreen(ft.Container):
             await self._try_biometric()
 
     async def _finish(self) -> None:
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("success")
+        except Exception:  # noqa: BLE001
+            pass
         self._stop_countdown()
         result = self._on_unlocked()
         if hasattr(result, "__await__"):
@@ -254,6 +260,12 @@ class LockScreen(ft.Container):
             return
         self._error.value = tr("lock.wrong_pin", self._lang)
         self._pin.value = ""
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("heavy")
+        except Exception:  # noqa: BLE001
+            pass
         safe_update(self)
 
     async def _try_biometric(self) -> None:

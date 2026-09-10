@@ -1,11 +1,12 @@
-"""UI motion helpers: refresh animation flag and list scroll memory."""
+"""UI motion helpers: refresh animation flag, list scroll memory, light motion."""
 
 from __future__ import annotations
 
 import asyncio
 import contextvars
+import os
 from contextlib import contextmanager
-from typing import Iterator, Sequence
+from typing import Any, Callable, Iterator, Optional, Sequence
 
 import flet as ft
 
@@ -17,8 +18,18 @@ _ANIMATE: contextvars.ContextVar[bool] = contextvars.ContextVar(
 _SCROLL_ATTR = "_fw_scroll"
 _RESTORING_ATTR = "_fw_restoring"
 _RESTORE_GEN = "_fw_restore_gen"
+_REDUCE_ATTR = "_fw_reduce_motion"
+_OVERLAY_GEN = "_fw_overlay_gen"
+_PRESS_BOUND = "_fw_press_bound"
 # Restore any meaningful scroll — previously 40px left mid-page jumps unrestored.
 _RESTORE_MIN = 1.0
+
+# Tasteful iPhone-length motion. Prefer opacity / transform over blur.
+DUR_FAST = 150
+DUR_MED = 220
+DUR_SLOW = 280
+CURVE = ft.AnimationCurve.EASE_OUT
+PRESS_SCALE = 0.98
 
 
 def is_ui_animating() -> bool:
@@ -44,6 +55,192 @@ def ui_animation(enabled: bool) -> Iterator[None]:
         yield
     finally:
         _ANIMATE.reset(token)
+
+
+def reduce_motion_from_env() -> bool:
+    """True when tests / users force reduced motion via env."""
+    return os.environ.get("FINANCE_REDUCE_MOTION", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def prefers_reduced_motion(page: ft.Page | None = None) -> bool:
+    """Honor iOS Reduce Motion / disable-animations, or ``FINANCE_REDUCE_MOTION``."""
+    if reduce_motion_from_env():
+        return True
+    if page is None:
+        return False
+    cached = getattr(page, _REDUCE_ATTR, None)
+    return bool(cached)
+
+
+def cache_reduced_motion(page: ft.Page | None, enabled: bool) -> None:
+    """Store the platform accessibility snapshot on ``page``."""
+    if page is None:
+        return
+    setattr(page, _REDUCE_ATTR, bool(enabled))
+
+
+def motion_ms(duration: int, page: ft.Page | None = None) -> int:
+    """Duration in ms, or ``0`` when motion should be skipped."""
+    if prefers_reduced_motion(page):
+        return 0
+    return max(0, int(duration))
+
+
+def motion_animation(
+    duration: int = DUR_MED,
+    page: ft.Page | None = None,
+    *,
+    curve: ft.AnimationCurve | None = None,
+) -> ft.Animation | None:
+    """Ease-out animation, or ``None`` when reduced motion is on."""
+    ms = motion_ms(duration, page)
+    if ms <= 0:
+        return None
+    return ft.Animation(ms, curve or CURVE)
+
+
+async def probe_reduced_motion(page: ft.Page | None) -> bool:
+    """Ask the platform for Reduce Motion / disable-animations (best-effort)."""
+    if page is None:
+        return reduce_motion_from_env()
+    if reduce_motion_from_env():
+        cache_reduced_motion(page, True)
+        return True
+    try:
+        from lib.infrastructure.services.flet_services import (
+            attach_page_service,
+            existing_page_service,
+        )
+
+        svc = existing_page_service(page, ft.SemanticsService)
+        if svc is None:
+            svc = ft.SemanticsService()
+            if not attach_page_service(page, svc, native_extension=False):
+                cache_reduced_motion(page, False)
+                return False
+        features = await svc.get_accessibility_features()
+        reduced = bool(
+            getattr(features, "reduce_motion", False)
+            or getattr(features, "disable_animations", False)
+        )
+        cache_reduced_motion(page, reduced)
+        return reduced
+    except Exception:  # noqa: BLE001
+        cache_reduced_motion(page, False)
+        return False
+
+
+def bind_press(
+    control: ft.Control,
+    *,
+    haptic_kind: str = "light",
+    scale: float = PRESS_SCALE,
+    on_click: Optional[Callable[[Any], Any]] = None,
+    page: ft.Page | None = None,
+) -> ft.Control:
+    """Ink + slight scale on press. Light haptic. No-op when already bound."""
+    if getattr(control, _PRESS_BOUND, False):
+        return control
+    setattr(control, _PRESS_BOUND, True)
+    reduced = prefers_reduced_motion(page)
+    previous = on_click or getattr(control, "on_click", None)
+    if not reduced and hasattr(control, "animate_scale"):
+        try:
+            control.animate_scale = motion_animation(DUR_FAST, page)
+            if getattr(control, "scale", None) is None:
+                control.scale = 1
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _down(_e: Any) -> None:
+        if reduced:
+            return
+        try:
+            control.scale = scale
+            safe_update(control)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _click(e: Any) -> None:
+        if not reduced:
+            try:
+                control.scale = 1
+                safe_update(control)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic(haptic_kind)
+        except Exception:  # noqa: BLE001
+            pass
+        if callable(previous):
+            previous(e)
+
+    try:
+        if hasattr(control, "on_tap_down"):
+            control.on_tap_down = _down
+        control.on_click = _click
+    except Exception:  # noqa: BLE001
+        pass
+    return control
+
+
+def apply_enter_motion(
+    control: ft.Control,
+    page: ft.Page | None = None,
+    *,
+    duration: int = DUR_MED,
+) -> ft.Control:
+    """Fade a control in on first mount (empty states, toasts)."""
+    anim = motion_animation(duration, page)
+    try:
+        control.animate_opacity = anim
+        if prefers_reduced_motion(page):
+            control.opacity = 1
+        else:
+            control.opacity = 0
+    except Exception:  # noqa: BLE001
+        return control
+    return control
+
+
+def play_enter_motion(control: ft.Control) -> None:
+    """Flip opacity to 1 so :func:`apply_enter_motion` can ease in."""
+    try:
+        if getattr(control, "opacity", 1) == 1:
+            return
+        control.opacity = 1
+        safe_update(control)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def overlay_enter_style(page: ft.Page | None = None) -> dict[str, Any]:
+    """Kwargs for a fullscreen overlay that fades/slides in."""
+    if prefers_reduced_motion(page):
+        return {"opacity": 1, "offset": ft.Offset(0, 0)}
+    return {
+        "opacity": 0,
+        "offset": ft.Offset(0, 0.03),
+        "animate_opacity": motion_animation(DUR_MED, page),
+        "animate_offset": motion_animation(DUR_MED, page),
+    }
+
+
+def bump_overlay_gen(control: ft.Control) -> int:
+    """Invalidate in-flight overlay fade-out. Returns the new generation."""
+    gen = int(getattr(control, _OVERLAY_GEN, 0) or 0) + 1
+    setattr(control, _OVERLAY_GEN, gen)
+    return gen
+
+
+def overlay_generation(control: ft.Control) -> int:
+    return int(getattr(control, _OVERLAY_GEN, 0) or 0)
 
 
 def snapshot_scroll(control: ft.Control) -> float:

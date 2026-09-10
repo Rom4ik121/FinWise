@@ -29,10 +29,14 @@ def glass_layer(*, elevated: bool = False, opacity: float | None = None) -> dict
     )
     if not skin.glass:
         return {"bgcolor": token, "blur": None}
+    from lib.presentation.ui_motion import prefers_reduced_motion
+
     fill_opacity = opacity if opacity is not None else (0.40 if elevated else 0.32)
+    # Reduce Motion / Classic: skip expensive backdrop blur.
+    blur = None if prefers_reduced_motion() else skin.backdrop_blur()
     return {
         "bgcolor": skin.glass_fill(token, opacity=fill_opacity),
-        "blur": skin.backdrop_blur(),
+        "blur": blur,
         "clip_behavior": ft.ClipBehavior.ANTI_ALIAS,
     }
 
@@ -75,8 +79,17 @@ def card_surface(
         **glass_layer(),
     }
     if animate:
-        kwargs["animate"] = ft.Animation(220, ft.AnimationCurve.EASE_OUT)
-    return ft.Container(**kwargs)
+        from lib.presentation.ui_motion import motion_animation
+
+        anim = motion_animation(220)
+        if anim is not None:
+            kwargs["animate"] = anim
+    card = ft.Container(**kwargs)
+    if on_click is not None:
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(card, haptic_kind="light")
+    return card
 
 
 def hero_card(
@@ -454,6 +467,21 @@ def icon_badge(
 def labeled_switch(label: str, switch: ft.Switch) -> ft.Control:
     """Switch with wrapping label — avoids clipping long Russian strings."""
     switch.label = ""
+    if not getattr(switch, "_fw_haptic_bound", False):
+        setattr(switch, "_fw_haptic_bound", True)
+        previous = switch.on_change
+
+        def _on_change(e: ft.ControlEvent) -> None:
+            try:
+                from lib.presentation.haptics import haptic
+
+                haptic("selection")
+            except Exception:  # noqa: BLE001
+                pass
+            if callable(previous):
+                previous(e)
+
+        switch.on_change = _on_change
     return ft.Row(
         spacing=10,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -710,6 +738,12 @@ def choice_chips(
         if selected["value"] == key:
             return
         selected["value"] = key
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("selection")
+        except Exception:  # noqa: BLE001
+            pass
         _rebuild()
         on_changed(key)
 

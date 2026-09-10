@@ -8,6 +8,7 @@ import flet as ft
 
 
 from lib.presentation.skins import get_active_skin
+from lib.presentation.ui_motion import apply_enter_motion, play_enter_motion
 
 
 class EmptyState(ft.Container):
@@ -23,10 +24,18 @@ class EmptyState(ft.Container):
         on_action: Optional[ft.ControlEventHandler] = None,
         page: ft.Page | None = None,
     ) -> None:
+        from lib.presentation.haptics import haptic
         from lib.presentation.responsive import scale_font, scale_size
 
         skin = get_active_skin()
         badge = scale_size(56, page, minimum=48, maximum=72)
+        action = on_action
+
+        def _act(e: ft.ControlEvent) -> None:
+            haptic("light")
+            if action is not None:
+                action(e)
+
         controls: list[ft.Control] = [
             ft.Container(
                 width=badge,
@@ -59,7 +68,14 @@ class EmptyState(ft.Container):
             )
         if action_label and on_action:
             controls.append(
-                ft.FilledButton(action_label, icon=ft.Icons.ADD, on_click=on_action)
+                ft.FilledButton(
+                    action_label,
+                    icon=ft.Icons.ADD,
+                    style=ft.ButtonStyle(
+                        padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+                    ),
+                    on_click=_act,
+                )
             )
         super().__init__(
             padding=20,
@@ -72,3 +88,8 @@ class EmptyState(ft.Container):
                 controls=controls,
             ),
         )
+        apply_enter_motion(self, page)
+
+    def did_mount(self) -> None:
+        super().did_mount()
+        play_enter_motion(self)

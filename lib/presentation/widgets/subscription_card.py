@@ -171,7 +171,6 @@ class SubscriptionCard(ft.Container):
             body,
             padding=metrics["padding"],
             ink=True,
-            on_click=lambda _e: open_cb(subscription) if open_cb else None,
         )
         content: ft.Control = body
         if alert:
@@ -190,7 +189,14 @@ class SubscriptionCard(ft.Container):
             shadow=card.shadow,
             opacity=1.0 if subscription.status == SubscriptionStatus.ACTIVE else 0.7,
             ink=True,
-            on_click=card.on_click,
             animate=card.animate,
             content=content,
+        )
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(
+            self,
+            haptic_kind="light",
+            on_click=lambda _e: open_cb(subscription) if open_cb else None,
+            page=page,
         )

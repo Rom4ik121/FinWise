@@ -7,6 +7,7 @@ from typing import Callable, Optional
 import flet as ft
 
 from lib.presentation.skins import get_active_skin
+from lib.presentation.ui_motion import bind_press
 from lib.presentation.utils import tr
 
 
@@ -35,12 +36,11 @@ def dual_add_button(
         color: str,
         on_click: Optional[Callable[[], None]],
     ) -> ft.Container:
-        return ft.Container(
+        side = ft.Container(
             expand=True,
             bgcolor=bgcolor,
             ink=True,
             ink_color=ft.Colors.TRANSPARENT,
-            on_click=lambda _e: on_click() if on_click else None,
             padding=ft.Padding.symmetric(horizontal=pad_h, vertical=pad_v),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.CENTER,
@@ -59,6 +59,13 @@ def dual_add_button(
                 ],
             ),
         )
+        bind_press(
+            side,
+            haptic_kind="light",
+            on_click=(lambda _e: on_click() if on_click else None),
+            page=page,
+        )
+        return side
 
     return ft.Container(
         height=52,

@@ -826,7 +826,9 @@ class DashboardPage(ft.Column):
 
     def _analytics_button(self, lang: str) -> ft.Container:
         """Full-width entry to the analytics secondary screen."""
-        return ft.Container(
+        from lib.presentation.ui_motion import bind_press
+
+        btn = ft.Container(
             height=scale_size(52, self._page, minimum=48, maximum=64),
             border_radius=16,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -838,7 +840,6 @@ class DashboardPage(ft.Column):
                 offset=ft.Offset(0, 4),
             ),
             ink=True,
-            on_click=lambda _e: self._state.open_secondary("analytics"),
             padding=ft.Padding.symmetric(horizontal=16, vertical=12),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -876,6 +877,13 @@ class DashboardPage(ft.Column):
                 ],
             ),
         )
+        bind_press(
+            btn,
+            haptic_kind="light",
+            on_click=lambda _e: self._state.open_secondary("analytics"),
+            page=self._page,
+        )
+        return btn
 
     async def reload(self, animate: bool = False) -> None:
         """Reload dashboard data from use cases."""

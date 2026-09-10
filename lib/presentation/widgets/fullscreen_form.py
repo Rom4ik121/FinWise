@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Optional
 
@@ -16,10 +17,47 @@ from lib.presentation.styles import (
 )
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.responsive import clamp_content_width, tap_button_style
+from lib.presentation.ui_motion import (
+    DUR_MED,
+    bump_overlay_gen,
+    motion_ms,
+    overlay_enter_style,
+    overlay_generation,
+    prefers_reduced_motion,
+)
 from lib.presentation.utils import run_async, safe_update, tr
 
 CloseFn = Callable[[], None]
 SaveFn = Callable[[], Awaitable[None]]
+
+
+def _hide_overlay_now(item: ft.Control) -> None:
+    try:
+        item.visible = False
+        item.content = None
+        item.ignore_interactions = True
+        item.opacity = 1
+        item.offset = ft.Offset(0, 0)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        safe_update(item)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _fade_out_overlay(item: ft.Control, gen: int) -> None:
+    try:
+        item.opacity = 0
+        item.offset = ft.Offset(0, 0.02)
+        safe_update(item)
+    except Exception:  # noqa: BLE001
+        _hide_overlay_now(item)
+        return
+    await asyncio.sleep(motion_ms(DUR_MED) / 1000 or 0.01)
+    if overlay_generation(item) != gen:
+        return
+    _hide_overlay_now(item)
 
 
 def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
@@ -33,16 +71,12 @@ def dismiss_fullscreen(page: ft.Page, *, key: str) -> None:
     for item in list(page.overlay):
         if getattr(item, "data", None) != key:
             continue
-        try:
-            item.visible = False
-            item.content = None
-            item.ignore_interactions = True
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            safe_update(item)
-        except Exception:  # noqa: BLE001
-            pass
+        gen = bump_overlay_gen(item)
+        if prefers_reduced_motion(page) or not getattr(item, "visible", True):
+            _hide_overlay_now(item)
+            continue
+        if not _safe_run_async(page, _fade_out_overlay, item, gen):
+            _hide_overlay_now(item)
 
 
 def _find_overlay(page: ft.Page, key: str) -> ft.Control | None:
@@ -52,12 +86,60 @@ def _find_overlay(page: ft.Page, key: str) -> ft.Control | None:
     return None
 
 
+def _safe_run_async(page: ft.Page, handler, *args) -> bool:
+    """Schedule async work; False when there is no event loop (unit tests)."""
+    if hasattr(page, "run_task"):
+        try:
+            page.run_task(handler, *args)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    try:
+        loop.create_task(handler(*args))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
+    """Ease opacity/offset to the resting pose after the first paint."""
+    if prefers_reduced_motion(page):
+        try:
+            overlay.opacity = 1
+            overlay.offset = ft.Offset(0, 0)
+            safe_update(overlay)
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    async def _play() -> None:
+        await asyncio.sleep(0.016)
+        try:
+            overlay.opacity = 1
+            overlay.offset = ft.Offset(0, 0)
+            safe_update(overlay)
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not _safe_run_async(page, _play):
+        try:
+            overlay.opacity = 1
+            overlay.offset = ft.Offset(0, 0)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
     """Show ``overlay`` (must set ``data`` key), reusing an existing slot."""
     key = getattr(overlay, "data", None)
     if not key:
         page.overlay.append(overlay)
         safe_update(page)
+        _reveal_overlay(page, overlay)
         return
     overlay.visible = True
     try:
@@ -67,8 +149,11 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
     slot = _find_overlay(page, str(key))
     if slot is None:
         page.overlay.append(overlay)
+        bump_overlay_gen(overlay)
         safe_update(page)
+        _reveal_overlay(page, overlay)
         return
+    bump_overlay_gen(slot)
     slot.content = overlay.content
     slot.visible = True
     try:
@@ -85,6 +170,10 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
         "expand",
         "bgcolor",
         "alignment",
+        "opacity",
+        "offset",
+        "animate_opacity",
+        "animate_offset",
     ):
         if hasattr(overlay, attr):
             try:
@@ -92,6 +181,7 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
             except Exception:  # noqa: BLE001
                 pass
     safe_update(slot)
+    _reveal_overlay(page, slot)
 
 
 def _polish_tree(controls: Sequence[ft.Control]) -> list[ft.Control]:
@@ -207,6 +297,12 @@ def open_fullscreen_form(
     ``on_close`` runs after the overlay is dismissed (X, apply, or caller).
     """
     dismiss_fullscreen(page, key=overlay_key)
+    try:
+        from lib.presentation.haptics import haptic
+
+        haptic("light")
+    except Exception:  # noqa: BLE001
+        pass
 
     def _close(_e: Any = None) -> None:
         dismiss_fullscreen(page, key=overlay_key)
@@ -260,6 +356,7 @@ def open_fullscreen_form(
         bgcolor=ft.Colors.SURFACE,
         alignment=ft.Alignment.TOP_CENTER,
         data=overlay_key,
+        **overlay_enter_style(page),
         content=build_form_shell(
             page,
             title=title,

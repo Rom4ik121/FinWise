@@ -19,8 +19,20 @@ def confirm_dialog(
     on_confirm: Optional[Callable[[], None] | Callable[[], Awaitable[None]]] = None,
 ) -> None:
     """Open a destructive-confirm dialog."""
+    try:
+        from lib.presentation.haptics import haptic
+
+        haptic("warning")
+    except Exception:  # noqa: BLE001
+        pass
 
     async def _confirm(_e: ft.ControlEvent) -> None:
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("heavy")
+        except Exception:  # noqa: BLE001
+            pass
         page.pop_dialog()
         if on_confirm is None:
             return

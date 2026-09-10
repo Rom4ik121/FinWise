@@ -255,9 +255,6 @@ class DebtCard(ft.Container):
             body,
             padding=metrics["padding"],
             ink=True,
-            on_click=lambda _e: on_click(debt)
-            if on_click
-            else (on_edit(debt) if on_edit else None),
         )
         super().__init__(
             padding=card.padding,
@@ -266,7 +263,16 @@ class DebtCard(ft.Container):
             border=card.border,
             shadow=card.shadow,
             ink=True,
-            on_click=card.on_click,
             animate=card.animate,
             content=body,
+        )
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(
+            self,
+            haptic_kind="light",
+            on_click=lambda _e: on_click(debt)
+            if on_click
+            else (on_edit(debt) if on_edit else None),
+            page=page,
         )
