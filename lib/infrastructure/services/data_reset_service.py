@@ -36,4 +36,20 @@ class DataResetService:
                 logger.info("Removed secret_box master key")
         except Exception:  # noqa: BLE001
             logger.exception("Failed to remove secret_box master key")
+        self._wipe_media()
         logger.info("All application data wiped")
+
+    def _wipe_media(self) -> None:
+        """Delete receipt photos so a wipe does not leave files on disk."""
+        import shutil
+
+        media = self._config.media_dir
+        if not media.is_dir():
+            return
+        try:
+            shutil.rmtree(media)
+            media.mkdir(parents=True, exist_ok=True)
+            (media / "receipts").mkdir(parents=True, exist_ok=True)
+            logger.info("Cleared media directory")
+        except OSError:
+            logger.exception("Failed to wipe media directory")

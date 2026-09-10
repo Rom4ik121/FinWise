@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -16,6 +17,9 @@ logger = logging.getLogger("finanse.infrastructure.services.backup")
 # Single rolling file updated at most once per local calendar day on every device.
 DAILY_BACKUP_NAME = "finanse_daily.db"
 DAILY_STAMP_NAME = "finanse_daily.day"
+# Embedded in the backup copy only so a single shared .db can restore exchange keys
+# when the companion ``.key`` sidecar is missing (typical on iOS share/Files).
+SECRET_BOX_TABLE = "_finanse_secret_box"
 
 
 class BackupServiceError(Exception):
@@ -26,8 +30,10 @@ class BackupService:
     """Copy the SQLite DB file to / from the configured backup directory.
 
     When a ``.secret_box_key`` exists, it is copied next to the backup as
-    ``<backup>.db.key`` so exchange credentials remain decryptable after restore
-    on the same or another device that receives both files.
+    ``<backup>.db.key`` **and** embedded in a tiny SQLite table inside the
+    backup copy. The live database does not keep that table; it is re-added
+    on each backup so a single shared ``.db`` can restore exchange credentials
+    on iPhone when the sidecar file is not picked.
     """
 
     def __init__(self, config: Optional[AppConfig] = None) -> None:
@@ -76,6 +82,7 @@ class BackupService:
         try:
             self._copy_sqlite_bundle(source, target)
             self._copy_secret_key(target)
+            self._embed_secret_key(target)
             logger.info("Database backed up to %s", target)
             return target
         except OSError as exc:
@@ -127,6 +134,7 @@ class BackupService:
                 key_side.unlink()
             self._copy_sqlite_bundle(source, target)
             self._copy_secret_key(target)
+            self._embed_secret_key(target)
             day = self.today_local()
             self.daily_stamp_path.write_text(day + "\n", encoding="utf-8")
             logger.info("Daily backup updated at %s (day=%s)", target, day)
@@ -166,6 +174,7 @@ class BackupService:
             self._remove_sqlite_sidecars(target)
             self._copy_sqlite_bundle(source, target)
             self._restore_secret_key(source)
+            self._extract_secret_key(target)
             logger.info("Database restored from %s to %s", source, target)
             return target
         except OSError as exc:
@@ -196,6 +205,61 @@ class BackupService:
         except OSError as exc:
             logger.exception("Failed to delete backup %s", path)
             raise BackupServiceError(f"Delete failed: {exc}") from exc
+
+    def _embed_secret_key(self, backup_db: Path) -> None:
+        """Copy the device master key into the backup SQLite file (not the live DB)."""
+        key = master_key_path(self._config)
+        if not key.is_file():
+            return
+        try:
+            payload = key.read_bytes()
+        except OSError:
+            logger.exception("Could not read secret_box key for backup embed")
+            return
+        if not payload:
+            return
+        try:
+            conn = sqlite3.connect(str(backup_db))
+            try:
+                conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {SECRET_BOX_TABLE} "
+                    "(id INTEGER PRIMARY KEY, key BLOB NOT NULL)"
+                )
+                conn.execute(f"DELETE FROM {SECRET_BOX_TABLE}")
+                conn.execute(
+                    f"INSERT INTO {SECRET_BOX_TABLE}(id, key) VALUES (1, ?)",
+                    (payload,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            logger.debug("Could not embed secret_box key in backup", exc_info=True)
+
+    def _extract_secret_key(self, db_path: Path) -> None:
+        """Restore the master key from an embedded backup table, then drop it."""
+        dest = master_key_path(self._config)
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                row = conn.execute(
+                    f"SELECT key FROM {SECRET_BOX_TABLE} WHERE id = 1"
+                ).fetchone()
+                if row and row[0]:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(bytes(row[0]))
+                    try:
+                        import os
+
+                        os.chmod(dest, 0o600)
+                    except OSError:
+                        pass
+                conn.execute(f"DROP TABLE IF EXISTS {SECRET_BOX_TABLE}")
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            logger.debug("Backup has no embedded secret_box key", exc_info=True)
 
     def _copy_secret_key(self, backup_db: Path) -> None:
         key = master_key_path(self._config)

@@ -312,7 +312,11 @@ class SettingsPage(ft.Column):
             on_blur=lambda _e: self._autosave(),
             on_submit=lambda _e: self._autosave(),
         )
-        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+        from lib.presentation.form_keyboard import (
+            configure_field,
+            configure_pin_field,
+            wire_field_chain,
+        )
 
         configure_field(self._interval, "number")
         configure_field(self._reminder_time, "text")
@@ -371,7 +375,7 @@ class SettingsPage(ft.Column):
             filled=True,
             bgcolor=ft.Colors.SURFACE,
         )
-        configure_field(self._pin_tf, "number")
+        configure_pin_field(self._pin_tf)
         wire_field_chain(page, [self._pin_tf])
 
         btn_style = ft.ButtonStyle(
@@ -1021,17 +1025,23 @@ class SettingsPage(ft.Column):
     async def backup(self) -> None:
         try:
             path = BackupService(self._state.container.config).backup()
-            await self._offer_file(path, kind="Backup")
+            from pathlib import Path
+
+            extras = []
+            key_side = Path(str(path) + ".key")
+            if key_side.is_file():
+                extras.append(key_side)
+            await self._offer_file(path, kind="Backup", extra=extras)
         except Exception as exc:  # noqa: BLE001
             self._io_error_snack(exc)
 
-    async def _offer_file(self, path, *, kind: str) -> None:
+    async def _offer_file(self, path, *, kind: str, extra=None) -> None:
         from lib.presentation.file_transfer import offer_saved_file
 
         lang = self._state.language
         try:
             location = await offer_saved_file(
-                self._page, path, title=f"FinWise {kind}"
+                self._page, path, title=f"FinWise {kind}", extra=extra
             )
         except OSError:
             snack(self._page, tr("settings.file_denied", lang), error=True)
@@ -1202,10 +1212,18 @@ class SettingsPage(ft.Column):
                 settings = await c.get_settings.execute()
                 self._state.set_settings(settings, notify=False)
                 apply_theme_from_settings(self._page, settings)
+            await self._state.reload_pin_gate(
+                lock_if_present=True,
+                unlock_if_absent=True,
+                notify=False,
+            )
             self._state.request_view_rebuild()
             self._state.bump_refresh()
             self._page.update()
-            snack(self._page, tr("settings.restore_done", self._state.language))
+            if self._state.pin_hash and not self._state.is_unlocked:
+                snack(self._page, tr("settings.restore_locked", self._state.language))
+            else:
+                snack(self._page, tr("settings.restore_done", self._state.language))
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
 
@@ -1213,10 +1231,14 @@ class SettingsPage(ft.Column):
         """Hash PIN and persist credentials via use case."""
         lang = self._state.language
         pin = (self._pin_tf.value or "").strip()
-        if len(pin) < 4:
-            snack(self._page, tr("settings.pin_min", lang), error=True)
+        if len(pin) < 4 or not pin.isdigit():
+            snack(self._page, tr("settings.pin_digits", lang), error=True)
             return
-        creds = EncryptionService().hash_pin(pin)
+        try:
+            creds = EncryptionService().hash_pin(pin)
+        except ValueError:
+            snack(self._page, tr("settings.pin_digits", lang), error=True)
+            return
         self._pin_tf.value = ""
         safe_update(self._pin_tf)
 
@@ -1235,6 +1257,7 @@ class SettingsPage(ft.Column):
                 snack_exception(self._page, exc, lang=lang)
                 return
             snack(self._page, tr("settings.pin_saved", lang))
+            await self._state.reload_pin_gate(notify=False)
 
         run_async(self._page, _persist)
 
@@ -1256,6 +1279,7 @@ class SettingsPage(ft.Column):
         except Exception:  # noqa: BLE001
             pass
         self._state.set_settings(settings, notify=False)
+        await self._state.reload_pin_gate(unlock_if_absent=True, notify=False)
         snack(self._page, tr("settings.pin_cleared", lang))
 
     def _confirm_wipe(self) -> None:
@@ -1308,5 +1332,6 @@ class SettingsPage(ft.Column):
 
         self._state.request_view_rebuild()
         self._state.bump_refresh()
+        await self._state.reload_pin_gate(unlock_if_absent=True, notify=False)
         self._page.update()
         snack(self._page, tr("settings.delete_all_done", lang))

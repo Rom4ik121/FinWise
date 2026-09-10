@@ -15,7 +15,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Слои, bootstrap, DI, фоновые циклы, мобильные сервисы, инварианты |
 | [ENTITIES.md](ENTITIES.md) | Доменные модели (счета, операции, цели, долги, …) |
 | [USE_CASES.md](USE_CASES.md) | Бизнес-сценарии и правила денег / FX / переводов |
-| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, курсы, CCXT, бэкап, PIN/Face ID, push, речь |
+| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, курсы, CCXT, бэкап, PIN/Face ID, push |
 | [PRESENTATION.md](PRESENTATION.md) | UI, вкладки, маршруты, формы, UX (splash, lock, count-up) |
 | [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0027** |
 | [PERFORMANCE.md](PERFORMANCE.md) | Скорость БД, FX, UI на телефонах и десктопе |

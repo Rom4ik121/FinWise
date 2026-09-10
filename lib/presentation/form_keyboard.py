@@ -48,6 +48,26 @@ def configure_field(
     return field
 
 
+def configure_pin_field(field: ft.TextField) -> ft.TextField:
+    """Number pad + digits-only filter for PIN entry (4–8 digits)."""
+    configure_field(field, "number")
+    field.max_length = 8
+    field.password = True
+    field.can_reveal_password = False
+    field.keyboard_type = ft.KeyboardType.NUMBER
+    filt_cls = getattr(ft, "InputFilter", None)
+    if filt_cls is not None:
+        try:
+            field.input_filter = filt_cls(
+                regex_string=r"[0-9]",
+                allow=True,
+                replacement_string="",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return field
+
+
 def _schedule_dismiss(field: ft.TextField) -> None:
     page = getattr(field, "page", None)
     if page is not None:

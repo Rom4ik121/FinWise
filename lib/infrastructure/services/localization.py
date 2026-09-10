@@ -1629,6 +1629,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Photo added",
         "uz": "Fotosurat qo‘shildi",
     },
+    "tx.attachment_too_large": {
+        "ru": "Файл больше 12 МБ",
+        "en": "File is larger than 12 MB",
+        "uz": "Fayl 12 MB dan katta",
+    },
     "field.category": {
         "ru": "Категория",
         "en": "Category",
@@ -3573,6 +3578,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Data restored",
         "uz": "Ma'lumotlar tiklandi",
     },
+    "settings.restore_locked": {
+        "ru": "Данные восстановлены. Введите PIN из этой резервной копии.",
+        "en": "Data restored. Enter the PIN from this backup.",
+        "uz": "Ma'lumotlar tiklandi. Shu zaxiradagi PIN-ni kiriting.",
+    },
     "settings.notifications": {
         "ru": "Уведомления",
         "en": "Notifications",
@@ -3757,6 +3767,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "PIN: минимум 4 символа",
         "en": "PIN: at least 4 digits",
         "uz": "PIN: kamida 4 belgi",
+    },
+    "settings.pin_digits": {
+        "ru": "PIN: 4–8 цифр",
+        "en": "PIN: 4–8 digits",
+        "uz": "PIN: 4–8 ta raqam",
     },
     "settings.pin_saved": {
         "ru": "PIN сохранён",

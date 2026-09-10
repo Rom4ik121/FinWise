@@ -78,9 +78,9 @@ class LockScreen(ft.Container):
             on_submit=lambda _e: run_async(page, self._try_pin),
             autofocus=not biometric_enabled,
         )
-        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+        from lib.presentation.form_keyboard import configure_pin_field, wire_field_chain
 
-        configure_field(self._pin, "number")
+        configure_pin_field(self._pin)
         wire_field_chain(page, [self._pin])
         self._error = ft.Text(
             "",

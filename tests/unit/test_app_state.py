@@ -54,3 +54,31 @@ def test_tabs_and_rebuild() -> None:
     before = state.view_rebuild_token
     state.request_view_rebuild()
     assert state.view_rebuild_token == before + 1
+
+
+def test_reload_pin_gate_lock_and_unlock() -> None:
+    from tests.conftest import run_async
+
+    class _Pin:
+        def __init__(self) -> None:
+            self.payload = ("hash", "salt", True)
+
+        async def execute(self):
+            return self.payload
+
+    container = _FakeContainer()
+    container.get_pin_credentials = _Pin()
+    state = AppState(container)
+    state.is_unlocked = True
+
+    async def _run() -> None:
+        await state.reload_pin_gate(lock_if_present=True, notify=False)
+        assert state.pin_hash == "hash"
+        assert state.pin_salt == "salt"
+        assert state.is_unlocked is False
+        container.get_pin_credentials.payload = (None, None, False)
+        await state.reload_pin_gate(unlock_if_absent=True, notify=False)
+        assert state.pin_hash is None
+        assert state.is_unlocked is True
+
+    run_async(_run())

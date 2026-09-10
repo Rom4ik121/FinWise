@@ -20,6 +20,19 @@ def test_pin_rejects_empty() -> None:
         service.hash_pin("")
 
 
+def test_pin_requires_digits() -> None:
+    service = EncryptionService()
+    with pytest.raises(ValueError):
+        service.hash_pin("abcd")
+    with pytest.raises(ValueError):
+        service.hash_pin("12")
+    creds = service.hash_pin("9999")
+    assert service.verify_pin("9999", creds.pin_hash, creds.pin_salt)
+    # Legacy non-digit PIN still verifies (strict=False on the verify path).
+    legacy = service.hash_pin("12ab", strict=False)
+    assert service.verify_pin("12ab", legacy.pin_hash, legacy.pin_salt)
+
+
 def test_different_pins_different_hashes() -> None:
     service = EncryptionService()
     a = service.hash_pin("1111")

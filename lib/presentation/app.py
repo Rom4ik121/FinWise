@@ -170,9 +170,6 @@ class FinanseApp:
         self._primary_cache: dict[int, ft.Control] = {}
         self._secondary_cache: dict[str, ft.Control] = {}
         self._active_view: Optional[ft.Control] = None
-        self._pin_hash: Optional[str] = None
-        self._pin_salt: Optional[str] = None
-        self._pin_gate_failed: bool = False
         self._backgrounded_at: float | None = None
         self._push_prompted: bool = False
 
@@ -275,37 +272,19 @@ class FinanseApp:
 
     def lock_session(self) -> None:
         """Show the PIN / Face ID gate when credentials exist."""
-        if not (self._pin_hash and self._pin_salt):
+        if not (self.state.pin_hash and self.state.pin_salt):
             return
         if not self.state.is_unlocked:
             return
         self.state.set_unlocked(False)
-        self._render(force=True)
 
     async def _load_pin_gate(self) -> None:
         """Decide whether the session starts locked."""
-        get_pin = getattr(self.state.container, "get_pin_credentials", None)
-        if get_pin is None:
-            self.state.set_unlocked(True, notify=False)
-            return
-        try:
-            pin_hash, pin_salt, biometric = await get_pin.execute()
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to load PIN credentials")
-            # Fail closed: unknown security state must not unlock the ledger.
-            self._pin_gate_failed = True
-            self._pin_hash = None
-            self._pin_salt = None
-            self.state.set_unlocked(False, notify=False)
-            return
-        self._pin_gate_failed = False
-        self._pin_hash = pin_hash
-        self._pin_salt = pin_salt
-        if pin_hash and pin_salt:
-            self.state.settings.biometric_enabled = biometric
-            self.state.set_unlocked(False, notify=False)
-        else:
-            self.state.set_unlocked(True, notify=False)
+        await self.state.reload_pin_gate(
+            lock_if_present=True,
+            unlock_if_absent=True,
+            notify=False,
+        )
 
     def _nav_specs(self) -> tuple[tuple[int, ft.IconData, ft.IconData, str], ...]:
         lang = self.state.language
@@ -458,6 +437,10 @@ class FinanseApp:
             or self._rendered_secondary != self.state.secondary_route
             or self._rendered_lang != self.state.language
             or self._rendered_unlocked != self.state.is_unlocked
+            or (
+                not self.state.is_unlocked
+                and bool(self.state.pin_hash)
+            )
         )
         if self._rendered_lang != self.state.language:
             # Nav labels update immediately; force remount so page strings
@@ -570,7 +553,7 @@ class FinanseApp:
 
     def _render(self, *, force: bool = False) -> None:
         """Swap primary / secondary content based on AppState."""
-        if not self.state.is_unlocked and self._pin_gate_failed:
+        if not self.state.is_unlocked and self.state.pin_gate_failed:
             from lib.presentation.utils import tr
 
             self._deactivate_view(self._active_view)
@@ -597,7 +580,7 @@ class FinanseApp:
             self._rendered_unlocked = False
             self.page.update()
             return
-        if not self.state.is_unlocked and self._pin_hash and self._pin_salt:
+        if not self.state.is_unlocked and self.state.pin_hash and self.state.pin_salt:
             self._deactivate_view(self._active_view)
             self._active_view = None
             self._nav_host.visible = False
@@ -607,8 +590,8 @@ class FinanseApp:
                 content=LockScreen(
                     self.page,
                     language=self.state.language,
-                    pin_hash=self._pin_hash,
-                    pin_salt=self._pin_salt,
+                    pin_hash=self.state.pin_hash,
+                    pin_salt=self.state.pin_salt,
                     biometric_enabled=bool(self.state.settings.biometric_enabled),
                     on_unlocked=self._unlock,
                     encryption=self.state.container.encryption_service

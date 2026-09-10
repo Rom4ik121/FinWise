@@ -118,3 +118,83 @@ workflows:
       - build/**/*.ipa
       - build/**/*.app
       - /tmp/xcodebuild_logs/*.log
+
+  # App Store / TestFlight — requires App Store provisioning + App Store Connect.
+  # Codemagic UI: Code signing identities → App Store profile for com.finanse.app
+  # (or App Store Connect API key). Same finanse_ios group as ios-ipa.
+  ios-appstore:
+    name: FinWise iOS IPA (App Store)
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      cocoapods: default
+      groups:
+        - finanse_ios
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.finanse.app
+      vars:
+        PACKAGE_NAME: com.finanse.app
+        APP_NAME: FinWise
+        APP_VERSION: "0.1.0"
+    scripts:
+      - name: Install Python dependencies
+        script: |
+          set -e
+          python3 -m pip install -U pip wheel
+          python3 -m pip install -U "flet[all]" -r requirements.txt
+          flet --version || python3 -m flet --version || true
+      - name: Vendor mobile-safe ccxt
+        script: |
+          set -e
+          python3 scripts/vendor_ccxt_mobile.py
+          test -f vendor/ccxt/pyproject.toml
+      - name: Set up code signing keychain
+        script: |
+          keychain initialize
+          keychain add-certificates
+      - name: Build App Store IPA with Flet
+        script: |
+          set -euo pipefail
+          if [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "APPLE_TEAM_ID is missing. Add it to Codemagic group finanse_ios."
+            exit 1
+          fi
+
+          python3 scripts/patch_ios_appdelegate.py --watch --project-root build/flutter --timeout 900 &
+          WATCH_PID=$!
+          trap 'kill "$WATCH_PID" 2>/dev/null || true' EXIT
+          flet build ipa \
+            --org com.finanse.app \
+            --product "$APP_NAME" \
+            --build-version "$APP_VERSION" \
+            --build-number "${PROJECT_BUILD_NUMBER:-1}" \
+            --ios-team-id "$APPLE_TEAM_ID" \
+            --ios-export-method app-store \
+            --ios-signing-certificate "Apple Distribution" \
+            --splash-color "#0B1220" \
+            --splash-dark-color "#0B1220" \
+            --exclude build --exclude dist --exclude storage --exclude secrets \
+            --exclude .venv --exclude venv --exclude .git --exclude .github \
+            --exclude .cursor --exclude .claude --exclude .flet \
+            --exclude .pytest_cache --exclude .mypy_cache --exclude .ruff_cache \
+            --exclude .tox --exclude .hypothesis --exclude htmlcov \
+            --exclude __pycache__ --exclude tests --exclude docs --exclude scripts \
+            --exclude vendor --exclude agent-transcripts --exclude agent-tools \
+            --exclude AGENTS.md --exclude pytest.ini --exclude codemagic.yaml \
+            --yes \
+            --no-rich-output \
+            --verbose
+          kill "$WATCH_PID" 2>/dev/null || true
+          python3 scripts/patch_ios_appdelegate.py --project-root build/flutter || true
+      - name: Locate IPA
+        script: |
+          echo "Searching for IPA artifacts..."
+          find build -name "*.ipa" -print || true
+          ls -la build/ipa 2>/dev/null || true
+    artifacts:
+      - build/ipa/*.ipa
+      - build/**/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+

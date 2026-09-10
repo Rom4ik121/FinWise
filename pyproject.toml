@@ -121,7 +121,8 @@ ios = false
 web = false
 
 # Fill team_id after joining Apple Developer Program (Membership → Team ID).
-# Ad Hoc / development profiles must include your iPhone 12 UDID.
+# Ad Hoc / development profiles must include your iPhone UDID.
+# App Store IPA: Codemagic workflow `ios-appstore` (export method app-store).
 [tool.flet.ios]
 # team_id = "YOUR10CHAR"
 # export_method = "release-testing"
@@ -130,3 +131,7 @@ web = false
 
 [tool.flet.ios.info]
 NSFaceIDUsageDescription = "Unlock FinWise with Face ID"
+NSPhotoLibraryUsageDescription = "FinWise attaches receipt photos you pick to transactions on this device."
+NSPhotoLibraryAddUsageDescription = "FinWise can share exported reports and backups through the system share sheet."
+ITSAppUsesNonExemptEncryption = false
+NSAppTransportSecurity = { NSAllowsArbitraryLoads = false }

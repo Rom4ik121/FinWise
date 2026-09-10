@@ -269,10 +269,14 @@ def test_data_reset_wipes_accounts(container) -> None:
     async def _run() -> None:
         await container.create_account.execute(make_account())
         assert await container.list_accounts.execute()
+        media = container.config.media_dir / "receipts" / "tx-wipe"
+        media.mkdir(parents=True, exist_ok=True)
+        (media / "shot.jpg").write_bytes(b"\xff\xd8\xff")
         DataResetService(container.config).wipe_all(
             get_session_factory(container.config)
         )
         assert await container.list_accounts.execute() == []
+        assert not (container.config.media_dir / "receipts" / "tx-wipe").exists()
 
     run_async(_run())
 

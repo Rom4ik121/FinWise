@@ -43,6 +43,9 @@ class AppState:
         self.budgets_token: int = 0
         self.is_loading: bool = False
         self.is_unlocked: bool = True
+        self.pin_hash: Optional[str] = None
+        self.pin_salt: Optional[str] = None
+        self.pin_gate_failed: bool = False
         self.pending_open_account_create: bool = False
         self.pending_edit_transaction_id: Optional[str] = None
         self.pending_notifications: list[str] = []
@@ -196,6 +199,51 @@ class AppState:
     def set_unlocked(self, value: bool, *, notify: bool = True) -> None:
         """Mark the session as unlocked (PIN gate passed)."""
         self.is_unlocked = value
+        if notify:
+            self.notify()
+
+    async def reload_pin_gate(
+        self,
+        *,
+        lock_if_present: bool = False,
+        unlock_if_absent: bool = False,
+        notify: bool = True,
+    ) -> None:
+        """Reload PIN hash/salt from the settings store.
+
+        Call after set-PIN, clear-PIN, restore, or wipe so background lock and
+        the lock screen use the live credentials instead of launch-time copies.
+        """
+        get_pin = getattr(self.container, "get_pin_credentials", None)
+        if get_pin is None:
+            self.pin_hash = None
+            self.pin_salt = None
+            self.pin_gate_failed = False
+            if unlock_if_absent:
+                self.is_unlocked = True
+            if notify:
+                self.notify()
+            return
+        try:
+            pin_hash, pin_salt, biometric = await get_pin.execute()
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to load PIN credentials")
+            self.pin_gate_failed = True
+            self.pin_hash = None
+            self.pin_salt = None
+            self.is_unlocked = False
+            if notify:
+                self.notify()
+            return
+        self.pin_gate_failed = False
+        self.pin_hash = pin_hash
+        self.pin_salt = pin_salt
+        if pin_hash and pin_salt:
+            self.settings.biometric_enabled = biometric
+            if lock_if_present:
+                self.is_unlocked = False
+        elif unlock_if_absent:
+            self.is_unlocked = True
         if notify:
             self.notify()
 

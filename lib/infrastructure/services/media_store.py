@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from lib.core.config import AppConfig, get_default_config
 logger = logging.getLogger("finanse.infrastructure.services.media_store")
 
 _IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"}
+_SAFE_ID = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _ext_from_name(name: str, payload: bytes) -> str:
@@ -39,9 +41,28 @@ class MediaStore:
         self._config = config or get_default_config()
         self._config.ensure_directories()
 
+    def _safe_transaction_id(self, transaction_id: str) -> str:
+        raw = (transaction_id or "").replace("\\", "/")
+        if ".." in raw or "/" in raw:
+            raise ValueError("Invalid attachment id")
+        cleaned = _SAFE_ID.sub("", raw).strip("._")
+        if not cleaned or cleaned in {".", ".."}:
+            raise ValueError("Invalid attachment id")
+        return cleaned
+
+    def _confine(self, path: Path) -> Path:
+        """Resolve ``path`` and reject anything outside the media directory."""
+        media = self._config.media_dir.resolve()
+        resolved = path.resolve()
+        if resolved != media and media not in resolved.parents:
+            raise ValueError("Attachment path escapes media directory")
+        return resolved
+
     def absolute(self, relative: str) -> Path:
         rel = (relative or "").replace("\\", "/").lstrip("/")
-        return (self._config.media_dir / rel).resolve()
+        if not rel or rel.startswith("../") or "/../" in f"/{rel}/":
+            raise ValueError("Invalid attachment path")
+        return self._confine(self._config.media_dir / rel)
 
     def save_receipt(
         self,
@@ -55,13 +76,14 @@ class MediaStore:
             raise ValueError("Empty attachment")
         if len(payload) > 12 * 1024 * 1024:
             raise ValueError("Attachment is too large (max 12 MB)")
+        tx_id = self._safe_transaction_id(transaction_id)
         ext = _ext_from_name(filename, payload)
-        folder = self._config.receipts_dir / transaction_id
+        folder = self._confine(self._config.receipts_dir / tx_id)
         folder.mkdir(parents=True, exist_ok=True)
         name = f"{uuid4().hex}{ext}"
         path = folder / name
         path.write_bytes(payload)
-        relative = f"receipts/{transaction_id}/{name}"
+        relative = f"receipts/{tx_id}/{name}"
         logger.debug("Saved receipt %s (%s bytes)", relative, len(payload))
         return relative
 
@@ -69,13 +91,17 @@ class MediaStore:
         for rel in relatives or []:
             try:
                 path = self.absolute(rel)
-                if path.is_file() and self._config.media_dir in path.parents:
+                if path.is_file():
                     path.unlink(missing_ok=True)
-            except OSError:
+            except (OSError, ValueError):
                 logger.exception("Failed to delete media %s", rel)
 
     def delete_transaction_dir(self, transaction_id: str) -> None:
-        folder = self._config.receipts_dir / transaction_id
+        try:
+            tx_id = self._safe_transaction_id(transaction_id)
+        except ValueError:
+            return
+        folder = self._config.receipts_dir / tx_id
         if not folder.is_dir():
             return
         try:

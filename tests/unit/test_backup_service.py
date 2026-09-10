@@ -74,3 +74,31 @@ def test_backup_missing_db(tmp_path: Path) -> None:
     svc = BackupService(cfg)
     with pytest.raises(BackupServiceError):
         svc.backup()
+
+
+def test_backup_embeds_secret_key_when_sidecar_missing(tmp_path: Path) -> None:
+    import sqlite3
+
+    from lib.infrastructure.services.secret_box import encrypt_secret, master_key_path
+
+    cfg = AppConfig(data_dir=tmp_path)
+    cfg.ensure_directories()
+    conn = sqlite3.connect(str(cfg.db_path))
+    conn.execute("CREATE TABLE t (x INTEGER)")
+    conn.commit()
+    conn.close()
+    encrypt_secret({"api_key": "k"}, config=cfg)
+    original_key = master_key_path(cfg).read_bytes()
+
+    svc = BackupService(cfg)
+    backup = svc.backup(label="embed")
+    Path(str(backup) + ".key").unlink()
+    master_key_path(cfg).unlink()
+
+    svc.restore(backup, make_safety_copy=False)
+    assert master_key_path(cfg).is_file()
+    assert master_key_path(cfg).read_bytes() == original_key
+    live = sqlite3.connect(str(cfg.db_path))
+    names = {row[0] for row in live.execute("SELECT name FROM sqlite_master")}
+    live.close()
+    assert "_finanse_secret_box" not in names

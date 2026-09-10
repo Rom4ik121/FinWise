@@ -27,6 +27,8 @@ if [[ -z "$TEAM_ID" ]]; then
 fi
 
 python3 -m pip install -U "flet[all]" -r requirements.txt
+python3 "$ROOT/scripts/vendor_ccxt_mobile.py"
+test -f "$ROOT/vendor/ccxt/pyproject.toml"
 
 # Keep tests/docs/scripts/caches out of the IPA (same list as pyproject / APK).
 EXCLUDE=(
@@ -56,6 +58,7 @@ EXCLUDE=(
   --exclude AGENTS.md
   --exclude pytest.ini
   --exclude codemagic.yaml
+  --exclude vendor
 )
 
 ARGS=(
@@ -66,8 +69,8 @@ ARGS=(
   --ios-team-id "$TEAM_ID"
   --ios-export-method "$EXPORT_METHOD"
   --ios-signing-certificate "$CERT"
-  --splash-color "#000000"
-  --splash-dark-color "#000000"
+  --splash-color "#0B1220"
+  --splash-dark-color "#0B1220"
   --yes
   "${EXCLUDE[@]}"
 )

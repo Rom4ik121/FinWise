@@ -1,7 +1,10 @@
 # FinWise — сборка IPA через Codemagic
 
-Сборка подписанного **Ad Hoc IPA** для iPhone. Конфиг: корневой `codemagic.yaml`.  
+Сборка подписанного **IPA** для iPhone. Конфиг: корневой `codemagic.yaml`.  
 Репозиторий: [github.com/Rom4ik121/FinWise](https://github.com/Rom4ik121/FinWise).
+
+- **`ios-ipa`** — Ad Hoc (тестовые устройства по UDID)
+- **`ios-appstore`** — App Store / TestFlight (нужен App Store provisioning profile)
 
 Бесплатный личный план Codemagic: до **~500 мин/мес** на macOS (актуальные лимиты — на сайте Codemagic).
 
@@ -18,11 +21,16 @@
 
 На Codemagic шаг **Vendor mobile-safe ccxt** обязателен. Не использовать относительный `file:./vendor/wheels/...`.
 
-Info.plist должен запрашивать Face ID, микрофон, распознавание речи.
+Info.plist (via `pyproject.toml` / IPA patch) asks for **Face ID** and **photo library** (receipt attachments). Do **not** add unused microphone / speech keys — App Store 5.1.1.
 
-Сборка IPA патчит `ios/Runner/AppDelegate.swift` (`scripts/patch_ios_appdelegate.py`): `UNUserNotificationCenter.delegate` + `willPresent` (баннеры, пока FinWise открыт).
+The IPA patch (`scripts/patch_ios_appdelegate.py`) also:
 
-Без **новой** IPA правки плагинов / Python на устройстве не появятся.
+- sets `UNUserNotificationCenter.delegate` + `willPresent` (banners while FinWise is open)
+- writes `PrivacyInfo.xcprivacy` (required-reason APIs)
+- strips Flet's leftover AdMob test ID and unused mic/camera/location strings
+- sets `ITSAppUsesNonExemptEncryption=false` and HTTPS-only ATS
+
+Without a **new** IPA, plugin / Python / plist changes will not appear on device.
 
 **Не** ставить `flet-android-notifications` в iOS-сборку: конфликт версий Flutter-пакета `timezone` с `flet_local_notifications`.
 
@@ -153,6 +161,7 @@ Codemagic только **собирает**. На Windows: TestFlight / Sideload
 | ID | Назначение |
 |----|------------|
 | `ios-ipa` | Подписанный Ad Hoc IPA, артефакты `build/ipa/*.ipa` |
+| `ios-appstore` | Подписанный App Store IPA (TestFlight / App Store Connect) |
 | `ios-smoke` | Smoke без полной подписи / simulator fallback |
 
 Исключения из бандла: `build`, `tests`, `docs`, `.cursor`, venv, кэши и т.д. (см. `--exclude` в yaml).
@@ -178,6 +187,36 @@ Codemagic только **собирает**. На Windows: TestFlight / Sideload
 
 APK собирается локально: `.\scripts\build_apk.ps1` (не Codemagic).  
 Цвет splash в скрипте может отличаться от `#0B1220` — для единообразия с iOS/`flet.toml` лучше выровнять флаги `--splash-color`.
+
+---
+
+## App Store / iPhone checklist
+
+Already in the product:
+
+- Local-first SQLite, no required account
+- Face ID + PIN, 15s background lock on mobile
+- `NSFaceIDUsageDescription`, photo-library strings, `ITSAppUsesNonExemptEncryption=false`
+- Privacy manifest (`ios/PrivacyInfo.xcprivacy`) copied into the Runner at IPA build
+- HTTPS FX/crypto APIs; IPA patch forces ATS `NSAllowsArbitraryLoads=false`
+- Offline ledger; rates/sync need network
+- Local notifications + AppDelegate `willPresent`
+
+Still blocking a store listing (owner / Apple account):
+
+1. Apple Developer Program + App ID `com.finanse.app`
+2. App Store Connect app record, screenshots (6.7" + 6.1"), privacy nutrition labels
+3. Codemagic **App Store** provisioning profile (not only Ad Hoc) → workflow `ios-appstore`
+4. Privacy labels: financial info on-device; no tracking (`NSPrivacyTracking=false`)
+5. TestFlight internal testers, then review
+6. Decide whether to keep exchange CCXT (network + API keys) in the first store version
+
+Not implemented (product call, do not ship unused permissions):
+
+- Speech / microphone (removed from docs; do not add Info.plist keys)
+- iCloud Drive / CloudKit sync
+- Keychain storage for `.secret_box_key` (file next to the DB today)
+- Touch ID (Face ID / iris only by policy)
 
 ---
 

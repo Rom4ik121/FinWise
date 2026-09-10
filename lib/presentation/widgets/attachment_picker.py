@@ -77,6 +77,7 @@ class AttachmentPicker(ft.Column):
             self._page,
             title=tr("tx.attach_photo", self._lang),
             extensions=["jpg", "jpeg", "png", "webp", "gif", "heic"],
+            images=True,
         )
         if picked is None:
             return
@@ -84,12 +85,8 @@ class AttachmentPicker(ft.Column):
         if len(self._paths) + len(self._pending) >= 8:
             snack(self._page, tr("tx.attachments_limit", self._lang), error=True)
             return
-        try:
-            # Validate early via store rules without committing final id folder yet.
-            if len(payload) > 12 * 1024 * 1024:
-                raise ValueError("Attachment is too large (max 12 MB)")
-        except ValueError as exc:
-            snack(self._page, str(exc), error=True)
+        if len(payload) > 12 * 1024 * 1024:
+            snack(self._page, tr("tx.attachment_too_large", self._lang), error=True)
             return
         self._pending.append((name, payload))
         self._rebuild()

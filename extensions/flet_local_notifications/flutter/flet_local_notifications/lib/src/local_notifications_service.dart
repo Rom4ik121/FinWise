@@ -174,12 +174,17 @@ class FinanseLocalNotificationsService extends FletService {
     final ios = _plugin.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
     if (ios != null) {
-      final ok = await ios.requestPermissions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-      return ok ?? false;
+      try {
+        final settings = await ios.checkPermissions();
+        if (settings != null) {
+          return settings.isEnabled;
+        }
+      } catch (err) {
+        debugPrint("iOS checkPermissions failed: $err");
+      }
+      // Do not call requestPermissions here — that re-prompts / returns
+      // the one-shot grant result instead of current OS settings.
+      return true;
     }
     return true;
   }

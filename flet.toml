@@ -65,7 +65,7 @@ flet-local-notifications = "./extensions/flet_local_notifications"
 [tool.flet.android]
 adaptive_icon_background = "#0B1220"
 
-[flutter.pubspec.dependencies]
+[tool.flet.flutter.pubspec.dependencies]
 local_auth = "^2.3.0"
 local_auth_android = "^1.0.46"
 local_auth_darwin = "^1.4.1"
@@ -79,5 +79,17 @@ dark_color = "#0B1220"
 icon_bgcolor = "#0B1220"
 icon_dark_bgcolor = "#0B1220"
 
+# Fill team_id after joining Apple Developer Program (Membership → Team ID).
+# App Store IPA: Codemagic workflow `ios-appstore`.
+[tool.flet.ios]
+# team_id = "YOUR10CHAR"
+# export_method = "release-testing"
+# signing_certificate = "Apple Distribution"
+# provisioning_profile = "Finanse Ad Hoc"
+
 [tool.flet.ios.info]
 NSFaceIDUsageDescription = "Unlock FinWise with Face ID"
+NSPhotoLibraryUsageDescription = "FinWise attaches receipt photos you pick to transactions on this device."
+NSPhotoLibraryAddUsageDescription = "FinWise can share exported reports and backups through the system share sheet."
+ITSAppUsesNonExemptEncryption = false
+NSAppTransportSecurity = { NSAllowsArbitraryLoads = false }

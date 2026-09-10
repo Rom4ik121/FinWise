@@ -107,7 +107,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 Публичный kit: `lib.presentation.components` — карточки, диалоги, инпуты, `adaptive_text` / `money_label` / `card_grid` / `page_frame` / `card_with_actions`.  
 Реализации: карточки счетов / операций / целей / долгов / подписок в `widgets/`.  
-`QuickAddSheet` (в т.ч. микрофон); `TransferSheet`; `CategoryPicker`; `CurrencyTickerPicker`;  
+`QuickAddSheet`; `TransferSheet`; `CategoryPicker`; `CurrencyTickerPicker`;  
 `AccountStripPicker` — круговая карусель счетов (иконка, цвет, название, баланс; листание замыкается) в формах операций / переводов / целей / долгов / подписок; `DateTimeField` — горизонтальная лента дней текущего месяца + полноэкранный календарь (`push_overlay`); в сетке видны все 7 дней недели и числа соседних месяцев.  
 `DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor`;  
 `pdf_export_sheet` — период, счета и разделы PDF-отчёта; кнопка **Экспорт PDF** закреплена внизу листа (в шапке — компактная иконка). Сборка PDF идёт в фоне (`asyncio.to_thread`), matplotlib только с backend **Agg**.

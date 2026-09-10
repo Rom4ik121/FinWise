@@ -63,7 +63,7 @@ python -m pytest -q
 - **Модели:** Pydantic v2
 - **Курсы:** httpx (open.er-api, CoinGecko, Binance)
 - **Биржи:** CCXT
-- **Мобильные плагины:** биометрия, локальные уведомления, речь (`extensions/`)
+- **Мобильные плагины:** биометрия, локальные уведомления (`extensions/`)
 
 Архитектура — чистые слои:
 
@@ -83,7 +83,7 @@ main.py
 FinWise/
 ├── main.py                 # точка входа
 ├── lib/                    # приложение
-├── extensions/             # Flutter-мосты (Face ID, push, речь)
+├── extensions/             # Flutter-мосты (Face ID, push)
 ├── assets/                 # иконки, splash, currencies.json (+ черновик i18n/)
 ├── migrations/             # Alembic 0001…0023
 ├── scripts/                # migrate, seed, APK/IPA
@@ -107,14 +107,15 @@ FinWise/
 .\scripts\build_apk.ps1
 ```
 
-**iOS (IPA):** [docs/CODEMAGIC.md](docs/CODEMAGIC.md)
+**iOS (IPA):** [docs/CODEMAGIC.md](docs/CODEMAGIC.md) — Ad Hoc (`ios-ipa`) or App Store / TestFlight (`ios-appstore`). GitHub Actions does **not** produce a signed IPA.
 
 ---
 
 ## Безопасность данных
 
 - База и ключи только в локальном каталоге приложения
-- API-ключи бирж шифруются (`secret_box`)
+- API-ключи бирж шифруются (`secret_box`); бэкап `.db` содержит ключ так, чтобы restore с iPhone Share его поднимал
+- PIN: 4–8 цифр; после установки PIN фоновая блокировка на iPhone начинает работать в той же сессии
 - В git не попадают: `.env`, `*.db`, `secrets/`, ключи и профили подписи (см. `.gitignore`)
 
 ---

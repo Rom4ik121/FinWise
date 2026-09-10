@@ -85,9 +85,9 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 
 | Метод | Поведение |
 |-------|-----------|
-| Ручной backup | Timestamped копия `.db` (+ `-wal` / `-shm` при наличии) в `backups/` |
+| Ручной backup | Timestamped копия `.db` (+ `-wal` / `-shm`) в `backups/`; sidecar `.key` **и** встроенная таблица `_finanse_secret_box` в копии (не в live DB), чтобы один `.db` с iPhone Share восстанавливал ключи бирж |
 | `ensure_daily_backup()` | Перезаписывает **`finanse_daily.db`** не чаще **одного раза в локальные сутки** (+ штамп `finanse_daily.day`) |
-| Restore | Проверка заголовка SQLite (`b"SQLite format 3\0"`); иначе ошибка; safety-копия текущего файла |
+| Restore | Проверка заголовка SQLite (`b"SQLite format 3\0"`); иначе ошибка; safety-копия текущего файла; ключ из sidecar или embedded-таблицы (таблица затем удаляется из live DB) |
 | list / delete | Управление файлами бэкапов |
 
 Вызов daily: старт приложения + hourly loop в `lib/main.py`.
@@ -104,7 +104,7 @@ JSON-снимок домена в `exports/`; опциональная AES-об�
 
 ### `DataResetService`
 
-Wipe таблиц с учётом FK — «сброс данных» в настройках.
+Wipe таблиц с учётом FK, мастер-ключа secret_box и каталога `media/` (фото чеков) — «сброс данных» в настройках.
 
 ---
 
