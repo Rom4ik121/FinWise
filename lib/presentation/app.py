@@ -29,7 +29,12 @@ from lib.presentation.styles import glass_layer
 from lib.presentation.theme import apply_theme_from_settings, is_dark_mode
 from lib.presentation.utils import snack, tr
 from lib.presentation.widgets.lock_screen import LockScreen
-from lib.presentation.responsive import breakpoint, nav_chrome_metrics, page_width
+from lib.presentation.responsive import (
+    breakpoint,
+    nav_chrome_metrics,
+    page_width,
+    wrap_safe_area,
+)
 
 logger = logging.getLogger("finanse.presentation.app")
 
@@ -147,15 +152,8 @@ class FinanseApp:
                 content=self._nav_stack,
             ),
         )
-        self._shell = ft.SafeArea(
-            expand=True,
-            avoid_intrusions_top=True,
-            avoid_intrusions_left=True,
-            avoid_intrusions_right=True,
-            avoid_intrusions_bottom=True,
-            minimum_padding=ft.Padding.only(top=8, bottom=4, left=0, right=0),
-            maintain_bottom_view_padding=True,
-            content=ft.Column(
+        self._shell = wrap_safe_area(
+            ft.Column(
                 expand=True,
                 spacing=0,
                 controls=[self._content, self._nav_host],

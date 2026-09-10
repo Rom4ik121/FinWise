@@ -15,6 +15,7 @@ from lib.domain.entities.category import (
     normalize_category_name,
 )
 from lib.domain.entities.transaction import TransactionType
+from lib.presentation.responsive import wrap_safe_area
 from lib.presentation.styles import page_header
 from lib.presentation.ui_motion import bind_press, overlay_enter_style
 from lib.presentation.utils import category_icon, run_async, safe_update, snack, snack_exception, tr
@@ -372,9 +373,8 @@ class CategoryPicker(ft.Column):
             bgcolor=ft.Colors.SURFACE,
             data=_PICKER_KEY,
             **overlay_enter_style(self._page),
-            content=ft.SafeArea(
-                expand=True,
-                content=ft.Column(
+            content=wrap_safe_area(
+                ft.Column(
                     expand=True,
                     spacing=0,
                     controls=[

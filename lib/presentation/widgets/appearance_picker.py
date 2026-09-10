@@ -15,6 +15,7 @@ from lib.presentation.styles import (
     page_header,
 )
 from lib.presentation.haptics import haptic
+from lib.presentation.responsive import wrap_safe_area
 from lib.presentation.ui_motion import (
     DUR_FAST,
     bind_press,
@@ -210,9 +211,8 @@ def open_icon_picker(
         bgcolor=ft.Colors.SURFACE,
         data=overlay_key,
         **overlay_enter_style(page),
-        content=ft.SafeArea(
-            expand=True,
-            content=ft.Column(
+        content=wrap_safe_area(
+            ft.Column(
                 expand=True,
                 spacing=0,
                 controls=[
@@ -335,9 +335,8 @@ def open_color_picker(
         bgcolor=ft.Colors.SURFACE,
         data=overlay_key,
         **overlay_enter_style(page),
-        content=ft.SafeArea(
-            expand=True,
-            content=ft.Column(
+        content=wrap_safe_area(
+            ft.Column(
                 expand=True,
                 spacing=0,
                 controls=[

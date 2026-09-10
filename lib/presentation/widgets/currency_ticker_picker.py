@@ -184,7 +184,7 @@ class CurrencyTickerPicker(ft.Container):
 
     def open(self) -> None:
         """Open searchable ticker picker as a fullscreen overlay."""
-        from lib.presentation.responsive import form_shell_inset
+        from lib.presentation.responsive import form_shell_inset, wrap_safe_area
         from lib.presentation.skins import get_active_skin
         from lib.presentation.styles import card_surface, form_header_bar, polish_form_control
         from lib.presentation.theme import is_dark_mode
@@ -329,9 +329,8 @@ class CurrencyTickerPicker(ft.Container):
             bgcolor=ft.Colors.SURFACE,
             data=overlay_key,
             **overlay_enter_style(self._page),
-            content=ft.SafeArea(
-                expand=True,
-                content=ft.Container(
+            content=wrap_safe_area(
+                ft.Container(
                     expand=True,
                     gradient=skin.page_gradient(dark=dark),
                     content=ft.Column(

@@ -8,6 +8,7 @@ from typing import Optional
 
 import flet as ft
 
+from lib.presentation.responsive import wrap_safe_area
 from lib.presentation.utils import run_async, safe_update
 
 _BANNER_MS = 1700
@@ -52,12 +53,12 @@ class UiFeedback:
             ),
         )
         pill = self._pill
-        # CRITICAL: fixed height + transparent host so overlay does not wash the UI.
+        # Overlay sits above the shell SafeArea — wrap the pill so it clears
+        # notch / Dynamic Island. No fixed height (64px is shorter than the island).
         self._banner = ft.Container(
             left=0,
             right=0,
             top=0,
-            height=64,
             data=_TAG,
             visible=False,
             opacity=0,
@@ -66,9 +67,16 @@ class UiFeedback:
             animate_opacity=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
             animate_offset=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
             offset=ft.Offset(0, -0.15),
-            alignment=ft.Alignment.CENTER,
-            padding=ft.Padding.only(top=12),
-            content=pill,
+            alignment=ft.Alignment.TOP_CENTER,
+            content=wrap_safe_area(
+                ft.Container(
+                    padding=ft.Padding.only(left=12, right=12, bottom=8),
+                    alignment=ft.Alignment.TOP_CENTER,
+                    content=pill,
+                ),
+                expand=False,
+                bottom=False,
+            ),
         )
         self._purge_stale()
         page.overlay.append(self._banner)

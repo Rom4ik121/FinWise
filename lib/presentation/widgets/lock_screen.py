@@ -17,6 +17,7 @@ from lib.presentation.responsive import (
     form_shell_inset,
     page_width,
     scale_font,
+    wrap_safe_area,
 )
 from lib.presentation.utils import run_async, safe_update, snack, tr
 
@@ -121,65 +122,72 @@ class LockScreen(ft.Container):
             expand=True,
             alignment=ft.Alignment.CENTER,
             gradient=page_gradient(dark),
-            padding=ft.Padding.symmetric(
-                horizontal=12 if page_width(page) < 360 else 16,
-                vertical=24,
-            ),
-            content=ft.Container(
-                width=card_w,
-                padding=24 if page_width(page) < 360 else 28,
-                border_radius=24,
-                bgcolor=ft.Colors.SURFACE_CONTAINER,
-                border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-                shadow=ft.BoxShadow(
-                    blur_radius=30,
-                    color="#00000044",
-                    offset=ft.Offset(0, 12),
-                ),
-                content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=16,
-                    tight=True,
-                    controls=[
-                        ft.Container(
-                            width=72,
-                            height=72,
-                            border_radius=22,
-                            bgcolor=ft.Colors.PRIMARY_CONTAINER,
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(
-                                ft.Icons.FACE_2
-                                if biometric_enabled
-                                else ft.Icons.LOCK,
-                                size=34,
-                                color=ft.Colors.ON_PRIMARY_CONTAINER,
-                            ),
+            content=wrap_safe_area(
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment.CENTER,
+                    padding=ft.Padding.symmetric(
+                        horizontal=12 if page_width(page) < 360 else 16,
+                        vertical=24,
+                    ),
+                    content=ft.Container(
+                        width=card_w,
+                        padding=24 if page_width(page) < 360 else 28,
+                        border_radius=24,
+                        bgcolor=ft.Colors.SURFACE_CONTAINER,
+                        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                        shadow=ft.BoxShadow(
+                            blur_radius=30,
+                            color="#00000044",
+                            offset=ft.Offset(0, 12),
                         ),
-                        ft.Text(
-                            tr("app.name", language),
-                            size=scale_font(28, page, minimum=24, maximum=32),
-                            weight=ft.FontWeight.W_700,
-                            color=ft.Colors.PRIMARY,
-                        ),
-                        ft.Text(
-                            tr(
-                                "lock.subtitle_bio" if biometric_enabled else "lock.subtitle",
-                                language,
-                            ),
-                            size=scale_font(14, page, minimum=12, maximum=16),
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                        self._pin,
-                        self._error,
-                        ft.Column(
-                            spacing=10,
+                        content=ft.Column(
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=16,
                             tight=True,
-                            controls=actions,
+                            controls=[
+                                ft.Container(
+                                    width=72,
+                                    height=72,
+                                    border_radius=22,
+                                    bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(
+                                        ft.Icons.FACE_2
+                                        if biometric_enabled
+                                        else ft.Icons.LOCK,
+                                        size=34,
+                                        color=ft.Colors.ON_PRIMARY_CONTAINER,
+                                    ),
+                                ),
+                                ft.Text(
+                                    tr("app.name", language),
+                                    size=scale_font(28, page, minimum=24, maximum=32),
+                                    weight=ft.FontWeight.W_700,
+                                    color=ft.Colors.PRIMARY,
+                                ),
+                                ft.Text(
+                                    tr(
+                                        "lock.subtitle_bio" if biometric_enabled else "lock.subtitle",
+                                        language,
+                                    ),
+                                    size=scale_font(14, page, minimum=12, maximum=16),
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    text_align=ft.TextAlign.CENTER,
+                                ),
+                                self._pin,
+                                self._error,
+                                ft.Column(
+                                    spacing=10,
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    tight=True,
+                                    controls=actions,
+                                ),
+                            ],
                         ),
-                    ],
+                    ),
                 ),
+                minimum=0,
             ),
         )
         if biometric_enabled and auto_biometric:

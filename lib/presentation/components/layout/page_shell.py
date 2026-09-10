@@ -22,7 +22,8 @@ def page_frame(
 
     Screens pass callbacks via ``actions`` / ``leading``; this helper only
     applies viewport gutters (``content_inset`` also centers lg/xl shells)
-    and does not load data.
+    and does not load data. Cutouts (notch / island / home indicator) are
+    handled by ``wrap_safe_area`` on the app shell, not by extra header pixels.
     """
     _ = lang
     inset = content_inset(page)

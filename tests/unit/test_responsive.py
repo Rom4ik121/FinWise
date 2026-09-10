@@ -187,3 +187,33 @@ def test_swipe_strip_shrinks_on_narrow_phones() -> None:
     assert 0.32 <= frac <= 0.92
     # Revealed width roughly covers the strip.
     assert frac * 320 >= narrow * 0.85
+
+
+def test_wrap_safe_area_uses_os_insets_not_device_heights() -> None:
+    import flet as ft
+
+    from lib.presentation.responsive import (
+        SAFE_MIN_BOTTOM,
+        SAFE_MIN_TOP,
+        safe_area_minimum,
+        wrap_safe_area,
+    )
+
+    # Floor is a few pixels, never an iPhone notch (44) or island (~54–59).
+    assert 0 < SAFE_MIN_TOP < 20
+    assert 0 < SAFE_MIN_BOTTOM < 20
+    child = ft.Text("ok")
+    shell = wrap_safe_area(child)
+    assert shell.avoid_intrusions_top is True
+    assert shell.avoid_intrusions_bottom is True
+    assert shell.avoid_intrusions_left is True
+    assert shell.avoid_intrusions_right is True
+    assert shell.maintain_bottom_view_padding is True
+    assert shell.minimum_padding == safe_area_minimum()
+    toast = wrap_safe_area(child, expand=False, bottom=False)
+    assert toast.avoid_intrusions_bottom is False
+    assert toast.maintain_bottom_view_padding is False
+    assert toast.avoid_intrusions_top is True
+    nested = wrap_safe_area(child, minimum=0)
+    assert nested.minimum_padding == 0
+    assert nested.avoid_intrusions_top is True

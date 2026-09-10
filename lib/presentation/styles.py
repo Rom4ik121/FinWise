@@ -236,7 +236,7 @@ def page_header(
     leading: Optional[ft.Control] = None,
     page: ft.Page | None = None,
 ) -> ft.Container:
-    """Page top bar — sits below SafeArea, clear of notch / status bar."""
+    """Page top bar — sits below wrap_safe_area (notch / Dynamic Island)."""
     from lib.presentation.responsive import (
         content_inset,
         header_title_size,

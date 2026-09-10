@@ -29,8 +29,14 @@ SHELL_MAX_XL = 960
 # Grouped floating tab bar on large windows (mobile chrome, not a spread).
 NAV_BAR_MAX_LG = 520
 NAV_BAR_MAX_XL = 560
-# ListView clearance under the floating nav + home indicator.
+# ListView clearance under the floating nav. The home indicator / notch /
+# Dynamic Island are Flutter SafeArea's job (see wrap_safe_area), not a
+# per-device pixel offset.
 LIST_NAV_CLEARANCE = 104
+# Floor applied *with* MediaQuery padding (the greater of the two).
+# Not a notch or island height — those come from the OS.
+SAFE_MIN_TOP = 8
+SAFE_MIN_BOTTOM = 4
 
 Breakpoint = str
 BP_XS = "xs"
@@ -524,8 +530,60 @@ def nav_chrome_metrics(page: ft.Page | None = None) -> dict[str, int]:
 
 
 def list_nav_padding() -> ft.Padding:
-    """Bottom inset so ListView rows clear the floating nav + home indicator."""
+    """Bottom inset so ListView rows clear the floating nav.
+
+    Home-indicator / gesture-bar inset is applied by :func:`wrap_safe_area`
+    on the shell, not by this padding.
+    """
     return ft.Padding.only(bottom=LIST_NAV_CLEARANCE)
+
+
+def safe_area_minimum(*, top: bool = True, bottom: bool = True) -> ft.Padding:
+    """Device-agnostic floor; Flutter still adds the real cutout padding."""
+    return ft.Padding.only(
+        top=SAFE_MIN_TOP if top else 0,
+        bottom=SAFE_MIN_BOTTOM if bottom else 0,
+        left=0,
+        right=0,
+    )
+
+
+def wrap_safe_area(
+    content: ft.Control,
+    *,
+    top: bool = True,
+    bottom: bool = True,
+    left: bool = True,
+    right: bool = True,
+    expand: bool = True,
+    minimum: ft.Padding | int | float | None = None,
+) -> ft.SafeArea:
+    """Inset ``content`` past notch, Dynamic Island, home indicator, and sides.
+
+    Uses Flutter ``SafeArea`` (MediaQuery padding / viewPadding) so SE-with-home
+    button, notched X-class phones, Dynamic Island, and landscape all work
+    without hard-coded island heights. ``minimum`` is a floor, never a
+    substitute for the OS inset.
+
+    Nested SafeAreas do not double the cutout (Flutter consumes padding).
+    Pass ``minimum=0`` when this wrapper sits *inside* another SafeArea
+    that already applied :func:`safe_area_minimum`.
+
+    ``maintain_bottom_view_padding`` stays on whenever the bottom inset is
+    honored so the home indicator does not collapse under the keyboard.
+    """
+    if minimum is None:
+        minimum = safe_area_minimum(top=top, bottom=bottom)
+    return ft.SafeArea(
+        content=content,
+        expand=expand,
+        avoid_intrusions_top=top,
+        avoid_intrusions_bottom=bottom,
+        avoid_intrusions_left=left,
+        avoid_intrusions_right=right,
+        maintain_bottom_view_padding=bottom,
+        minimum_padding=minimum,
+    )
 
 
 def header_title_size(page: ft.Page | None = None, *, base: float = 22) -> int:

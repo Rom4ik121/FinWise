@@ -38,6 +38,7 @@ from lib.presentation.responsive import (  # noqa: F401
     scale_size,
     scale_space,
     shell_max_width,
+    wrap_safe_area,
     swipe_action_strip_width,
     swipe_reveal_offset,
     tap_button_style,

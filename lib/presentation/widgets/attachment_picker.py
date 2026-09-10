@@ -10,6 +10,7 @@ import flet as ft
 
 from lib.infrastructure.services.media_store import MediaStore
 from lib.presentation.file_transfer import pick_restore_bytes
+from lib.presentation.responsive import wrap_safe_area
 from lib.presentation.ui_motion import overlay_enter_style
 from lib.presentation.utils import run_async, safe_update, snack, tr
 from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, push_overlay
@@ -187,34 +188,36 @@ def open_attachment_viewer(
         bgcolor=ft.Colors.BLACK,
         alignment=ft.Alignment.CENTER,
         **overlay_enter_style(page),
-        content=ft.Stack(
-            expand=True,
-            controls=[
-                ft.GestureDetector(
-                    on_tap=_close,
-                    content=ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment.CENTER,
-                        padding=12,
-                        content=ft.Image(
-                            src=str(abs_path),
-                            fit=ft.BoxFit.CONTAIN,
+        content=wrap_safe_area(
+            ft.Stack(
+                expand=True,
+                controls=[
+                    ft.GestureDetector(
+                        on_tap=_close,
+                        content=ft.Container(
                             expand=True,
+                            alignment=ft.Alignment.CENTER,
+                            padding=12,
+                            content=ft.Image(
+                                src=str(abs_path),
+                                fit=ft.BoxFit.CONTAIN,
+                                expand=True,
+                            ),
                         ),
                     ),
-                ),
-                ft.Container(
-                    top=8,
-                    right=8,
-                    content=ft.IconButton(
-                        icon=ft.Icons.CLOSE,
-                        icon_color=ft.Colors.WHITE,
-                        bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.BLACK),
-                        tooltip=tr("action.close", lang),
-                        on_click=_close,
+                    ft.Container(
+                        top=8,
+                        right=8,
+                        content=ft.IconButton(
+                            icon=ft.Icons.CLOSE,
+                            icon_color=ft.Colors.WHITE,
+                            bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.BLACK),
+                            tooltip=tr("action.close", lang),
+                            on_click=_close,
+                        ),
                     ),
-                ),
-            ],
+                ],
+            ),
         ),
     )
     push_overlay(page, overlay)

@@ -21,6 +21,7 @@ from lib.presentation.responsive import (
     form_shell_inset,
     is_narrow,
     tap_button_style,
+    wrap_safe_area,
 )
 from lib.presentation.ui_motion import (
     DUR_MED,
@@ -293,9 +294,8 @@ def build_form_shell(
         style=tap_button_style(horizontal=10, vertical=10),
     )
 
-    return ft.SafeArea(
-        expand=True,
-        content=ft.Container(
+    return wrap_safe_area(
+        ft.Container(
             expand=True,
             gradient=skin.page_gradient(dark=dark),
             content=ft.Column(

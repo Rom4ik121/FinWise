@@ -131,7 +131,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 | Модуль | Роль |
 |--------|------|
-| `responsive.py` | Breakpoints xs–xl, `layout_width` / `shell_max_width`, `scale_font` / `scale_size`, `grid_columns`, `tx_tile_metrics`, `entity_card_metrics`, `content_inset`, `nav_chrome_metrics` |
+| `responsive.py` | Breakpoints xs–xl, `layout_width` / `shell_max_width`, `wrap_safe_area`, `scale_font` / `scale_size`, `grid_columns`, `tx_tile_metrics`, `entity_card_metrics`, `content_inset`, `nav_chrome_metrics` |
 | `utils.py` | `format_money`, `run_async`, `snack` (успех и ошибка → top toast), RateBook helpers, `user_facing_error`, `snack_exception` |
 | `form_validation.py` | Имя / сумма: поле + тост, видно над fullscreen |
 | `ui_feedback.py` | Зелёный/красный chip поверх overlay |
@@ -164,6 +164,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Графики: `chart_layout` / `compact_chart_size` от `layout_width`.
 - ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный); на lg/xl nav сгруппирован (~520–560 px), вкладки не расползаются на всю ширину окна.
 - Resize: смена breakpoint пересобирает кэш страниц, чтобы сетки и gutters совпали с новым окном.
+- **Safe area:** `wrap_safe_area` (Flutter `SafeArea`) on the app shell, lock, splash, fullscreen forms/pickers, attachment viewer, and toasts. Uses MediaQuery padding (notch / Dynamic Island / home indicator / landscape sides) plus a small floor (`SAFE_MIN_TOP/BOTTOM` 8/4) — not a per-device pixel map. Nested lock SafeArea uses `minimum=0` so the floor is not doubled. List `LIST_NAV_CLEARANCE` only clears the floating nav; the home indicator is SafeArea. `maintain_bottom_view_padding` keeps the bottom inset when the keyboard is up.
 
 ---
 
