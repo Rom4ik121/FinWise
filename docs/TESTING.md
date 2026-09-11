@@ -32,6 +32,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Фикстура / поведение | Смысл |
 |----------------------|--------|
 | Autouse `FINANCE_DISABLE_PUSH=1` | Не слать OS-toast в CI |
+| Autouse locale | `detect_language_and_currency` → `ru`/`RUB` (хост TZ не протекает) |
 | `container(tmp_path)` | Отдельный SQLite на тест + собранный DI |
 | `tests/factories.py` | Account, Transaction, Goal, Debt, Subscription, Category |
 
@@ -45,15 +46,17 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 
 | Область | Примеры файлов |
 |---------|----------------|
-| Деньги / ввод | `test_money.py`, `test_money_input.py` |
+| Деньги / ввод | `test_money.py`, `test_money_input.py` (filter bounds: blank ≠ 0) |
+| Alembic | `test_alembic_chain.py` (single head **0030**, `upgrade head` on empty SQLite, legacy `0002_reminder_time` rewrite) |
 | Бюджеты (логика) | `test_budget.py` |
 | Биометрия / PIN | `test_biometric.py`, `test_encryption.py`, `test_secret_box.py` |
-| Локализация | `test_localization.py` (все ключи ru/en/uz) |
-| Бэкап | `test_backup_service.py` (в т.ч. daily rolling + SQLite magic) |
+| Локализация | `test_localization.py` (все ключи всех `SUPPORTED_LANGS`), `test_locale_prefs.py`, `test_first_run_language.py`, `test_first_run_currency.py` |
+| Бэкап | `test_backup_service.py` (daily rolling, SQLite snapshot, `.fwbackup`, embedded key) |
+| Secret box / Keychain | `test_secret_box.py` |
 | Курсы / RateBook | `test_rate_book.py`, currency helpers |
 | Проекции | `test_goal_projection.py`, `test_debt_projection.py` |
 | Подписки (биллинг) | `test_subscription_billing.py` |
-| Reminders / push | `test_reminder_scheduler.py`, `test_notification_service.py`, `test_push_notifier.py` |
+| Reminders / push | `test_reminder_scheduler.py` (OS `effective_debt_due`, `reminder_days`, prefix cancel, `_reminder_loop` import), `test_notification_service.py`, `test_push_notifier.py` (sticky-deny guide) |
 | AppState / скины | `test_app_state.py`, `test_skins.py` |
 | Иконки / каталог | `test_account_icons.py`, `test_icon_catalog.py`, `test_exchanges.py` (в т.ч. auth → user_facing) |
 | Аналитика периодов | `test_analytics_period.py` |
@@ -63,7 +66,11 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Файлы / Flet services | `test_file_transfer.py`, `test_flet_services.py` |
 | Push | `test_push_notifier.py`, `test_notification_service.py` |
 | Пути iOS/Android | `test_config_ios.py` |
-| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py` |
+| iOS IPA patch | `test_ios_notifications.py` (AppDelegate, Info.plist, PrivacyInfo, `--verify`) |
+| PIN / lock | `test_encryption.py`, `test_app_state.py` (`reload_pin_gate`) |
+| Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key, fwbackup) |
+| Формы | `test_form_validation.py`, `test_money_input.py` (live grouping + caret-prepend `50` + orphan `05` + write-echo `500`) |
+| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py` (web/desktop skip fade, overlay `ignore_interactions`), `test_tx_filters_panel.py` (`visible_list_rows`, `search_skips_day_window`), `test_line_items_editor.py` (vertical name/amount cards, one camera `PopupMenuButton` with gallery/camera), `test_responsive.py` (viewport cache + content_inset clamp + 320/360/375 nav + is_compact ≤420 + page_frame gutters + `LIST_NAV_CLEARANCE` 104 + translucent `nav_chrome_layer`), `test_app_shell.py` (pane `bottom=0`, transparent overlay, glass pill, compact-web skip blur), `test_page_header.py` (no wrap+Expanded on xs; `page_frame(on_back=)` + every secondary page wires Back), `test_ui_widgets_smoke.py` (account card vertical swipe stack, no face Edit/Delete) |
 
 ---
 
@@ -74,14 +81,16 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Область | Файл |
 |---------|------|
 | Счета | `test_accounts.py` |
-| Операции / позиции чека | `test_transactions.py`, `test_transaction_items.py` |
-| Переводы + FX | `test_transfers.py` |
-| Цели / долги / подписки | `test_goals.py`, `test_debts.py`, `test_subscriptions.py` |
-| Бюджеты | `test_budgets.py`, `test_budget_items_parity.py` |
+| Операции / позиции чека | `test_transactions.py` (FTS + LIKE substring), `test_transaction_items.py` (line photo path), `test_line_items_editor.py` (vertical cards), `test_tx_filters_panel.py` (`search_skips_day_window`) |
+| Переводы + FX | `test_transfers.py` (fee on destination deleted with the pair) |
+| Цели / долги / подписки | `test_goals.py`, `test_debts.py` (interest tag stamp + reverse), `test_subscriptions.py` (orphan account pauses auto-charge) |
+| Шаблоны | `test_recurring.py` (create today does not post; catch-up after update; missing account pauses) |
+| Бюджеты | `test_budgets.py` (debt repayments skipped; category match is case-insensitive; raising limit resets `last_alert_level`), `test_budget_items_parity.py` |
 | Категории / валюты | `test_categories.py`, `test_currencies.py` |
 | Курсы upsert / safe convert | `test_exchange_rate_upsert.py`, `test_safe_convert.py` |
 | Биржевой синк | `test_exchange_sync.py` |
-| Настройки / экспорт / align | `test_settings_export_align.py` |
+| Настройки / экспорт / align | `test_settings_export_align.py` (PIN hash not in JSON) |
+| CSV / капитал | `test_csv_import.py` (atomic commit rollback), `test_net_worth.py` (skip persist when FX missing) |
 
 Также есть корневые smoke-тесты вроде `tests/test_money_and_transactions.py`.
 
@@ -94,7 +103,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 3. Не включать реальные OS-toast / биометрию устройства в CI.
 4. После изменений domain / money / FX / transfers — прогнать хотя бы  
    `tests/integration/test_transfers.py` и релевантный unit.
-5. Новые ключи i18n — убедиться, что `test_localization` проходит (все три языка).
+5. Новые ключи i18n — убедиться, что `test_localization` проходит (все живые UI-языки).
 6. Не фиксировать в документации «N passed» — число растёт; ориентир — зелёный `pytest -q`.
 
 ---

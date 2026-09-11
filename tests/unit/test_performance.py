@@ -58,6 +58,45 @@ def test_tags_filter_applies_before_limit(container) -> None:
     run_async(_run())
 
 
+def test_tags_filter_limit_skips_newer_untagged_rows(container) -> None:
+    """Tagged LIMIT/OFFSET must not full-scan then slice in Python only.
+
+    Many newer untagged rows would win a naive ``ORDER BY date LIMIT 1``.
+    """
+
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="100000"))
+        base = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        older = make_transaction(acc.id, amount="5", category="Fee")
+        older = older.model_copy(
+            update={"date": base, "tags": ["fee", "csv-import"]}
+        )
+        older = await container.add_transaction.execute(older)
+        newer_tagged = make_transaction(acc.id, amount="7", category="Fee")
+        newer_tagged = newer_tagged.model_copy(
+            update={"date": base.replace(day=10), "tags": ["fee"]}
+        )
+        newer_tagged = await container.add_transaction.execute(newer_tagged)
+        for i in range(40):
+            plain = make_transaction(acc.id, amount="1", category="Food")
+            plain = plain.model_copy(
+                update={"date": base.replace(day=min(11 + (i % 18), 28)), "tags": []}
+            )
+            await container.add_transaction.execute(plain)
+        page = await container.transaction_repository.list(tags=["fee"], limit=1)
+        assert len(page) == 1
+        assert page[0].id == newer_tagged.id
+        page2 = await container.transaction_repository.list(
+            tags=["fee"], limit=1, offset=1
+        )
+        assert len(page2) == 1
+        assert page2[0].id == older.id
+        both = await container.transaction_repository.list(tags=["fee", "csv-import"])
+        assert [row.id for row in both] == [older.id]
+
+    run_async(_run())
+
+
 def test_rate_book_cache_reuses_list_rates() -> None:
     async def _run() -> None:
         invalidate_rate_book_cache()

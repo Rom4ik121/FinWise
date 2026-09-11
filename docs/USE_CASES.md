@@ -12,7 +12,7 @@ UI **не** пишет в ledger напрямую через репозитор�
 | `AddTransactionUseCase` | Создать операцию, обновить баланс, применить цель/долг/бюджет |
 | `UpdateTransactionUseCase` | Изменить; откатить старые side-effects и наложить новые |
 | `DeleteTransactionUseCase` | Удалить; для перевода — обе ноги + связанную комиссию по тегу |
-| `ListTransactionsUseCase` | Фильтры: счёт, даты, тип, теги, transfer, **`has_debt`**, limit/offset |
+| `ListTransactionsUseCase` | Фильтры: счёт, даты, тип, теги, transfer, **`has_debt`**, **`amount_min`/`amount_max`**, FTS `query` (категория/комментарий/теги/payee/сумма), limit/offset |
 | `GetTransactionStatsUseCase` | Агрегаты для графиков |
 | `TransferAccountsUseCase` | Перевод между счетами + опциональная комиссия |
 
@@ -40,7 +40,7 @@ UI **не** пишет в ledger напрямую через репозитор�
 
 | Класс | Назначение |
 |-------|------------|
-| `CreateAccountUseCase` | Новый счёт |
+| `CreateAccountUseCase` | Новый счёт. Первый счёт задаёт `settings.default_currency` и `currency_user_set`. |
 | `UpdateAccountUseCase` | Обновление; смена валюты требует курсов и пересчёта |
 | `DeleteAccountUseCase` | Удаление (с проверками) |
 | `ListAccountsUseCase` | Список (active_only и т.д.) |
@@ -90,10 +90,49 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 | Create/Update/Delete | Карточка подписки |
 | Pause / Resume | Статус |
 | `ChargeSubscriptionNow` | Ручное списание |
-| `ProcessDueSubscriptions` | Фоновый проход due + auto_charge |
+| `ProcessDueSubscriptions` | Фоновый проход due + auto_charge. Нет счёта (dangling id) → `PAUSED` + `auto_charge=False`. |
 | Analytics | Сводка для UI |
 
 При `check_balance_before_subscription` и нехватке средств — код/`insufficient_funds` → локализованное сообщение.
+
+`preview_occurrence_dates` — следующие даты серии (форма создания/правки). Skip / pause / catch-up при старте приложения (`process_due_subscriptions`, до 31 списания).
+
+---
+
+## Повторяющиеся шаблоны — `recurring.py`
+
+Отдельная сущность от подписок (доход не должен портить аналитику стоимости подписок).
+
+| Класс | Назначение |
+|-------|------------|
+| Create / Update / Delete / List | Шаблоны income/expense. **Create** сдвигает `next_run` на следующий период, если дата ≤ сегодня — сохранение не проводит операцию сразу. Catch-up работает для уже существующих правил. |
+| `PauseRecurringRuleUseCase` | Пауза без удаления |
+| `SkipRecurringOccurrenceUseCase` | Пропустить ближайшую дату |
+| `ProcessDueRecurringRulesUseCase` | Автосоздание в ledger + catch-up (старт приложения, до 31). Нет счёта → `paused` + `auto_create=False`. |
+
+Интервалы: daily / weekly / monthly / yearly, `interval_count`. Тег созданных операций: `recurring`.
+
+---
+
+## Импорт CSV — `import_csv.py`
+
+| Класс | Назначение |
+|-------|------------|
+| `PreviewCsvImportUseCase` | Кодировка, разделитель, пресеты колонок, dry-run строк |
+`CommitCsvImportUseCase` — создание операций через `AddTransactionUseCase` (тег `csv-import`) в одном `unit_of_work`: ошибка на середине батча откатывает уже записанные строки.
+
+Парсер: `lib/domain/services/csv_statement.py`.
+
+---
+
+## Капитал — `net_worth.py`
+
+| Класс | Назначение |
+|-------|------------|
+| `RecordNetWorthSnapshotUseCase` | Upsert снимка include-in-total за UTC-день (FX через `sum_balances_in_base`). Нет курса → снимок **не** пишется (частичная сумма не попадает в историю). |
+| `ListNetWorthSnapshotsUseCase` | Окно для графика аналитики |
+
+Снимок пишется после commit операции и при старте приложения.
 
 ---
 
@@ -107,6 +146,8 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 | `apply_expense_delta` | Инкремент при add/update/delete expense |
 
 Категория бюджета — expense или both; нужен положительный лимит.
+
+Пороги уведомлений (`budget_warn_pct` / `budget_limit_pct`, по умолчанию 80 / 100) задаются в настройках. Пересечение порога → in-app + локальное уведомление; повтор той же ступени не шлётся (`last_alert_level`). Смена лимита сбрасывает watermark, чтобы новый порог мог сработать снова.
 
 ---
 
@@ -130,7 +171,7 @@ List / Create / Update / Delete / FindOrCreate — для пикера и фор
 
 ## Настройки — `settings.py`
 
-`GetSettingsUseCase` / `UpdateSettingsUseCase` — тема, язык, базовая валюта, интервал курсов, уведомления, график дашборда и т.д.
+`GetSettingsUseCase` / `UpdateSettingsUseCase` — тема, язык, базовая валюта, интервал курсов, уведомления, график дашборда, пороги бюджета, JSON фильтров операций и т.д.
 
 PIN:
 
@@ -160,7 +201,7 @@ UI не пишет PIN напрямую в репозиторий.
 
 Английские `ValueError(...)` / `ExchangeSyncError(...)` в presentation превращаются в ключи i18n через `user_facing_error` / `snack_exception` (`_DOMAIN_ERROR_KEYS` + prefixes).
 
-- Известные тексты → понятные ru/en/uz.
+- Известные тексты → понятные строки на языке UI (18 LTR локалей).
 - Неизвестный technical English / traceback-подобные строки → `error.generic`.
 - Пользователь не видит сырой exception / SQL / пути.
 ---

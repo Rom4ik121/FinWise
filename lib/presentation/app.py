@@ -16,28 +16,38 @@ from lib.presentation.views import (
     AnalyticsPage,
     BudgetsPage,
     CurrenciesPage,
+    CsvImportPage,
     DashboardPage,
     DebtsPage,
     GoalsPage,
+    RecurringPage,
     SettingsPage,
     SubscriptionsPage,
     TransactionsPage,
 )
 from lib.presentation.skins import get_active_skin
 from lib.presentation.state.app_state import AppState
-from lib.presentation.styles import glass_layer
+from lib.presentation.styles import nav_chrome_layer
 from lib.presentation.theme import apply_theme_from_settings, is_dark_mode
 from lib.presentation.utils import snack, tr
 from lib.presentation.widgets.lock_screen import LockScreen
+from lib.presentation.responsive import (
+    breakpoint,
+    is_compact,
+    nav_chrome_metrics,
+    nav_overlay_height,
+    note_viewport_from_event,
+    page_height,
+    page_width,
+    should_rebuild_layout,
+    shell_side_padding,
+    wrap_safe_area,
+)
 
 logger = logging.getLogger("finanse.presentation.app")
 
 _NAV_RADIUS = 22
-_NAV_MARGIN = ft.Margin.only(left=10, right=10, bottom=6, top=4)
-_NAV_PILL_W = 46.0
-_NAV_PILL_H = 30.0
-_NAV_BAR_H = 54.0
-_NAV_SLIDE = ft.Animation(380, ft.AnimationCurve.EASE_IN_OUT_CUBIC)
+_NAV_SLIDE = ft.Animation(240, ft.AnimationCurve.EASE_OUT)
 _BACKGROUND_LOCK_SECONDS = 15.0
 
 # iOS sends ``inactive`` for Face ID, Control Center, and app-switch
@@ -67,15 +77,18 @@ class FinanseApp:
     def __init__(self, page: ft.Page, container: Any) -> None:
         self.page = page
         self.state = AppState(container)
+        # Tab bodies: AnimatedSwitcher FADE on wide; duration 0 on compact
+        # remount so Flet Windows cannot stick the incoming child at opacity 0.
         self._content = ft.AnimatedSwitcher(
-            content=ft.Container(expand=True),
+            content=ft.Container(expand=True, alignment=ft.Alignment.TOP_CENTER),
             transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=420,
-            reverse_duration=260,
-            switch_in_curve=ft.AnimationCurve.EASE_OUT_CUBIC,
-            switch_out_curve=ft.AnimationCurve.EASE_IN,
+            duration=0 if is_compact(page) else 220,
+            reverse_duration=0 if is_compact(page) else 160,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_OUT,
             expand=True,
         )
+        nav_m = nav_chrome_metrics(page)
         self._nav = ft.Row(
             spacing=0,
             alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -85,8 +98,8 @@ class FinanseApp:
         # Sliding selection pill: flex spacers keep it centered in the active slot
         # (no pixel math — that broke when host width was unknown).
         self._nav_indicator = ft.Container(
-            width=_NAV_PILL_W,
-            height=_NAV_PILL_H,
+            width=nav_m["pill_w"],
+            height=nav_m["pill_h"],
             border_radius=14,
             bgcolor=ft.Colors.TRANSPARENT,
             animate=_NAV_SLIDE,
@@ -100,14 +113,14 @@ class FinanseApp:
             animate=_NAV_SLIDE,
         )
         self._nav_stack = ft.Stack(
-            height=_NAV_BAR_H,
+            height=nav_m["bar_h"],
             clip_behavior=ft.ClipBehavior.NONE,
             controls=[
                 ft.Container(
                     left=0,
                     right=0,
                     top=6,
-                    height=_NAV_PILL_H,
+                    height=nav_m["pill_h"],
                     content=ft.Row(
                         spacing=0,
                         controls=[
@@ -127,10 +140,14 @@ class FinanseApp:
             ],
         )
         self._nav_host = ft.Container(
-            margin=_NAV_MARGIN,
+            margin=ft.Margin.only(
+                left=nav_m["margin_h"],
+                right=nav_m["margin_h"],
+                bottom=nav_m["margin_bottom"],
+                top=nav_m["margin_top"],
+            ),
             border_radius=_NAV_RADIUS,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            bgcolor=ft.Colors.SURFACE_CONTAINER,
+            clip_behavior=ft.ClipBehavior.NONE,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             animate=ft.Animation(280, ft.AnimationCurve.EASE_OUT),
             shadow=ft.BoxShadow(
@@ -144,21 +161,51 @@ class FinanseApp:
                 content=self._nav_stack,
             ),
         )
-        self._shell = ft.SafeArea(
+        # Fill-positioned pane + StackFit.EXPAND: a LOOSE non-positioned
+        # expand child lays out at height 0 on xs (nav still paints).
+        # Pane fills the window so list content can scroll *under* the
+        # floating glass pill; list padding clears the last rows.
+        self._content_pane = ft.Container(
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
             expand=True,
-            avoid_intrusions_top=True,
-            avoid_intrusions_left=True,
-            avoid_intrusions_right=True,
-            avoid_intrusions_bottom=True,
-            minimum_padding=ft.Padding.only(top=8, bottom=4, left=0, right=0),
-            maintain_bottom_view_padding=True,
-            content=ft.Column(
-                expand=True,
-                spacing=0,
-                controls=[self._content, self._nav_host],
-            ),
+            alignment=ft.Alignment.TOP_CENTER,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            opacity=1,
+            ignore_interactions=False,
+            content=self._content,
         )
-        self._stage = ft.Container(expand=True, content=self._shell)
+        self._nav_overlay = ft.Container(
+            alignment=ft.Alignment.BOTTOM_CENTER,
+            clip_behavior=ft.ClipBehavior.NONE,
+            bgcolor=ft.Colors.TRANSPARENT,
+            content=self._nav_host,
+        )
+        self._paint_nav_chrome()
+        self._shell_column = ft.Column(
+            expand=True,
+            spacing=0,
+            controls=[],
+        )
+        self._shell_stack = ft.Stack(
+            expand=True,
+            fit=ft.StackFit.EXPAND,
+            clip_behavior=ft.ClipBehavior.NONE,
+            controls=[],
+        )
+        self._column_shell_active: bool | None = None
+        self._shell = wrap_safe_area(self._shell_column, page=page)
+        self._apply_shell_mode()
+        self._stage = ft.Container(
+            expand=True,
+            width=page_width(page),
+            height=page_height(page),
+            clip_behavior=ft.ClipBehavior.NONE,
+            content=self._shell,
+        )
+        self._sync_shell_gutters()
         self._nav_pills: list[ft.Container] = []
         self._nav_icons: list[ft.Icon] = []
         self._nav_labels: list[ft.Text] = []
@@ -170,11 +217,10 @@ class FinanseApp:
         self._primary_cache: dict[int, ft.Control] = {}
         self._secondary_cache: dict[str, ft.Control] = {}
         self._active_view: Optional[ft.Control] = None
-        self._pin_hash: Optional[str] = None
-        self._pin_salt: Optional[str] = None
-        self._pin_gate_failed: bool = False
         self._backgrounded_at: float | None = None
         self._push_prompted: bool = False
+        self._layout_bp: str | None = None
+        self._layout_w: float = 0.0
 
     async def start(self) -> None:
         """Load settings, apply theme, and mount the shell."""
@@ -228,6 +274,26 @@ class FinanseApp:
         self._render(force=True)
         self._flush_notifications()
         self._install_session_lock()
+        self._install_resize_handler()
+        self._probe_motion()
+
+    def _probe_motion(self) -> None:
+        """Honor Reduce Motion without blocking the first frame."""
+        from lib.presentation.ui_motion import probe_reduced_motion
+        from lib.presentation.utils import run_async
+
+        async def _apply() -> None:
+            reduced = await probe_reduced_motion(self.page)
+            if not reduced:
+                return
+            for pill in self._nav_pills:
+                try:
+                    pill.animate_scale = None
+                    pill.scale = 1
+                except Exception:  # noqa: BLE001
+                    pass
+
+        run_async(self.page, _apply)
 
     def _install_session_lock(self) -> None:
         """Lock after the app stays backgrounded for ``_BACKGROUND_LOCK_SECONDS``."""
@@ -263,6 +329,161 @@ class FinanseApp:
 
         self.page.on_app_lifecycle_state_change = _on_lifecycle
 
+    def _install_resize_handler(self) -> None:
+        """Keep gutters / nav grouped when the window crosses a breakpoint."""
+        self._layout_bp = breakpoint(self.page)
+        self._layout_w = page_width(self.page)
+        previous = self.page.on_resize
+
+        def _on_resize(e: Any) -> None:
+            if callable(previous):
+                try:
+                    previous(e)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Previous resize handler failed")
+            # Flet Windows: page.width AND window.width can stay ~1266 while
+            # the resize event carries the live ~300px. Cache event size first.
+            note_viewport_from_event(self.page, e)
+            self._apply_nav_metrics()
+            self._apply_shell_mode()
+            self._sync_stage_size()
+            bp = breakpoint(self.page)
+            width = page_width(self.page)
+            if not should_rebuild_layout(
+                old_bp=self._layout_bp,
+                new_bp=bp,
+                old_width=self._layout_w,
+                new_width=width,
+            ):
+                try:
+                    from lib.presentation.utils import safe_update
+
+                    safe_update(self._nav_host)
+                    safe_update(self._nav_overlay)
+                    safe_update(self._stage)
+                except Exception:  # noqa: BLE001
+                    pass
+                return
+            self._layout_bp = bp
+            self._layout_w = width
+            self._forget_cached_views()
+            self._render(force=True)
+
+        self.page.on_resize = _on_resize
+
+    def _set_nav_chrome_visible(self, visible: bool) -> None:
+        self._nav_host.visible = visible
+        self._nav_overlay.visible = visible
+        self._position_content_pane()
+
+    def _clear_nav_position(self) -> None:
+        """Column sibling: no Stack offsets, finite height, no flex steal."""
+        self._nav_overlay.left = None
+        self._nav_overlay.top = None
+        self._nav_overlay.right = None
+        self._nav_overlay.bottom = None
+        self._nav_overlay.expand = False
+        self._nav_overlay.height = nav_overlay_height(self.page)
+
+    def _position_nav_overlay(self) -> None:
+        """Wide floating tab bar: height-capped strip at the bottom of the Stack."""
+        self._nav_overlay.left = 0
+        self._nav_overlay.top = None
+        self._nav_overlay.right = 0
+        self._nav_overlay.bottom = 0
+        self._nav_overlay.expand = False
+        self._nav_overlay.height = nav_overlay_height(self.page)
+
+    def _position_content_pane(self) -> None:
+        """Fill-positioned pane; content scrolls under the floating nav pill."""
+        self._content_pane.left = 0
+        self._content_pane.top = 0
+        self._content_pane.right = 0
+        self._content_pane.bottom = 0
+        self._content_pane.expand = True
+        self._content_pane.clip_behavior = ft.ClipBehavior.HARD_EDGE
+
+    def _sync_content_switcher(self) -> None:
+        """Skip fade on compact remount (Flet Windows can stick at opacity 0)."""
+        compact = is_compact(self.page)
+        self._content.duration = 0 if compact else 220
+        self._content.reverse_duration = 0 if compact else 160
+
+    def _apply_shell_mode(self) -> None:
+        """Stack overlay: fill-positioned body + height-capped nav."""
+        self._position_content_pane()
+        self._position_nav_overlay()
+        self._sync_content_switcher()
+        self._shell_stack.fit = ft.StackFit.EXPAND
+        self._shell_stack.clip_behavior = ft.ClipBehavior.NONE
+        if self._column_shell_active is not False:
+            self._shell_column.controls = []
+            self._shell_stack.controls = [self._content_pane, self._nav_overlay]
+            self._shell.content = self._shell_stack
+            self._column_shell_active = False
+
+    def _sync_shell_gutters(self) -> None:
+        """Apply (or clear) desktop centering pads so a squeeze cannot zero the body."""
+        pad = shell_side_padding(self.page)
+        self._content_pane.padding = ft.Padding.symmetric(horizontal=pad)
+        # Clip the pane, not the stage, so a stale gutter cannot paint
+        # outside the body. Stage stays unclipped. The glass pill sits
+        # on top of scrolling content (no solid rear strip).
+        self._content_pane.clip_behavior = ft.ClipBehavior.HARD_EDGE
+        self._stage.clip_behavior = ft.ClipBehavior.NONE
+
+    def _sync_stage_size(self) -> None:
+        """Give the shell a finite box so a narrow resize cannot collapse the body."""
+        self._stage.width = page_width(self.page)
+        self._stage.height = page_height(self.page)
+        self._sync_shell_gutters()
+        self._position_content_pane()
+
+    def _apply_nav_metrics(self) -> None:
+        """Resize the floating tab bar for the current viewport."""
+        m = nav_chrome_metrics(self.page)
+        self._nav_host.margin = ft.Margin.only(
+            left=m["margin_h"],
+            right=m["margin_h"],
+            bottom=m["margin_bottom"],
+            top=m["margin_top"],
+        )
+        self._nav_overlay.height = nav_overlay_height(self.page)
+        self._position_content_pane()
+        self._nav_stack.height = m["bar_h"]
+        self._nav_indicator.width = m["pill_w"]
+        self._nav_indicator.height = m["pill_h"]
+        try:
+            track = self._nav_stack.controls[0]
+            track.top = 6
+            track.height = m["pill_h"]
+        except Exception:  # noqa: BLE001
+            pass
+        for i, item in enumerate(self._nav.controls):
+            try:
+                item.padding = ft.Padding.symmetric(
+                    horizontal=m["item_pad_h"],
+                    vertical=m["item_pad_v"],
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            if i < len(self._nav_pills):
+                self._nav_pills[i].width = m["pill_w"]
+                self._nav_pills[i].height = m["pill_h"]
+            if i < len(self._nav_icons):
+                self._nav_icons[i].size = m["icon"]
+            if i < len(self._nav_labels):
+                self._nav_labels[i].size = m["label"]
+        self._paint_nav_chrome()
+
+    def _paint_nav_chrome(self) -> None:
+        """Glass pill on a transparent overlay — no solid rear strip."""
+        layer = nav_chrome_layer(self.page)
+        self._nav_host.bgcolor = layer.get("bgcolor")
+        self._nav_host.blur = layer.get("blur")
+        self._nav_overlay.bgcolor = ft.Colors.TRANSPARENT
+        self._nav_overlay.clip_behavior = ft.ClipBehavior.NONE
+
     def _ask_notification_permission(self) -> None:
         """Ask iOS/Android for alerts after the window is active."""
         try:
@@ -275,37 +496,19 @@ class FinanseApp:
 
     def lock_session(self) -> None:
         """Show the PIN / Face ID gate when credentials exist."""
-        if not (self._pin_hash and self._pin_salt):
+        if not (self.state.pin_hash and self.state.pin_salt):
             return
         if not self.state.is_unlocked:
             return
         self.state.set_unlocked(False)
-        self._render(force=True)
 
     async def _load_pin_gate(self) -> None:
         """Decide whether the session starts locked."""
-        get_pin = getattr(self.state.container, "get_pin_credentials", None)
-        if get_pin is None:
-            self.state.set_unlocked(True, notify=False)
-            return
-        try:
-            pin_hash, pin_salt, biometric = await get_pin.execute()
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to load PIN credentials")
-            # Fail closed: unknown security state must not unlock the ledger.
-            self._pin_gate_failed = True
-            self._pin_hash = None
-            self._pin_salt = None
-            self.state.set_unlocked(False, notify=False)
-            return
-        self._pin_gate_failed = False
-        self._pin_hash = pin_hash
-        self._pin_salt = pin_salt
-        if pin_hash and pin_salt:
-            self.state.settings.biometric_enabled = biometric
-            self.state.set_unlocked(False, notify=False)
-        else:
-            self.state.set_unlocked(True, notify=False)
+        await self.state.reload_pin_gate(
+            lock_if_present=True,
+            unlock_if_absent=True,
+            notify=False,
+        )
 
     def _nav_specs(self) -> tuple[tuple[int, ft.IconData, ft.IconData, str], ...]:
         lang = self.state.language
@@ -340,20 +543,23 @@ class FinanseApp:
         if self._nav.controls:
             return
         skin = get_active_skin()
+        nav_m = nav_chrome_metrics(self.page)
         for index, icon, selected_icon, label in self._nav_specs():
-            glyph = ft.Icon(icon, size=22, color=ft.Colors.ON_SURFACE_VARIANT)
+            glyph = ft.Icon(
+                icon, size=nav_m["icon"], color=ft.Colors.ON_SURFACE_VARIANT
+            )
             pill = ft.Container(
-                width=_NAV_PILL_W,
-                height=_NAV_PILL_H,
+                width=nav_m["pill_w"],
+                height=nav_m["pill_h"],
                 alignment=ft.Alignment.CENTER,
                 border_radius=skin.chip_radius,
                 scale=1,
-                animate_scale=ft.Animation(280, ft.AnimationCurve.EASE_OUT_BACK),
+                animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
                 content=glyph,
             )
             caption = ft.Text(
                 label,
-                size=11,
+                size=nav_m["label"],
                 weight=ft.FontWeight.W_500,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
@@ -366,10 +572,15 @@ class FinanseApp:
                 expand=True,
                 ink=False,
                 on_click=lambda _e, i=index: self.state.set_tab(i),
-                padding=ft.Padding.symmetric(horizontal=4, vertical=4),
+                padding=ft.Padding.symmetric(
+                    horizontal=nav_m["item_pad_h"],
+                    vertical=nav_m["item_pad_v"],
+                ),
                 content=ft.Column(
-                    spacing=2,
+                    spacing=1,
                     tight=True,
+                    expand=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[pill, caption],
                 ),
@@ -397,23 +608,19 @@ class FinanseApp:
     def _sync_chrome(self) -> None:
         skin = get_active_skin()
         dark = is_dark_mode(self.page, self.state.theme_mode)
+        self._apply_nav_metrics()
         self._stage.gradient = skin.page_gradient(dark=dark)
         self._stage.bgcolor = skin.dark_bg if dark else skin.light_bg
-        layer = glass_layer(opacity=0.38)
-        self._nav_host.bgcolor = layer.get("bgcolor")
-        self._nav_host.blur = layer.get("blur")
         self._nav_host.border = ft.Border.all(
             1,
-            ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE)
-            if skin.glass
-            else ft.Colors.OUTLINE_VARIANT,
+            ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE),
         )
         self._nav_host.border_radius = skin.card_radius
         self._nav_host.shadow = ft.BoxShadow(
             spread_radius=0,
-            blur_radius=22,
+            blur_radius=8 if is_compact(self.page) else 22,
             color=skin.glow,
-            offset=ft.Offset(0, 6),
+            offset=ft.Offset(0, 4 if is_compact(self.page) else 6),
         )
 
     def _build_navigation_bar(self) -> None:
@@ -458,6 +665,10 @@ class FinanseApp:
             or self._rendered_secondary != self.state.secondary_route
             or self._rendered_lang != self.state.language
             or self._rendered_unlocked != self.state.is_unlocked
+            or (
+                not self.state.is_unlocked
+                and bool(self.state.pin_hash)
+            )
         )
         if self._rendered_lang != self.state.language:
             # Nav labels update immediately; force remount so page strings
@@ -560,6 +771,10 @@ class FinanseApp:
             view = CurrenciesPage(self.page, self.state)
         elif route == "budgets":
             view = BudgetsPage(self.page, self.state)
+        elif route == "import_csv":
+            view = CsvImportPage(self.page, self.state)
+        elif route == "recurring":
+            view = RecurringPage(self.page, self.state)
         else:
             return self._primary_page(self.state.selected_tab)
         self._secondary_cache[route] = view
@@ -570,13 +785,14 @@ class FinanseApp:
 
     def _render(self, *, force: bool = False) -> None:
         """Swap primary / secondary content based on AppState."""
-        if not self.state.is_unlocked and self._pin_gate_failed:
+        if not self.state.is_unlocked and self.state.pin_gate_failed:
             from lib.presentation.utils import tr
 
             self._deactivate_view(self._active_view)
             self._active_view = None
-            self._nav_host.visible = False
+            self._set_nav_chrome_visible(False)
             lang = self.state.language
+            self._sync_content_switcher()
             self._content.content = ft.Container(
                 expand=True,
                 key="lock-failed",
@@ -597,18 +813,19 @@ class FinanseApp:
             self._rendered_unlocked = False
             self.page.update()
             return
-        if not self.state.is_unlocked and self._pin_hash and self._pin_salt:
+        if not self.state.is_unlocked and self.state.pin_hash and self.state.pin_salt:
             self._deactivate_view(self._active_view)
             self._active_view = None
-            self._nav_host.visible = False
+            self._set_nav_chrome_visible(False)
+            self._sync_content_switcher()
             self._content.content = ft.Container(
                 expand=True,
                 key="lock",
                 content=LockScreen(
                     self.page,
                     language=self.state.language,
-                    pin_hash=self._pin_hash,
-                    pin_salt=self._pin_salt,
+                    pin_hash=self.state.pin_hash,
+                    pin_salt=self.state.pin_salt,
                     biometric_enabled=bool(self.state.settings.biometric_enabled),
                     on_unlocked=self._unlock,
                     encryption=self.state.container.encryption_service
@@ -645,19 +862,16 @@ class FinanseApp:
         if previous is not None and previous is not view:
             self._deactivate_view(previous)
 
-        self._nav_host.visible = route is None
+        self._set_nav_chrome_visible(route is None)
         self._build_navigation_bar()
 
         if self._rendered_tab is not None or self._rendered_secondary is not None:
             from lib.presentation.haptics import haptic
 
-            haptic("medium")
+            haptic("light")
 
-        self._content.content = ft.Container(
-            expand=True,
-            key=route or f"tab-{tab}",
-            content=view,
-        )
+        self._sync_content_switcher()
+        self._content.content = view
         self._active_view = view
         self._activate_view(view)
         self._rendered_tab = tab

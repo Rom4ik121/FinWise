@@ -44,3 +44,33 @@ def test_rejects_empty_and_huge(tmp_path: Path) -> None:
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_rejects_path_traversal(tmp_path: Path) -> None:
+    cfg = AppConfig(data_dir=tmp_path / "data")
+    cfg.ensure_directories()
+    store = MediaStore(cfg)
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"secret")
+    try:
+        store.absolute("../outside.jpg")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+    try:
+        store.save_receipt(
+            transaction_id="../escape",
+            filename="x.jpg",
+            payload=b"\xff\xd8\xff" + b"jpeg",
+        )
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+    assert not (tmp_path / "escape").exists()
+    rel = store.save_receipt(
+        transaction_id="tx-ok",
+        filename="ok.jpg",
+        payload=b"\xff\xd8\xff" + b"jpeg",
+    )
+    assert ".." not in rel
+    assert store.absolute(rel).is_file()

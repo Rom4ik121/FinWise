@@ -10,6 +10,8 @@ import flet as ft
 
 from lib.infrastructure.services.media_store import MediaStore
 from lib.presentation.file_transfer import pick_restore_bytes
+from lib.presentation.responsive import wrap_safe_area
+from lib.presentation.ui_motion import overlay_enter_style
 from lib.presentation.utils import run_async, safe_update, snack, tr
 from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, push_overlay
 
@@ -77,6 +79,7 @@ class AttachmentPicker(ft.Column):
             self._page,
             title=tr("tx.attach_photo", self._lang),
             extensions=["jpg", "jpeg", "png", "webp", "gif", "heic"],
+            images=True,
         )
         if picked is None:
             return
@@ -84,12 +87,8 @@ class AttachmentPicker(ft.Column):
         if len(self._paths) + len(self._pending) >= 8:
             snack(self._page, tr("tx.attachments_limit", self._lang), error=True)
             return
-        try:
-            # Validate early via store rules without committing final id folder yet.
-            if len(payload) > 12 * 1024 * 1024:
-                raise ValueError("Attachment is too large (max 12 MB)")
-        except ValueError as exc:
-            snack(self._page, str(exc), error=True)
+        if len(payload) > 12 * 1024 * 1024:
+            snack(self._page, tr("tx.attachment_too_large", self._lang), error=True)
             return
         self._pending.append((name, payload))
         self._rebuild()
@@ -188,34 +187,37 @@ def open_attachment_viewer(
         expand=True,
         bgcolor=ft.Colors.BLACK,
         alignment=ft.Alignment.CENTER,
-        content=ft.Stack(
-            expand=True,
-            controls=[
-                ft.GestureDetector(
-                    on_tap=_close,
-                    content=ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment.CENTER,
-                        padding=12,
-                        content=ft.Image(
-                            src=str(abs_path),
-                            fit=ft.BoxFit.CONTAIN,
+        **overlay_enter_style(page),
+        content=wrap_safe_area(
+            ft.Stack(
+                expand=True,
+                controls=[
+                    ft.GestureDetector(
+                        on_tap=_close,
+                        content=ft.Container(
                             expand=True,
+                            alignment=ft.Alignment.CENTER,
+                            padding=12,
+                            content=ft.Image(
+                                src=str(abs_path),
+                                fit=ft.BoxFit.CONTAIN,
+                                expand=True,
+                            ),
                         ),
                     ),
-                ),
-                ft.Container(
-                    top=8,
-                    right=8,
-                    content=ft.IconButton(
-                        icon=ft.Icons.CLOSE,
-                        icon_color=ft.Colors.WHITE,
-                        bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.BLACK),
-                        tooltip=tr("action.close", lang),
-                        on_click=_close,
+                    ft.Container(
+                        top=8,
+                        right=8,
+                        content=ft.IconButton(
+                            icon=ft.Icons.CLOSE,
+                            icon_color=ft.Colors.WHITE,
+                            bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.BLACK),
+                            tooltip=tr("action.close", lang),
+                            on_click=_close,
+                        ),
                     ),
-                ),
-            ],
+                ],
+            ),
         ),
     )
     push_overlay(page, overlay)

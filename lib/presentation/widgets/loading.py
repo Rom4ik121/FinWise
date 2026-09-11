@@ -1,4 +1,4 @@
-"""Loading indicators."""
+"""Loading indicators and soft skeleton placeholders."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from lib.presentation.utils import safe_update
 
 
 def fill_loading(host: ft.Control, *, message: str = "") -> None:
-    """Show a spinner only when the host is still empty.
+    """Show placeholders only when the host is still empty.
 
     Replacing populated scroll content with a spinner jumps the page to the top.
     """
     current = getattr(host, "controls", None)
     if current:
         return
-    host.controls = [loading_indicator(message=message)]
+    host.controls = [skeleton_list()]
     safe_update(host)
 
 
@@ -38,6 +38,63 @@ def loading_indicator(*, message: str = "") -> ft.Control:
             tight=True,
             controls=controls,
         ),
+    )
+
+
+def skeleton_bar(
+    *,
+    width: int | float | None = None,
+    height: int = 12,
+    expand: bool = False,
+) -> ft.Control:
+    """Soft rounded placeholder bar (no pulse — avoids extra frames)."""
+    return ft.Container(
+        width=width,
+        height=height,
+        expand=expand,
+        border_radius=8,
+        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
+    )
+
+
+def skeleton_row(*, height: int = 56) -> ft.Control:
+    """One list-row skeleton: avatar + two lines."""
+    return ft.Container(
+        height=height,
+        padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+        border_radius=14,
+        bgcolor=ft.Colors.SURFACE_CONTAINER,
+        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+        content=ft.Row(
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=40,
+                    height=40,
+                    border_radius=12,
+                    bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
+                ),
+                ft.Column(
+                    spacing=8,
+                    tight=True,
+                    expand=True,
+                    controls=[
+                        skeleton_bar(height=12, expand=True),
+                        skeleton_bar(width=120, height=10),
+                    ],
+                ),
+            ],
+        ),
+    )
+
+
+def skeleton_list(*, rows: int = 4) -> ft.Control:
+    """Stacked row placeholders used instead of a blank first paint."""
+    return ft.Column(
+        spacing=8,
+        tight=True,
+        controls=[skeleton_row() for _ in range(max(1, rows))],
     )
 
 

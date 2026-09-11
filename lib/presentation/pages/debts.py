@@ -17,6 +17,7 @@ from lib.domain.use_cases.debts import (
     debt_interest_from_tags,
 )
 from lib.domain.use_cases.debt_insights import bucket_payments_by_month
+from lib.presentation.form_validation import require_name, require_positive_amount
 from lib.presentation.notification_badges import (
     DEBT_ALERT_KINDS,
     pending_related_ids,
@@ -41,10 +42,11 @@ from lib.presentation.styles import (
     muted_text,
 )
 from lib.presentation.money_input import (
+    amount_text,
     attach_grouped_digits,
     make_amount_field,
-    parse_amount,
-    parse_optional_amount,
+    parse_amount_field,
+    parse_optional_amount_field,
 )
 from lib.presentation.utils import (
     bind_dropdown_select,
@@ -129,10 +131,8 @@ class DebtsPage(ft.Column):
                     body=self._list,
                     page=page,
                     extra=[self._search_tf],
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.TUNE,
@@ -570,12 +570,8 @@ class DebtsPage(ft.Column):
                         (a for a in accounts if a.id == account_picker.value), accounts[0]
                     )
                     try:
-                        principal = parse_amount(principal_tf.value or "0")
-                        interest = (
-                            parse_amount(interest_tf.value)
-                            if (interest_tf.value or "").strip()
-                            else Decimal("0")
-                        )
+                        principal = parse_amount_field(principal_tf)
+                        interest = parse_optional_amount_field(interest_tf)
                     except (InvalidOperation, ValueError):
                         convert_hint.value = ""
                         safe_update(convert_hint)
@@ -640,7 +636,7 @@ class DebtsPage(ft.Column):
                         (a for a in accounts if a.id == account_picker.value), accounts[0]
                     )
                     try:
-                        amount = parse_amount(amount_tf.value)
+                        amount = parse_amount_field(amount_tf)
                     except (InvalidOperation, ValueError):
                         convert_hint.value = ""
                         safe_update(convert_hint)
@@ -681,13 +677,8 @@ class DebtsPage(ft.Column):
                 if has_interest:
                     assert principal_tf is not None and interest_tf is not None
                     try:
-                        principal = parse_amount(principal_tf.value)
-                        interest_raw = (interest_tf.value or "").strip()
-                        interest_amount = (
-                            parse_amount(interest_raw)
-                            if interest_raw
-                            else Decimal("0")
-                        )
+                        principal = parse_amount_field(principal_tf)
+                        interest_amount = parse_optional_amount_field(interest_tf)
                         if principal < 0 or interest_amount < 0:
                             raise InvalidOperation
                         debt_total = principal + interest_amount
@@ -715,7 +706,7 @@ class DebtsPage(ft.Column):
                 else:
                     assert amount_tf is not None
                     try:
-                        pay_amount = parse_amount(amount_tf.value)
+                        pay_amount = parse_amount_field(amount_tf)
                         if pay_amount <= 0:
                             raise InvalidOperation
                     except (InvalidOperation, ValueError):
@@ -1403,7 +1394,7 @@ class DebtsPage(ft.Column):
                 direction_dd.value = template.direction.value
                 accrue_sw.value = template.accrue_interest
                 interval_tf.value = str(template.payment_interval_months)
-                if template.default_amount:
+                if template.default_amount and not amount_text(amount_tf).strip():
                     amount_tf.value = template.default_amount
                 if template.interest_rate:
                     rate_tf.value = template.interest_rate
@@ -1537,19 +1528,18 @@ class DebtsPage(ft.Column):
             )
 
             async def _save() -> None:
-                try:
-                    amount = parse_amount(amount_tf.value)
-                    if amount <= 0:
-                        raise InvalidOperation
-                except (InvalidOperation, ValueError):
-                    snack(self._page, tr("invalid_amount", lang), error=True)
+                name = require_name(name_tf, self._page, lang)
+                if not name:
+                    return
+                amount = require_positive_amount(amount_tf, self._page, lang)
+                if amount is None:
                     return
                 rate = None
                 if (rate_tf.value or "").strip():
                     rate = Decimal(str(rate_tf.value).replace(",", "."))
                 next_amt = None
                 try:
-                    next_amt = parse_optional_amount(next_amt_tf.value)
+                    next_amt = parse_optional_amount_field(next_amt_tf)
                     if next_amt is not None and next_amt <= 0:
                         next_amt = None
                 except (InvalidOperation, ValueError):
@@ -1577,7 +1567,7 @@ class DebtsPage(ft.Column):
                         remaining_amount=1,
                         direction=DebtDirection.I_OWE,
                     ).id,
-                    counterparty=(name_tf.value or "").strip() or "—",
+                    counterparty=name,
                     amount=amount,
                     remaining_amount=debt.remaining_amount if debt else amount,
                     currency=(currency_picker.value or "RUB").upper(),

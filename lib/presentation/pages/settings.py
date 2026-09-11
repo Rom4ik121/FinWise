@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import flet as ft
@@ -15,8 +16,14 @@ from lib.infrastructure.services.biometric import BiometricResult, BiometricStat
 from lib.infrastructure.services.data_reset_service import DataResetService
 from lib.infrastructure.services.encryption_service import EncryptionService
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
-from lib.infrastructure.services.localization import normalize_lang
-from lib.infrastructure.services.push_notifier import request_push_permissions
+from lib.infrastructure.services.localization import (
+    normalize_lang,
+)
+from lib.infrastructure.services.push_notifier import (
+    open_system_notification_settings,
+    request_push_permissions,
+    should_guide_to_notification_settings,
+)
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.styles import (
     card_surface,
@@ -29,9 +36,19 @@ from lib.presentation.styles import (
 from lib.presentation.theme import apply_theme_from_settings
 from lib.presentation.skins import list_skins, normalize_skin_id, get_active_skin
 from lib.presentation.components.layout.page_shell import page_column, page_frame
+from lib.presentation.layout import list_nav_padding
+from lib.presentation.ui_motion import (
+    DUR_MED,
+    bind_press,
+    is_web_page,
+    motion_animation,
+    motion_ms,
+    prefers_reduced_motion,
+)
 from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, snack_exception, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
+from lib.presentation.widgets.language_picker import LanguagePicker
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
@@ -43,31 +60,126 @@ def _settings_section(
     *,
     expanded: bool = False,
     on_toggle: Optional[Callable[[ft.Container, bool], None]] = None,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     """Expandable card block with icon title (accordion-friendly)."""
-    body = ft.Column(
+    state = {"open": bool(expanded)}
+    token = {"n": 0}
+    body_inner = ft.Column(
         spacing=12,
         tight=True,
-        visible=expanded,
         controls=list(controls),
     )
-    chevron = ft.Icon(
-        ft.Icons.EXPAND_LESS if expanded else ft.Icons.EXPAND_MORE,
-        size=22,
-        color=ft.Colors.ON_SURFACE_VARIANT,
+    body = ft.Container(
+        content=body_inner,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        alignment=ft.Alignment.TOP_CENTER,
+        visible=bool(expanded),
+        opacity=1 if expanded else 0,
+        scale=1,
+        ignore_interactions=not bool(expanded),
+        animate_opacity=motion_animation(DUR_MED, page),
+        animate_scale=motion_animation(DUR_MED, page),
+    )
+    chevron = ft.Container(
+        width=24,
+        height=24,
+        alignment=ft.Alignment.CENTER,
+        rotate=ft.Rotate(math.pi if expanded else 0),
+        animate_rotation=motion_animation(DUR_MED, page),
+        content=ft.Icon(
+            ft.Icons.EXPAND_MORE,
+            size=22,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+        ),
     )
 
-    def _apply(open_: bool) -> None:
-        body.visible = open_
-        chevron.icon = ft.Icons.EXPAND_LESS if open_ else ft.Icons.EXPAND_MORE
+    def _sync_chrome(open_: bool) -> None:
+        chevron.rotate = ft.Rotate(math.pi if open_ else 0)
         try:
-            safe_update(body)
             safe_update(chevron)
         except Exception:  # noqa: BLE001
             pass
 
+    def _apply(open_: bool) -> None:
+        if state["open"] == open_:
+            _sync_chrome(open_)
+            return
+        state["open"] = open_
+        token["n"] += 1
+        gen = token["n"]
+        _sync_chrome(open_)
+        reduced = prefers_reduced_motion(page) or page is None
+        web = is_web_page(page)
+        if reduced or motion_ms(DUR_MED, page) == 0 or web:
+            body.visible = open_
+            body.opacity = 1 if open_ else 0
+            body.scale = 1
+            try:
+                body.ignore_interactions = not open_
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                safe_update(body)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        if open_:
+            body.visible = True
+            body.opacity = 0
+            body.scale = 0.97
+            try:
+                body.ignore_interactions = True
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                safe_update(body)
+            except Exception:  # noqa: BLE001
+                pass
+
+            async def _reveal() -> None:
+                await asyncio.sleep(0.016)
+                if token["n"] != gen:
+                    return
+                body.opacity = 1
+                body.scale = 1
+                try:
+                    body.ignore_interactions = False
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    safe_update(body)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            run_async(page, _reveal)
+            return
+
+        body.opacity = 0
+        body.scale = 0.97
+        try:
+            body.ignore_interactions = True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            safe_update(body)
+        except Exception:  # noqa: BLE001
+            pass
+
+        async def _hide() -> None:
+            await asyncio.sleep(motion_ms(DUR_MED, page) / 1000 or 0.01)
+            if token["n"] != gen:
+                return
+            body.visible = False
+            try:
+                safe_update(body)
+            except Exception:  # noqa: BLE001
+                pass
+
+        run_async(page, _hide)
+
     def _toggle(_e: ft.ControlEvent | None = None) -> None:
-        will_open = not body.visible
+        will_open = not state["open"]
         if on_toggle is not None:
             on_toggle(section, will_open)
         else:
@@ -76,7 +188,7 @@ def _settings_section(
     header = ft.Container(
         ink=True,
         border_radius=12,
-        padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+        padding=ft.Padding.symmetric(horizontal=2, vertical=6),
         on_click=_toggle,
         content=ft.Row(
             spacing=10,
@@ -99,6 +211,7 @@ def _settings_section(
             ],
         ),
     )
+    bind_press(header, haptic_kind="light", page=page)
     section = card_surface(
         ft.Column(
             spacing=12,
@@ -107,7 +220,7 @@ def _settings_section(
         ),
         padding=16,
     )
-    section.data = {"apply": _apply, "body": body}
+    section.data = {"apply": _apply, "body": body, "open": lambda: state["open"]}
     return section
 
 
@@ -217,6 +330,7 @@ class SettingsPage(ft.Column):
                 controls,
                 expanded=expanded,
                 on_toggle=_accordion,
+                page=self._page,
             )
             self._sections.append(block)
             return block
@@ -263,19 +377,14 @@ class SettingsPage(ft.Column):
             controls=[],
         )
         self._rebuild_style_cards(lang)
-        self._language = ft.Dropdown(
+        self._language = LanguagePicker(
+            page,
+            lang=lang,
             label=tr("settings.language", lang),
             value=normalize_lang(s.language),
-            options=[
-                icon_dropdown_option("ru", tr("lang.ru", lang), ft.Icons.LANGUAGE),
-                icon_dropdown_option("en", tr("lang.en", lang), ft.Icons.LANGUAGE),
-                icon_dropdown_option("uz", tr("lang.uz", lang), ft.Icons.LANGUAGE),
-            ],
             expand=True,
-            dense=True,
-            **dropdown_select_kwargs(lambda _e: self._autosave()),
+            on_changed=lambda _code: self._autosave(),
         )
-        polish_form_control(self._language)
         self._interval = ft.TextField(
             value=str(s.exchange_update_interval_minutes),
             keyboard_type=ft.KeyboardType.NUMBER,
@@ -312,13 +421,50 @@ class SettingsPage(ft.Column):
             on_blur=lambda _e: self._autosave(),
             on_submit=lambda _e: self._autosave(),
         )
-        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+        self._budget_warn = ft.TextField(
+            value=str(getattr(s, "budget_warn_pct", 80) or 80),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            expand=True,
+            dense=True,
+            border_radius=12,
+            filled=True,
+            bgcolor=ft.Colors.SURFACE,
+            on_change=lambda _e: self._autosave_debounced(),
+            on_blur=lambda _e: self._autosave(),
+            on_submit=lambda _e: self._autosave(),
+        )
+        self._budget_limit = ft.TextField(
+            value=str(getattr(s, "budget_limit_pct", 100) or 100),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            expand=True,
+            dense=True,
+            border_radius=12,
+            filled=True,
+            bgcolor=ft.Colors.SURFACE,
+            on_change=lambda _e: self._autosave_debounced(),
+            on_blur=lambda _e: self._autosave(),
+            on_submit=lambda _e: self._autosave(),
+        )
+        from lib.presentation.form_keyboard import (
+            configure_field,
+            configure_pin_field,
+            wire_field_chain,
+        )
 
         configure_field(self._interval, "number")
         configure_field(self._reminder_time, "text")
         configure_field(self._reminder_days, "number")
+        configure_field(self._budget_warn, "number")
+        configure_field(self._budget_limit, "number")
         wire_field_chain(
-            page, [self._interval, self._reminder_time, self._reminder_days]
+            page,
+            [
+                self._interval,
+                self._reminder_time,
+                self._reminder_days,
+                self._budget_warn,
+                self._budget_limit,
+            ],
         )
         self._notifications = ft.Switch(
             value=s.notifications_enabled,
@@ -371,7 +517,7 @@ class SettingsPage(ft.Column):
             filled=True,
             bgcolor=ft.Colors.SURFACE,
         )
-        configure_field(self._pin_tf, "number")
+        configure_pin_field(self._pin_tf)
         wire_field_chain(page, [self._pin_tf])
 
         btn_style = ft.ButtonStyle(
@@ -385,7 +531,7 @@ class SettingsPage(ft.Column):
         scroll_body = ft.ListView(
             expand=True,
             spacing=14,
-            padding=ft.Padding.only(bottom=40),
+            padding=list_nav_padding(),
             auto_scroll=False,
             controls=[
                 section(
@@ -441,6 +587,13 @@ class SettingsPage(ft.Column):
                         labeled_switch(
                             tr("settings.budget_alerts", lang), self._budget_alerts
                         ),
+                        labeled_field(
+                            tr("settings.budget_warn_pct", lang), self._budget_warn
+                        ),
+                        labeled_field(
+                            tr("settings.budget_limit_pct", lang), self._budget_limit
+                        ),
+                        form_hint(tr("settings.budget_thresholds", lang)),
                         labeled_switch(
                             tr("settings.check_balance_before_subscription", lang),
                             self._check_balance_sub,
@@ -452,6 +605,13 @@ class SettingsPage(ft.Column):
                         ),
                         labeled_field(
                             tr("settings.reminder_days", lang), self._reminder_days
+                        ),
+                        ft.TextButton(
+                            tr("settings.notifications_open_settings", lang),
+                            icon=ft.Icons.SETTINGS_OUTLINED,
+                            on_click=lambda _e: run_async(
+                                page, self._open_notification_settings
+                            ),
                         ),
                     ],
                 ),
@@ -511,6 +671,16 @@ class SettingsPage(ft.Column):
                                     ft.Icons.PIE_CHART,
                                     _open_secondary("budgets"),
                                 ),
+                                (
+                                    tr("nav.recurring", lang),
+                                    ft.Icons.REPEAT,
+                                    _open_secondary("recurring"),
+                                ),
+                                (
+                                    tr("action.import_csv", lang),
+                                    ft.Icons.UPLOAD_FILE,
+                                    _open_secondary("import_csv"),
+                                ),
                             ]
                         ),
                     ],
@@ -532,6 +702,7 @@ class SettingsPage(ft.Column):
                         _settings_divider(),
                         _settings_subsection(tr("settings.backup_restore", lang)),
                         form_hint(tr("settings.daily_backup_hint", lang)),
+                        form_hint(tr("settings.share_backup_hint", lang)),
                         ft.Row(
                             wrap=True,
                             spacing=8,
@@ -688,6 +859,8 @@ class SettingsPage(ft.Column):
             self._check_balance_sub,
             self._goal_milestones,
             self._budget_alerts,
+            self._budget_warn,
+            self._budget_limit,
             self._reminder_time,
             self._reminder_days,
         ]
@@ -842,12 +1015,22 @@ class SettingsPage(ft.Column):
         except ValueError:
             reminder_days = 3
         try:
+            warn_pct = int(self._budget_warn.value or 80)
+        except ValueError:
+            warn_pct = 80
+        try:
+            limit_pct = int(self._budget_limit.value or 100)
+        except ValueError:
+            limit_pct = 100
+        try:
             settings = AppSettings(
                 id=self._state.settings.id,
                 default_currency=new_currency,
                 theme=self._theme.value or "system",
                 ui_style=self._ui_style,
-                language=normalize_lang(self._language.value or "ru"),
+                language=normalize_lang(self._language.value or "en"),
+                language_user_set=True,
+                currency_user_set=True,
                 exchange_update_interval_minutes=max(5, interval),
                 notifications_enabled=bool(self._notifications.value),
                 subscription_reminders=bool(self._sub_reminders.value),
@@ -864,6 +1047,21 @@ class SettingsPage(ft.Column):
                 ),
                 dashboard_chart_days=int(
                     getattr(self._state.settings, "dashboard_chart_days", 30) or 30
+                ),
+                tx_filters_json=getattr(self._state.settings, "tx_filters_json", None),
+                budget_warn_pct=warn_pct,
+                budget_limit_pct=limit_pct,
+                completed_onboarding=bool(
+                    getattr(self._state.settings, "completed_onboarding", True)
+                ),
+                completed_tour_debts=bool(
+                    getattr(self._state.settings, "completed_tour_debts", True)
+                ),
+                completed_tour_analytics=bool(
+                    getattr(self._state.settings, "completed_tour_analytics", True)
+                ),
+                completed_tour_goals=bool(
+                    getattr(self._state.settings, "completed_tour_goals", True)
                 ),
             )
         except Exception as exc:  # noqa: BLE001
@@ -923,6 +1121,20 @@ class SettingsPage(ft.Column):
                     from lib.infrastructure.services.push_notifier import notify_push_ready
 
                     await notify_push_ready(normalize_lang(saved.language))
+                elif should_guide_to_notification_settings(
+                    enabled=True,
+                    was_enabled=previous_notifications,
+                    granted=granted,
+                ):
+                    snack(
+                        self._page,
+                        tr("settings.notifications_denied", lang),
+                        error=True,
+                    )
+                    try:
+                        await open_system_notification_settings(self._page)
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception:  # noqa: BLE001
                 pass
         created = await schedule_reminders(
@@ -1018,20 +1230,30 @@ class SettingsPage(ft.Column):
             self._io_error_snack(exc)
             raise
 
+    async def _open_notification_settings(self) -> None:
+        lang = self._state.language
+        ok = await open_system_notification_settings(self._page)
+        if not ok:
+            snack(
+                self._page,
+                tr("settings.notifications_settings_failed", lang),
+                error=True,
+            )
+
     async def backup(self) -> None:
         try:
-            path = BackupService(self._state.container.config).backup()
+            path = BackupService(self._state.container.config).backup(bundle=True)
             await self._offer_file(path, kind="Backup")
         except Exception as exc:  # noqa: BLE001
             self._io_error_snack(exc)
 
-    async def _offer_file(self, path, *, kind: str) -> None:
+    async def _offer_file(self, path, *, kind: str, extra=None) -> None:
         from lib.presentation.file_transfer import offer_saved_file
 
         lang = self._state.language
         try:
             location = await offer_saved_file(
-                self._page, path, title=f"FinWise {kind}"
+                self._page, path, title=f"FinWise {kind}", extra=extra
             )
         except OSError:
             snack(self._page, tr("settings.file_denied", lang), error=True)
@@ -1058,22 +1280,21 @@ class SettingsPage(ft.Column):
             picked = await pick_restore_bytes(
                 self._page,
                 title=tr("action.restore", lang),
-                extensions=["db", "sqlite", "sqlite3", "json", "fwexport"],
+                extensions=[
+                    "fwbackup",
+                    "db",
+                    "sqlite",
+                    "sqlite3",
+                    "json",
+                    "fwexport",
+                ],
             )
             if not picked:
                 backups = service.list_backups()
                 if not backups:
                     snack(self._page, tr("settings.no_backups", lang), error=True)
                     return
-                latest = backups[0]
-                confirm_dialog(
-                    self._page,
-                    title=tr("action.restore", lang),
-                    message=tr("settings.restore_confirm", lang),
-                    confirm_text=tr("action.restore", lang),
-                    cancel_text=tr("action.cancel", lang),
-                    on_confirm=lambda: self._do_restore(latest),
-                )
+                await self._confirm_restore(backups[0])
                 return
             name, payload = picked
             kind = classify_restore_payload(name, payload)
@@ -1083,6 +1304,14 @@ class SettingsPage(ft.Column):
             if kind == "json":
                 snack(self._page, tr("settings.restore_need_db", lang), error=True)
                 return
+            if kind == "fwbackup":
+                if not name.lower().endswith(".fwbackup"):
+                    name = f"{name}.fwbackup"
+                target = service.backup_dir / name
+                service.backup_dir.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+                await self._confirm_restore(target, payload=payload)
+                return
             if kind != "db":
                 snack(self._page, tr("settings.restore_bad_file", lang), error=True)
                 return
@@ -1091,40 +1320,44 @@ class SettingsPage(ft.Column):
             target = service.backup_dir / name
             service.backup_dir.mkdir(parents=True, exist_ok=True)
             target.write_bytes(payload)
-            confirm_dialog(
-                self._page,
-                title=tr("action.restore", lang),
-                message=tr("settings.restore_confirm", lang),
-                confirm_text=tr("action.restore", lang),
-                cancel_text=tr("action.cancel", lang),
-                on_confirm=lambda: self._do_restore(target),
-            )
+            await self._confirm_restore(target)
             return
         backups = service.list_backups()
         if not backups:
             snack(self._page, tr("settings.no_backups", lang), error=True)
             return
-        latest = backups[0]
+        await self._confirm_restore(backups[0])
+
+    async def _confirm_restore(self, backup_path, *, payload: bytes | None = None) -> None:
+        lang = self._state.language
+        from lib.infrastructure.services.backup_service import bundle_needs_password
+
+        password = ""
+        needs_pw = False
+        try:
+            needs_pw = bundle_needs_password(payload if payload is not None else backup_path)
+        except Exception:  # noqa: BLE001
+            needs_pw = False
+        if needs_pw:
+            entered = await self._prompt_secret(
+                title=tr("settings.restore_bundle_password", lang),
+                label=tr("settings.export_password", lang),
+            )
+            if entered is None:
+                return
+            password = entered
         confirm_dialog(
             self._page,
             title=tr("action.restore", lang),
             message=tr("settings.restore_confirm", lang),
             confirm_text=tr("action.restore", lang),
             cancel_text=tr("action.cancel", lang),
-            on_confirm=lambda: self._do_restore(latest),
+            on_confirm=lambda: self._do_restore(backup_path, password=password),
         )
 
-    async def _decrypt_export_payload(self, name: str, payload: bytes) -> None:
-        """Decrypt a ``.fwexport`` blob to a JSON file in the export dir."""
-        import asyncio
-        from pathlib import Path
-
-        from lib.domain.use_cases.export_data import decrypt_export_blob
-        from lib.presentation.file_transfer import safe_filename
-
-        lang = self._state.language
+    async def _prompt_secret(self, *, title: str, label: str) -> str | None:
         pwd = ft.TextField(
-            label=tr("settings.export_password", lang),
+            label=label,
             password=True,
             can_reveal_password=False,
             autofocus=True,
@@ -1132,35 +1365,64 @@ class SettingsPage(ft.Column):
         done: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
 
         def _close(password: str | None) -> None:
-            dlg.open = False
-            safe_update(self._page)
+            pop = getattr(self._page, "pop_dialog", None)
+            if callable(pop):
+                try:
+                    pop()
+                except Exception:  # noqa: BLE001
+                    dlg.open = False
+                    safe_update(self._page)
+            else:
+                dlg.open = False
+                safe_update(self._page)
             if not done.done():
                 done.set_result(password)
 
+        cancel_btn = ft.TextButton(
+            tr("action.cancel", self._state.language),
+            on_click=lambda _e: _close(None),
+        )
+        restore_btn = ft.FilledButton(
+            tr("action.restore", self._state.language),
+            on_click=lambda _e: _close((pwd.value or "").strip()),
+        )
+        bind_press(cancel_btn, haptic_kind="light", page=self._page)
+        bind_press(restore_btn, haptic_kind="light", page=self._page)
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text(tr("settings.export_json_encrypted", lang)),
+            shape=ft.RoundedRectangleBorder(radius=20),
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+            title=ft.Text(title),
             content=pwd,
-            actions=[
-                ft.TextButton(
-                    tr("action.cancel", lang),
-                    on_click=lambda _e: _close(None),
-                ),
-                ft.FilledButton(
-                    tr("action.restore", lang),
-                    on_click=lambda _e: _close((pwd.value or "").strip()),
-                ),
-            ],
+            actions=[cancel_btn, restore_btn],
         )
-        self._page.overlay.append(dlg)
-        dlg.open = True
-        safe_update(self._page)
+        show = getattr(self._page, "show_dialog", None)
+        if callable(show):
+            show(dlg)
+        else:
+            self._page.overlay.append(dlg)
+            dlg.open = True
+            safe_update(self._page)
         password = await done
         try:
             self._page.overlay.remove(dlg)
-        except ValueError:
+        except (ValueError, AttributeError):
             pass
         safe_update(self._page)
+        return password
+
+    async def _decrypt_export_payload(self, name: str, payload: bytes) -> None:
+        """Decrypt a ``.fwexport`` blob to a JSON file in the export dir."""
+        from pathlib import Path
+
+        from lib.domain.use_cases.export_data import decrypt_export_blob
+        from lib.presentation.file_transfer import safe_filename
+
+        lang = self._state.language
+        password = await self._prompt_secret(
+            title=tr("settings.export_json_encrypted", lang),
+            label=tr("settings.export_password", lang),
+        )
         if password is None:
             return
         try:
@@ -1179,7 +1441,7 @@ class SettingsPage(ft.Column):
         out.write_bytes(raw)
         await self._offer_file(out, kind="JSON")
 
-    async def _do_restore(self, backup_path) -> None:
+    async def _do_restore(self, backup_path, *, password: str = "") -> None:
         """Replace the live DB, rebind sessions, and reload settings."""
         import asyncio
         from pathlib import Path
@@ -1188,12 +1450,13 @@ class SettingsPage(ft.Column):
 
         c = self._state.container
         path = Path(backup_path)
+        secret = password
         try:
             # Release SQLite file locks before overwriting on Windows.
             await asyncio.to_thread(reset_engine)
             await asyncio.to_thread(
                 lambda: BackupService(c.config).restore(
-                    path, make_safety_copy=False
+                    path, make_safety_copy=False, password=secret
                 )
             )
             factory = get_session_factory(c.config)
@@ -1202,10 +1465,18 @@ class SettingsPage(ft.Column):
                 settings = await c.get_settings.execute()
                 self._state.set_settings(settings, notify=False)
                 apply_theme_from_settings(self._page, settings)
+            await self._state.reload_pin_gate(
+                lock_if_present=True,
+                unlock_if_absent=True,
+                notify=False,
+            )
             self._state.request_view_rebuild()
             self._state.bump_refresh()
             self._page.update()
-            snack(self._page, tr("settings.restore_done", self._state.language))
+            if self._state.pin_hash and not self._state.is_unlocked:
+                snack(self._page, tr("settings.restore_locked", self._state.language))
+            else:
+                snack(self._page, tr("settings.restore_done", self._state.language))
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
 
@@ -1213,10 +1484,14 @@ class SettingsPage(ft.Column):
         """Hash PIN and persist credentials via use case."""
         lang = self._state.language
         pin = (self._pin_tf.value or "").strip()
-        if len(pin) < 4:
-            snack(self._page, tr("settings.pin_min", lang), error=True)
+        if len(pin) < 4 or not pin.isdigit():
+            snack(self._page, tr("settings.pin_digits", lang), error=True)
             return
-        creds = EncryptionService().hash_pin(pin)
+        try:
+            creds = EncryptionService().hash_pin(pin)
+        except ValueError:
+            snack(self._page, tr("settings.pin_digits", lang), error=True)
+            return
         self._pin_tf.value = ""
         safe_update(self._pin_tf)
 
@@ -1234,7 +1509,8 @@ class SettingsPage(ft.Column):
             except Exception as exc:  # noqa: BLE001
                 snack_exception(self._page, exc, lang=lang)
                 return
-            snack(self._page, tr("settings.pin_saved", lang))
+            snack(self._page, tr("settings.pin_saved_detail", lang))
+            await self._state.reload_pin_gate(notify=False)
 
         run_async(self._page, _persist)
 
@@ -1256,6 +1532,7 @@ class SettingsPage(ft.Column):
         except Exception:  # noqa: BLE001
             pass
         self._state.set_settings(settings, notify=False)
+        await self._state.reload_pin_gate(unlock_if_absent=True, notify=False)
         snack(self._page, tr("settings.pin_cleared", lang))
 
     def _confirm_wipe(self) -> None:
@@ -1308,5 +1585,6 @@ class SettingsPage(ft.Column):
 
         self._state.request_view_rebuild()
         self._state.bump_refresh()
+        await self._state.reload_pin_gate(unlock_if_absent=True, notify=False)
         self._page.update()
         snack(self._page, tr("settings.delete_all_done", lang))

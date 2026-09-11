@@ -14,6 +14,8 @@ from lib.infrastructure.services.secret_box import (
     decrypt_secret,
     delete_master_key,
     encrypt_secret,
+    export_master_key_bytes,
+    store_master_key,
 )
 
 
@@ -76,3 +78,46 @@ def test_delete_master_key(tmp_path) -> None:
     assert delete_master_key(cfg) is True
     assert not key_path.is_file()
     assert delete_master_key(cfg) is False
+
+
+def test_ios_keychain_migrates_file_and_roundtrips(tmp_path, monkeypatch) -> None:
+    from lib.infrastructure.services import ios_keychain
+
+    store = ios_keychain.use_memory_backend(True)
+    monkeypatch.setattr("lib.core.config._is_ios", lambda: True)
+    try:
+        cfg = AppConfig(data_dir=tmp_path)
+        key_path = tmp_path / ".secret_box_key"
+        blob = encrypt_secret({"api_key": "k"}, config=cfg)
+        assert store
+        assert any(store.values())
+        assert not key_path.exists()
+        assert decrypt_secret(blob, config=cfg) == {"api_key": "k"}
+        exported = export_master_key_bytes(cfg)
+        assert exported
+        assert delete_master_key(cfg) is True
+        assert export_master_key_bytes(cfg) is None
+        store_master_key(exported, cfg)
+        assert decrypt_secret(blob, config=cfg) == {"api_key": "k"}
+        assert not key_path.exists()
+    finally:
+        ios_keychain.use_memory_backend(False)
+
+
+def test_ios_migrates_existing_file_key(tmp_path, monkeypatch) -> None:
+    from lib.infrastructure.services import ios_keychain
+
+    cfg = AppConfig(data_dir=tmp_path)
+    blob = encrypt_secret({"api_key": "legacy"}, config=cfg)
+    key_path = tmp_path / ".secret_box_key"
+    assert key_path.is_file()
+    original = key_path.read_bytes()
+
+    store = ios_keychain.use_memory_backend(True)
+    monkeypatch.setattr("lib.core.config._is_ios", lambda: True)
+    try:
+        assert decrypt_secret(blob, config=cfg) == {"api_key": "legacy"}
+        assert original in store.values()
+        assert not key_path.exists()
+    finally:
+        ios_keychain.use_memory_backend(False)

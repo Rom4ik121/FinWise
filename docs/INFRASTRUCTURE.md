@@ -23,7 +23,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | Класс | Таблица / таблицы | Заметки |
 |-------|------------------|---------|
 | `SqlAlchemyAccountRepository` | `accounts` | CRUD, `active_only`, `corporate`, `include_in_total` |
-| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`; **теги** дофильтровываются в Python **до** LIMIT/OFFSET; `reassign_category` — массовое переименование (личный ledger vs `account_id`) + FTS |
+| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`/сумме; **теги** — SQL `json_each` EXISTS + `LIMIT`/`OFFSET` (Python fallback если JSON1 нет); FTS5 (category/comment/tags/payee/amount); `reassign_category` — массовое переименование (личный ledger vs `account_id`) + FTS |
 | `SqlAlchemyGoalRepository` | `goals` | status / priority / сортировки |
 | `SqlAlchemyDebtRepository` | `debts` | status / direction |
 | `SqlAlchemySubscriptionRepository` | `subscriptions` | `list_due(as_of)` |
@@ -31,6 +31,8 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | `SqlAlchemyCategoryRepository` | `categories` | `find_or_create`, имя без учёта регистра |
 | `SqlAlchemySettingsRepository` | `settings` | get/update; PIN hash/salt; biometric flag |
 | `SqlAlchemyBudgetRepository` | `budgets` | spent, delete/reassign категории |
+| `SqlAlchemyRecurringRuleRepository` | `recurring_rules` | `list_due(as_of)`, pause/skip |
+| `SqlAlchemyNetWorthRepository` | `net_worth_snapshots` | upsert по `captured_on` |
 | `SqlAlchemyExchangeConnectionRepository` | `exchange_connections` | credentials blob, holdings, last_error |
 
 Базовый хелпер сессий: `lib/infrastructure/repositories/_base.py` (re-export UoW из `lib/domain/unit_of_work.py`).
@@ -70,7 +72,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 
 ### Ключи бирж
 
-- **`secret_box.py`** — AES-GCM; ключ в файле `.secret_box_key` в каталоге данных.
+- **`secret_box.py`** — AES-GCM. На iPhone мастер-ключ в Keychain (`ios_keychain.py`, Security.framework); миграция с файла `.secret_box_key` и удаление файла после успешной записи. Desktop / Android — файл рядом с БД. `export_master_key_bytes` / `store_master_key` не предполагают, что файл существует.
 - В БД хранится только `credentials_encrypted`.
 
 ### Ошибки UI
@@ -85,9 +87,9 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 
 | Метод | Поведение |
 |-------|-----------|
-| Ручной backup | Timestamped копия `.db` (+ `-wal` / `-shm` при наличии) в `backups/` |
+| Ручной backup | Timestamped копия `.db` (SQLite backup API + shutil fallback) + sidecar `.key` **и** таблица `_finanse_secret_box` в копии. Кнопка «Резервная копия» шарит зашифрованный **`.fwbackup`** (db + ключ + `media/`) |
 | `ensure_daily_backup()` | Перезаписывает **`finanse_daily.db`** не чаще **одного раза в локальные сутки** (+ штамп `finanse_daily.day`) |
-| Restore | Проверка заголовка SQLite (`b"SQLite format 3\0"`); иначе ошибка; safety-копия текущего файла |
+| Restore | `.fwbackup` (AES-GCM; пароль опционален), сырой `.db`, sidecar `.key`, embedded-таблица, JSON/`FWEX`. После restore таблица ключа снимается с live DB; медиа из бандла заменяет `media/` |
 | list / delete | Управление файлами бэкапов |
 
 Вызов daily: старт приложения + hourly loop в `lib/main.py`.
@@ -104,7 +106,7 @@ JSON-снимок домена в `exports/`; опциональная AES-об�
 
 ### `DataResetService`
 
-Wipe таблиц с учётом FK — «сброс данных» в настройках.
+Wipe таблиц с учётом FK, мастер-ключа secret_box и каталога `media/` (фото чеков) — «сброс данных» в настройках.
 
 ---
 
@@ -113,8 +115,8 @@ Wipe таблиц с учётом FK — «сброс данных» в наст
 | Модуль | Роль |
 |--------|------|
 | `notification_service.py` | Очередь in-app уведомлений; `push` → `dispatch_push` |
-| `push_notifier.py` | Mobile (`FinanseLocalNotifications`), Windows toast, Linux `notify-send`. iOS: ask permission after first frame (not in `initialize()`); AppDelegate must set `UNUserNotificationCenter.delegate` **and** `willPresent` (иначе баннеры молчат, пока приложение открыто). Не подменять уже прикреплённый Flet-сервис новым экземпляром. Ближайшие напоминания `zonedSchedule` (порог 2с), не схлопывать 20с в `show()`. Android: `@drawable/ic_stat_finwise` (не adaptive mipmap). |
-| `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней вперёд |
+| `push_notifier.py` | Mobile (`FinanseLocalNotifications`), Windows toast, Linux `notify-send`. iOS: ask permission after first frame (not in `initialize()`); AppDelegate must set `UNUserNotificationCenter.delegate` **and** `willPresent` (иначе баннеры молчат, пока приложение открыто). Если permission denied в Settings — snack **и** deep-link в системные настройки (`app-settings:` / Android notification settings); кнопка «Open system settings» тоже. Не подменять уже прикреплённый Flet-сервис новым экземпляром. Ближайшие напоминания `zonedSchedule` (порог 2с), не схлопывать 20с в `show()`. Payload `finwise:{kind}:{id}` для `cancel_prefixed` (ре-arm **не** вызывает `cancel_all`). Android: `@drawable/ic_stat_finwise` (не adaptive mipmap). **Web / `flet run --ios` не проверяют iOS push** — нужен новый IPA. |
+| `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней. Долги: `effective_debt_due` (min of `next_payment_date`, `due_date`) и `settings.reminder_days` (не хардкод 3). Цели с `deadline` — OS `zonedSchedule`. **Бюджетные пороги %** — только in-app / `dispatch_push` пока приложение запущено (нет календарной даты). |
 
 Env: **`FINANCE_DISABLE_PUSH=1`** — отключить OS-push (в pytest включено autouse).
 
@@ -135,11 +137,22 @@ Haptic на успех snack: лёгкая вибрация через notificat
 
 ## 7. Локализация
 
-`localization.py` — словарь `STRINGS` + `tr(key, lang, **kwargs)`.
+`localization.py` — словарь `STRINGS` + `tr(key, lang, **kwargs)` + JSON overlays.
 
-UI-языки: **ru**, **en**, **uz**. Каждый ключ обязан иметь все три перевода (тест `test_every_key_has_all_langs`).
+Live UI (`SUPPORTED_LANGS`): **en, ru, uk, be, uz, kk, de, es, fr, pt, it, pl, tr, id, zh, ja, ko, hi**.
+Каждый ключ обязан иметь непустой текст на всех языках (тест `test_every_key_has_all_langs`); дыры заполняются из English.
 
-Черновик `assets/i18n/uk_be_kk.json` (украинский / белорусский / казахский) **пока не wired** в picker и `normalize_lang`.
+Overlays: `assets/i18n/overlays/{lang}.json` (плоский словарь) и legacy `assets/i18n/uk_be_kk.json`.
+`pt` — бразильский португальский, в picker **Português**. `zh` — упрощённый (в т.ч. zh-TW → zh).
+Settings language — fullscreen список эндонимов (`language_picker_choices`, **English** первым), не Dropdown (меню Flet прячет `en` над выбранным `ru`).
+RTL (**ar**, **he**) не включены — ломают LTR-вёрстку Flet.
+
+Первый запуск: `detect_language_and_currency` / `resolve_device_language` / `resolve_device_currency` (Flet `page.locale`, иначе OS `LANG`/`locale`; регион важнее языка: `en-UA` → UAH).
+Неизвестная локаль → **en**. Неизвестная страна / валюта вне фиат-каталога → **USD**.
+Пока `settings.language_user_set` ложь, язык можно уточнить с устройства;
+пока `settings.currency_user_set` ложь — базовую валюту. Сохранение в Settings (или первый счёт) ставит флаги и дальше не перезаписывает.
+
+`locale_prefs.py` (domain) мапит теги (`uk-UA`→`uk`/`UAH`, `pt-BR`→`pt`/`BRL`, `zh-CN`/`zh-Hans`→`zh`/`CNY`, `ky`/`tg`→`ru`).
 
 ---
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from lib.core.config import AppConfig
 from lib.infrastructure.services.export_service import (
     ExportService,
@@ -187,3 +189,50 @@ def test_matplotlib_pdf_forces_agg_backend() -> None:
     import matplotlib
 
     assert matplotlib.get_backend().lower() == "agg"
+
+
+def test_export_summary_pdf_debts_use_counterparty(tmp_path: Path) -> None:
+    from tests.factories import make_account, make_debt
+
+    cfg = AppConfig(data_dir=tmp_path / "debts-pdf")
+    cfg.ensure_directories()
+    svc = ExportService(cfg)
+    path = svc.export_summary_pdf(
+        accounts=[make_account(name="Cash")],
+        debts=[make_debt(counterparty="Alpha Bank", amount="250")],
+        language="en",
+        period_label="30 days",
+        currency="RUB",
+        total_balance=Decimal("10.00"),
+        income=Decimal("0"),
+        expense=Decimal("0"),
+        sections=PdfSectionFlags(
+            summary=True,
+            accounts=False,
+            transactions=False,
+            categories=False,
+            charts=False,
+            goals=False,
+            debts=True,
+            subscriptions=False,
+        ),
+    )
+    assert path.is_file()
+    assert path.stat().st_size > 500
+
+
+def test_export_resolve_stays_inside_export_dir(tmp_path: Path) -> None:
+    cfg = AppConfig(data_dir=tmp_path / "confine")
+    cfg.ensure_directories()
+    svc = ExportService(cfg)
+    inside = svc._resolve("../../etc/passwd")
+    assert inside.parent == svc.export_dir.resolve()
+    assert inside.name == "passwd"
+    outside = tmp_path / "outside.json"
+    confined = svc._resolve(str(outside))
+    assert confined.parent == svc.export_dir.resolve()
+    assert confined.name == "outside.json"
+    with pytest.raises(ValueError, match="Invalid export filename"):
+        svc._resolve("..")
+    with pytest.raises(ValueError, match="Invalid export filename"):
+        svc._resolve("")

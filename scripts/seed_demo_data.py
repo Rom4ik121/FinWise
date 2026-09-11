@@ -209,6 +209,8 @@ async def _seed_settings(container, *, currency: str, language: str = "ru") -> N
             update={
                 "default_currency": currency.upper(),
                 "language": language,
+                "language_user_set": True,
+                "currency_user_set": True,
                 "theme": "dark",
                 "notifications_enabled": True,
                 "debt_reminders": True,

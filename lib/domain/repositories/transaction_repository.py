@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional, Sequence
 
 from lib.domain.entities.transaction import Transaction, TransactionType
@@ -62,13 +63,16 @@ class TransactionRepository(ABC):
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         query: Optional[str] = None,
+        amount_min: Optional[Decimal] = None,
+        amount_max: Optional[Decimal] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
         """List transactions with optional filters.
 
-        ``query`` — free-text search over category, comment, and tags
+        ``query`` — free-text search over category, comment, tags, payee, amount
         (FTS5 when available).
+        ``amount_min`` / ``amount_max`` — inclusive absolute amount range.
         """
 
     async def reassign_category(

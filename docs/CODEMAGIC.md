@@ -1,7 +1,10 @@
 # FinWise — сборка IPA через Codemagic
 
-Сборка подписанного **Ad Hoc IPA** для iPhone. Конфиг: корневой `codemagic.yaml`.  
+Сборка подписанного **IPA** для iPhone. Конфиг: корневой `codemagic.yaml`.  
 Репозиторий: [github.com/Rom4ik121/FinWise](https://github.com/Rom4ik121/FinWise).
+
+- **`ios-ipa`** — Ad Hoc (тестовые устройства по UDID)
+- **`ios-appstore`** — App Store / TestFlight (нужен App Store provisioning profile)
 
 Бесплатный личный план Codemagic: до **~500 мин/мес** на macOS (актуальные лимиты — на сайте Codemagic).
 
@@ -12,17 +15,35 @@
 | Компонент | Зачем |
 |-----------|--------|
 | Editable-пакеты из `requirements.txt` (`flet_local_auth`, `flet_local_notifications`) | Face ID, локальные пуши |
+| matplotlib Agg | PDF charts (in-app dashboard charts use Flet canvas, **not** matplotlib). Kept in the IPA so PDF export stays correct. |
 | Mobile-safe **ccxt** via `vendor/ccxt` (`[tool.flet.dev_packages]`) | Биржи по API; пакет генерируется `scripts/vendor_ccxt_mobile.py` перед `flet build` |
 | `cryptography` **&lt; 50** | Совместимость с `pypi.flet.dev` wheels |
 | Splash `#0B1220` | Бренд (как в `flet.toml` / Codemagic scripts) |
 
 На Codemagic шаг **Vendor mobile-safe ccxt** обязателен. Не использовать относительный `file:./vendor/wheels/...`.
 
-Info.plist должен запрашивать Face ID, микрофон, распознавание речи.
+Info.plist (via `pyproject.toml` / IPA patch) asks for **Face ID** and **photo library** (receipt attachments). Do **not** add unused microphone / speech keys — App Store 5.1.1.
 
-Сборка IPA патчит `ios/Runner/AppDelegate.swift` (`scripts/patch_ios_appdelegate.py`): `UNUserNotificationCenter.delegate` + `willPresent` (баннеры, пока FinWise открыт).
+The IPA patch (`scripts/patch_ios_appdelegate.py`) also:
 
-Без **новой** IPA правки плагинов / Python на устройстве не появятся.
+- sets `UNUserNotificationCenter.delegate` + `willPresent` (banners while FinWise is open)
+- writes `PrivacyInfo.xcprivacy` (required-reason APIs)
+- strips Flet's leftover AdMob test ID and unused mic/camera/location strings
+- sets `ITSAppUsesNonExemptEncryption=false` and HTTPS-only ATS
+
+**Every IPA workflow** (`ios-ipa`, `ios-appstore`, **`ios-smoke`**) runs `scripts/flet_build_with_ios_patch.py`: watch during `flet build`, then **`--verify`**. The build **fails** if AppDelegate is missing the delegate / `willPresent` hooks. Do not use a post-patch `|| true` — that shipped TestFlight builds without foreground banners.
+
+Without a **new** IPA, plugin / Python / plist changes will not appear on device.
+
+### iOS notifications: how to verify on a device
+
+Web preview and `flet run --ios` **cannot** validate iOS local notifications (native plugin is skipped when `page.web` is true). Use a **new** TestFlight or Ad Hoc IPA.
+
+1. Install the IPA built from this branch (`ios-appstore` / `ios-ipa`).
+2. Settings → enable Notifications → allow the system prompt (or **Open system settings** if previously denied).
+3. With FinWise **in the foreground**, a “push ready” banner should appear (`willPresent`). If permission was denied in Settings, saving Notifications **opens iOS Settings**.
+4. Create an active debt whose **next payment** (not only final `due_date`) is within reminder days → leave the app; the OS should fire at `reminder_time`.
+5. Budget % alerts stay **in-app / while the app is running** (no calendar date to `zonedSchedule`). Goals **with a deadline** are OS-scheduled like debts.
 
 **Не** ставить `flet-android-notifications` в iOS-сборку: конфликт версий Flutter-пакета `timezone` с `flet_local_notifications`.
 
@@ -128,7 +149,7 @@ Workflow `ios-ipa` подключает группу `finanse_ios`.
 
 ### Без готовой подписи
 
-Workflow **`ios-smoke`** — проверка, что проект собирается на macOS (IPA не гарантируется).
+Workflow **`ios-smoke`** — проверка, что проект собирается на macOS (IPA не гарантируется). Smoke **also** applies and verifies the AppDelegate / `willPresent` patch (same wrapper as signed IPA).
 
 Оба workflow задают `--splash-color "#0B1220"` / `--splash-dark-color "#0B1220"`.
 
@@ -153,7 +174,8 @@ Codemagic только **собирает**. На Windows: TestFlight / Sideload
 | ID | Назначение |
 |----|------------|
 | `ios-ipa` | Подписанный Ad Hoc IPA, артефакты `build/ipa/*.ipa` |
-| `ios-smoke` | Smoke без полной подписи / simulator fallback |
+| `ios-appstore` | Подписанный App Store IPA (TestFlight / App Store Connect) |
+| `ios-smoke` | Smoke без полной подписи / simulator fallback; **same** AppDelegate patch + `--verify` as signed workflows |
 
 Исключения из бандла: `build`, `tests`, `docs`, `.cursor`, venv, кэши и т.д. (см. `--exclude` в yaml).
 
@@ -178,6 +200,41 @@ Codemagic только **собирает**. На Windows: TestFlight / Sideload
 
 APK собирается локально: `.\scripts\build_apk.ps1` (не Codemagic).  
 Цвет splash в скрипте может отличаться от `#0B1220` — для единообразия с iOS/`flet.toml` лучше выровнять флаги `--splash-color`.
+
+---
+
+## App Store / iPhone checklist
+
+Already in the product:
+
+- Local-first SQLite, no required account
+- Face ID + PIN, 15s background lock on mobile
+- `NSFaceIDUsageDescription`, photo-library strings, `ITSAppUsesNonExemptEncryption=false`
+- Privacy manifest (`ios/PrivacyInfo.xcprivacy`) copied into the Runner at IPA build
+- HTTPS FX/crypto APIs; IPA patch forces ATS `NSAllowsArbitraryLoads=false`
+- Offline ledger; rates/sync need network
+- Local notifications + AppDelegate `willPresent`
+
+Still blocking a store listing (owner / Apple account):
+
+1. Apple Developer Program + App ID `com.finanse.app`
+2. App Store Connect app record, screenshots (6.7" + 6.1"), privacy nutrition labels
+3. Codemagic **App Store** provisioning profile (not only Ad Hoc) → workflow `ios-appstore`
+4. Privacy labels: financial info on-device; no tracking (`NSPrivacyTracking=false`)
+5. TestFlight internal testers, then review
+6. **CCXT / exchanges stay in v1.0** (product decision — do not strip)
+
+Not implemented (product call, do not ship unused permissions):
+
+- Speech / microphone (removed from docs; do not add Info.plist keys)
+- iCloud Drive / CloudKit sync
+- Touch ID (Face ID / iris only by policy)
+
+Shipped in this branch:
+
+- iOS Keychain for the secret-box master key (file fallback on desktop/Android; migrate + delete file after a successful Keychain write)
+- Encrypted ``.fwbackup`` share bundle (database + key + receipt photos); restore still accepts older ``.db`` / sidecar ``.key`` / embedded ``_finanse_secret_box`` / ``FWEX``
+- Native Settings deep-link when notification permission is denied
 
 ---
 

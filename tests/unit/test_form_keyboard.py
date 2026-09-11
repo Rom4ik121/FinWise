@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import flet as ft
 
-from lib.presentation.form_keyboard import configure_field, keyboard_for, wire_field_chain
+from lib.presentation.form_keyboard import (
+    configure_field,
+    configure_pin_field,
+    keyboard_for,
+    wire_field_chain,
+)
 
 
 def test_keyboard_for_kinds() -> None:
@@ -33,3 +38,14 @@ def test_wire_field_chain_sets_on_submit() -> None:
     wire_field_chain(None, [a, b])
     assert callable(a.on_submit)
     assert callable(b.on_submit)
+
+
+def test_configure_pin_field_digits() -> None:
+    field = ft.TextField()
+    configure_pin_field(field)
+    assert field.keyboard_type is ft.KeyboardType.NUMBER
+    assert field.max_length == 8
+    assert field.password is True
+    filt = getattr(field, "input_filter", None)
+    if filt is not None:
+        assert getattr(filt, "regex_string", "") == r"[0-9]"

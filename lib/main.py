@@ -28,22 +28,31 @@ async def _maybe_refine_locale_from_page(
     page: ft.Page | None,
     settings: Any,
 ) -> None:
-    """If language is still English fallback, prefer richer device/page locale."""
+    """Apply device language/region until the user picks them in Settings."""
     if page is None or container.update_settings is None:
         return
-    from lib.domain.locale_prefs import FALLBACK_LANGUAGE
-    from lib.infrastructure.services.locale_prefs import detect_language_and_currency
+    from lib.domain.entities.currency_codes import normalize_currency_code
+    from lib.infrastructure.services.locale_prefs import (
+        resolve_device_currency,
+        resolve_device_language,
+    )
 
-    if normalize_lang(settings.language) != FALLBACK_LANGUAGE:
+    patch: dict[str, Any] = {}
+    if not bool(getattr(settings, "language_user_set", False)):
+        lang = resolve_device_language(page=page)
+        if normalize_lang(settings.language) != normalize_lang(lang):
+            patch["language"] = lang
+    if not bool(getattr(settings, "currency_user_set", False)):
+        currency = resolve_device_currency(page=page)
+        if normalize_currency_code(settings.default_currency) != normalize_currency_code(
+            currency
+        ):
+            patch["default_currency"] = currency
+    if not patch:
         return
-    lang, _currency = detect_language_and_currency(page=page)
-    if normalize_lang(lang) == FALLBACK_LANGUAGE:
-        return
-    if normalize_lang(settings.language) == normalize_lang(lang):
-        return
-    updated = settings.model_copy(update={"language": lang})
+    updated = settings.model_copy(update=patch)
     await container.update_settings.execute(updated)
-    logger.info("Refined first-run language → %s", lang)
+    logger.info("Refined first-run locale → %s", patch)
 
 
 async def _seed_if_needed(container: Container, page: ft.Page | None = None) -> None:
@@ -69,7 +78,7 @@ async def _seed_if_needed(container: Container, page: ft.Page | None = None) -> 
 
     try:
         if container.get_settings is not None:
-            # Warm settings (language from device UI; currency until first account).
+            # Warm settings (language + default currency from device until user_set).
             settings = await container.get_settings.execute()
             await _maybe_refine_locale_from_page(container, page, settings)
     except Exception:  # noqa: BLE001
@@ -141,6 +150,8 @@ async def _daily_backup_loop(container: Container) -> None:
 
 async def _reminder_loop(container: Container) -> None:
     """Daily in-app reminder sweep for debts and subscriptions."""
+    from lib.infrastructure.services.reminder_scheduler import schedule_reminders
+
     last_run_date: Optional[str] = None
     while True:
         sleep_for = 60.0
@@ -275,9 +286,20 @@ async def _flet_main(page: ft.Page) -> None:
                 await container.process_due_subscriptions.execute(
                     language=normalize_lang(settings.language),
                     notifier=container.notification_service,
+                    max_charges=31,
                 )
         except Exception:  # noqa: BLE001
             logger.exception("process_due_subscriptions failed")
+        try:
+            if container.process_due_recurring is not None:
+                await container.process_due_recurring.execute(max_creates=31)
+        except Exception:  # noqa: BLE001
+            logger.exception("process_due_recurring failed")
+        try:
+            if container.record_net_worth_snapshot is not None:
+                await container.record_net_worth_snapshot.execute()
+        except Exception:  # noqa: BLE001
+            logger.exception("record_net_worth_snapshot failed")
         try:
             settings = await container.get_settings.execute()
             await schedule_reminders(

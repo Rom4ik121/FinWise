@@ -15,9 +15,9 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Слои, bootstrap, DI, фоновые циклы, мобильные сервисы, инварианты |
 | [ENTITIES.md](ENTITIES.md) | Доменные модели (счета, операции, цели, долги, …) |
 | [USE_CASES.md](USE_CASES.md) | Бизнес-сценарии и правила денег / FX / переводов |
-| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, курсы, CCXT, бэкап, PIN/Face ID, push, речь |
+| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | Репозитории, курсы, CCXT, бэкап, PIN/Face ID, push |
 | [PRESENTATION.md](PRESENTATION.md) | UI, вкладки, маршруты, формы, UX (splash, lock, count-up) |
-| [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0027** |
+| [DATABASE.md](DATABASE.md) | Таблицы SQLite, индексы, Alembic **0001–0030** |
 | [PERFORMANCE.md](PERFORMANCE.md) | Скорость БД, FX, UI на телефонах и десктопе |
 | [TESTING.md](TESTING.md) | pytest, фикстуры, как гонять тесты |
 | [CODEMAGIC.md](CODEMAGIC.md) | Подписанный IPA (iOS) через Codemagic |
@@ -43,7 +43,7 @@ python main.py
 %LOCALAPPDATA%\finanse\finanse\
 ```
 
-Внутри: `finanse.db`, `backups/`, `exports/`, `logs/`, при необходимости `.secret_box_key`.
+Внутри: `finanse.db`, `backups/` (в т.ч. `.fwbackup`), `exports/`, `logs/`, `media/`. На desktop — `.secret_box_key`; на iPhone ключ в Keychain.
 
 **Демо-данные:**
 
@@ -83,7 +83,7 @@ python -m pytest -q
 |------|------------|
 | UI | Flet (Flutter) |
 | Домен | Pydantic v2, чистые use cases |
-| Данные | SQLAlchemy 2.0 + SQLite (WAL), Alembic 0001–0027 |
+| Данные | SQLAlchemy 2.0 + SQLite (WAL), Alembic 0001–0030 |
 | Сеть | httpx (open.er-api, CoinGecko, Binance), CCXT |
 | Отчёты | matplotlib, reportlab |
 | Безопасность | PIN (PBKDF), Face ID, AES-GCM secret box для ключей бирж |
@@ -103,13 +103,13 @@ FinWise/
 │   └── presentation/       # экраны и виджеты Flet
 ├── extensions/             # Flutter-мосты
 ├── assets/                 # icon, splash, icons/crypto|exchanges, currencies.json
-├── migrations/versions/    # Alembic 0001 … 0027
+├── migrations/versions/    # Alembic 0001 … 0030
 ├── scripts/                # migrate, seed, APK, брендинг
 ├── tests/                  # unit + integration
 └── docs/                   # эта документация
 ```
 
-Черновик локалей uk/be/kk: `assets/i18n/` (пока не в UI).
+Локали: `assets/i18n/overlays/*.json` (полные словари) + `uk_be_kk.json` (legacy). RTL (ar/he) отложен.
 
 ---
 

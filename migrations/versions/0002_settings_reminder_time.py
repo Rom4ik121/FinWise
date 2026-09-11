@@ -1,8 +1,12 @@
 """Add settings.reminder_time column.
 
-Revision ID: 0002_reminder_time
+Revision ID: 0002
 Revises: 0001_initial
 Create Date: 2026-08-09
+
+The revision id must be ``0002`` — ``0003`` depends on it. An earlier
+filename leftover used ``0002_reminder_time``, which split Alembic into
+two heads and raised ``KeyError: '0002'`` on ``upgrade head``.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0002_reminder_time"
+revision: str = "0002"
 down_revision: Union[str, None] = "0001_initial"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -42,6 +42,8 @@ class Container:
     settings_repository: Any = None
     budget_repository: Any = None
     exchange_connection_repository: Any = None
+    recurring_rule_repository: Any = None
+    net_worth_repository: Any = None
 
     # Optional infrastructure services
     exchange_rate_provider: Any = None
@@ -148,6 +150,17 @@ class Container:
     get_budget_progress: Any = None
     get_budgets_for_month: Any = None
     recalculate_budget_spent: Any = None
+    create_recurring_rule: Any = None
+    update_recurring_rule: Any = None
+    delete_recurring_rule: Any = None
+    list_recurring_rules: Any = None
+    pause_recurring_rule: Any = None
+    skip_recurring_occurrence: Any = None
+    process_due_recurring: Any = None
+    preview_csv_import: Any = None
+    commit_csv_import: Any = None
+    record_net_worth_snapshot: Any = None
+    list_net_worth_snapshots: Any = None
 
     missing: list[str] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
@@ -180,6 +193,9 @@ class Container:
             "goal_audit_repository",
             "debt_audit_repository",
             "subscription_audit_repository",
+            "exchange_connection_repository",
+            "recurring_rule_repository",
+            "net_worth_repository",
         ):
             repo = getattr(self, attr, None)
             if repo is not None and hasattr(repo, "_session_factory"):
@@ -329,6 +345,16 @@ def build_container(
             "lib.infrastructure.repositories.exchange_connection_repository",
             "SqlAlchemyExchangeConnectionRepository",
         ),
+        (
+            "recurring_rule_repository",
+            "lib.infrastructure.repositories.recurring_rule_repository",
+            "SqlAlchemyRecurringRuleRepository",
+        ),
+        (
+            "net_worth_repository",
+            "lib.infrastructure.repositories.net_worth_repository",
+            "SqlAlchemyNetWorthRepository",
+        ),
     ]
     for attr, module_path, class_name in repo_specs:
         _construct(container, attr, module_path, class_name, session_factory)
@@ -401,6 +427,23 @@ def build_container(
     )
     from lib.domain.use_cases.debt_insights import GetDebtPaymentSeriesUseCase
     from lib.domain.use_cases.export_data import ExportDataUseCase
+    from lib.domain.use_cases.net_worth import (
+        ListNetWorthSnapshotsUseCase,
+        RecordNetWorthSnapshotUseCase,
+    )
+    from lib.domain.use_cases.import_csv import (
+        CommitCsvImportUseCase,
+        PreviewCsvImportUseCase,
+    )
+    from lib.domain.use_cases.recurring import (
+        CreateRecurringRuleUseCase,
+        DeleteRecurringRuleUseCase,
+        ListRecurringRulesUseCase,
+        PauseRecurringRuleUseCase,
+        ProcessDueRecurringRulesUseCase,
+        SkipRecurringOccurrenceUseCase,
+        UpdateRecurringRuleUseCase,
+    )
     from lib.domain.use_cases.goals import (
         ArchiveGoalUseCase,
         CloseGoalEarlyUseCase,
@@ -997,6 +1040,64 @@ def build_container(
         except Exception as exc:  # pragma: no cover
             container.missing.append("copy_budgets_from_previous")
             container.errors["copy_budgets_from_previous"] = f"construct failed: {exc}"
+
+    _wire("create_recurring_rule", CreateRecurringRuleUseCase, "recurring_rule_repository")
+    _wire("update_recurring_rule", UpdateRecurringRuleUseCase, "recurring_rule_repository")
+    _wire("delete_recurring_rule", DeleteRecurringRuleUseCase, "recurring_rule_repository")
+    _wire("list_recurring_rules", ListRecurringRulesUseCase, "recurring_rule_repository")
+    _wire("pause_recurring_rule", PauseRecurringRuleUseCase, "recurring_rule_repository")
+    _wire(
+        "skip_recurring_occurrence",
+        SkipRecurringOccurrenceUseCase,
+        "recurring_rule_repository",
+    )
+    _wire(
+        "process_due_recurring",
+        ProcessDueRecurringRulesUseCase,
+        "recurring_rule_repository",
+        "account_repository",
+        "add_transaction",
+    )
+    if container.process_due_recurring is not None:
+        try:
+            container.process_due_recurring._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
+    container.preview_csv_import = PreviewCsvImportUseCase()
+    _wire(
+        "commit_csv_import",
+        CommitCsvImportUseCase,
+        "add_transaction",
+        "account_repository",
+    )
+    if container.commit_csv_import is not None:
+        try:
+            container.commit_csv_import._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
+    _wire(
+        "record_net_worth_snapshot",
+        RecordNetWorthSnapshotUseCase,
+        "net_worth_repository",
+        "account_repository",
+        "currency_repository",
+        "settings_repository",
+    )
+    _wire("list_net_worth_snapshots", ListNetWorthSnapshotsUseCase, "net_worth_repository")
+
+    async def _snapshot_net_worth() -> None:
+        uc = container.record_net_worth_snapshot
+        if uc is None:
+            return
+        await uc.execute()
+
+    for _name in ("add_transaction", "update_transaction", "delete_transaction"):
+        _uc = getattr(container, _name, None)
+        if _uc is not None:
+            try:
+                _uc._after_commit = _snapshot_net_worth  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001
+                pass
 
     _wire(
         "export_data",

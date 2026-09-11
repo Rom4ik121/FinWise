@@ -56,6 +56,20 @@ def test_list_transactions_filters(container) -> None:
         )
         assert len(expenses) == 1
         assert expenses[0].category == "Еда"
+        ranged = await container.list_transactions.execute(
+            account_id=acc.id,
+            amount_min=Decimal("15"),
+            amount_max=Decimal("25"),
+        )
+        assert len(ranged) == 1
+        assert ranged[0].amount == Decimal("20.00")
+        combined = await container.list_transactions.execute(
+            account_id=acc.id,
+            query="Зарплата",
+            amount_min=Decimal("20"),
+        )
+        assert len(combined) == 1
+        assert combined[0].category == "Зарплата"
 
     run_async(_run())
 
@@ -90,6 +104,18 @@ def test_list_transactions_fts_query(container) -> None:
             )
             == []
         )
+        by_amount = await container.list_transactions.execute(
+            account_id=acc.id, query="12.00"
+        )
+        assert [t.id for t in by_amount] == [hit.id]
+        # Substring in comment (FTS prefix-only would miss this; LIKE must hit).
+        buried = await container.update_transaction.execute(
+            hit.model_copy(update={"comment": "xxSECRETNAMEyy"})
+        )
+        by_substr = await container.list_transactions.execute(
+            account_id=acc.id, query="SECRETNAME"
+        )
+        assert [t.id for t in by_substr] == [buried.id]
 
     run_async(_run())
 

@@ -32,6 +32,8 @@ class TransactionItem(BaseModel):
     name: str = ""
     amount: Decimal
     category: str = ""
+    # Relative path under media/ for an optional photo on this line.
+    attachment: str = ""
 
     @field_validator("amount", mode="before")
     @classmethod
@@ -53,6 +55,11 @@ class TransactionItem(BaseModel):
         from lib.domain.entities.category import normalize_category_name
 
         return normalize_category_name(str(value))
+
+    @field_validator("attachment", mode="before")
+    @classmethod
+    def _strip_attachment(cls, value: object) -> object:
+        return str(value or "").strip()
 
 
 class Transaction(BaseModel):

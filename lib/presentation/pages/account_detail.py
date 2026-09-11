@@ -27,9 +27,14 @@ from lib.presentation.analytics_period import (
 )
 from lib.presentation.category_lookup import index_categories, lookup_category
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import make_amount_field, parse_amount_field
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.ui_motion import replace_controls, reset_ui_animating, set_ui_animating
+from lib.presentation.ui_motion import (
+    chart_enter,
+    replace_controls,
+    reset_ui_animating,
+    set_ui_animating,
+)
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import (
     card_surface,
@@ -103,6 +108,7 @@ class AccountDetailPage(ft.Column):
         self._last_txs: list = []
         self._last_stats = None
         self._last_period_label = ""
+        self._charts_entered_keys: set[str] = set()
         self._sync_btn = ft.IconButton(
             icon=ft.Icons.SYNC,
             icon_color=ft.Colors.PRIMARY,
@@ -119,10 +125,8 @@ class AccountDetailPage(ft.Column):
                     extra=[
                         ft.Container(height=42, content=self._period_row),
                     ],
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         self._sync_btn,
                         ft.IconButton(
@@ -634,7 +638,7 @@ class AccountDetailPage(ft.Column):
                 snack(self._page, tr("budgets.category_required", lang), error=True)
                 return
             try:
-                limit = parse_amount(limit_tf.value)
+                limit = parse_amount_field(limit_tf)
             except (InvalidOperation, ValueError):
                 snack(self._page, tr("budgets.limit_required", lang), error=True)
                 return
@@ -1268,6 +1272,13 @@ class AccountDetailPage(ft.Column):
             page=self._page,
             animate=bool(animate),
         )
+        pie = chart_enter(
+            self,
+            pie,
+            self._page,
+            refresh=bool(animate),
+            key="pie",
+        )
         series = fill_time_series(
             stats.by_period,
             enumerate_period_keys(
@@ -1287,6 +1298,13 @@ class AccountDetailPage(ft.Column):
             language=lang,
             page=self._page,
             animate=bool(animate),
+        )
+        line = chart_enter(
+            self,
+            line,
+            self._page,
+            refresh=bool(animate),
+            key="line",
         )
 
         palette = list(get_active_skin().chart_colors) or [

@@ -68,7 +68,9 @@ def get_local_auth_service() -> LocalAuthBridge | None:
 
 
 def biometric_env_override_ok() -> bool:
-    """Test hook: ``FINANCE_BIOMETRIC_OK=1`` forces success."""
+    """Test hook: ``FINANCE_BIOMETRIC_OK=1`` forces success **in pytest only**."""
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
     return os.environ.get("FINANCE_BIOMETRIC_OK", "").strip().lower() in {
         "1",
         "true",

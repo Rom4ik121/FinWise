@@ -22,6 +22,18 @@ logger = logging.getLogger("finanse.infrastructure.services.encryption")
 _HASH_ITERATIONS = 120_000
 _SALT_BYTES = 16
 _DKLEN = 32
+_PIN_MIN_LEN = 4
+_PIN_MAX_LEN = 8
+
+
+def normalize_pin(pin: str, *, strict: bool = True) -> str:
+    """Return a stripped PIN, optionally requiring 4–8 digits."""
+    cleaned = (pin or "").strip()
+    if not cleaned:
+        raise ValueError("PIN must not be empty")
+    if strict and (not cleaned.isdigit() or not (_PIN_MIN_LEN <= len(cleaned) <= _PIN_MAX_LEN)):
+        raise ValueError("PIN must be 4-8 digits")
+    return cleaned
 
 
 @dataclass(slots=True, frozen=True)
@@ -40,15 +52,20 @@ class EncryptionService:
         self._biometric_available = biometric_available
         self._last_status: BiometricStatus | None = None
 
-    def hash_pin(self, pin: str, *, salt: Optional[str] = None) -> PinCredentials:
-        """Hash a PIN with a random (or provided) salt."""
-        if not pin:
-            raise ValueError("PIN must not be empty")
+    def hash_pin(
+        self, pin: str, *, salt: Optional[str] = None, strict: bool = True
+    ) -> PinCredentials:
+        """Hash a PIN with a random (or provided) salt.
+
+        ``strict=True`` (default) requires 4–8 digits so new PINs stay numeric.
+        Verification uses ``strict=False`` so a legacy non-digit PIN still unlocks.
+        """
+        cleaned = normalize_pin(pin, strict=strict)
 
         salt_bytes = bytes.fromhex(salt) if salt else secrets.token_bytes(_SALT_BYTES)
         digest = hashlib.pbkdf2_hmac(
             "sha256",
-            pin.encode("utf-8"),
+            cleaned.encode("utf-8"),
             salt_bytes,
             _HASH_ITERATIONS,
             dklen=_DKLEN,
@@ -63,7 +80,7 @@ class EncryptionService:
     def verify_pin(self, pin: str, pin_hash: str, salt: str) -> bool:
         """Return True when ``pin`` matches the stored hash."""
         try:
-            candidate = self.hash_pin(pin, salt=salt)
+            candidate = self.hash_pin(pin, salt=salt, strict=False)
             ok = hmac.compare_digest(candidate.pin_hash, pin_hash)
             if not ok:
                 logger.info("PIN verification failed")

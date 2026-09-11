@@ -61,6 +61,12 @@ def test_env_override(monkeypatch) -> None:
     asyncio.run(_run())
 
 
+def test_env_override_ignored_outside_pytest(monkeypatch) -> None:
+    monkeypatch.setenv("FINANCE_BIOMETRIC_OK", "1")
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    assert biometric_env_override_ok() is False
+
+
 def test_mobile_probe_and_auth(monkeypatch) -> None:
     monkeypatch.setenv("FLET_PLATFORM", "android")
     set_local_auth_service(_FakeLocalAuth())

@@ -11,7 +11,7 @@ from lib.domain.entities.category import CategoryKind
 from lib.domain.entities.transaction import TransactionType
 from lib.infrastructure.services.notification_service import NotificationKind
 from tests.conftest import run_async
-from tests.factories import make_account, make_category, make_transaction
+from tests.factories import make_account, make_category, make_debt, make_transaction
 
 
 def test_set_and_list_budget(container) -> None:
@@ -330,6 +330,10 @@ def test_budget_half_alert(container) -> None:
         acc = await container.create_account.execute(make_account(balance="5000"))
         now = datetime.now(timezone.utc)
         await container.set_budget.execute("Food", now.month, now.year, Decimal("100"))
+        settings = await container.get_settings.execute()
+        await container.update_settings.execute(
+            settings.model_copy(update={"budget_warn_pct": 50})
+        )
         await container.add_transaction.execute(
             make_transaction(acc.id, amount="50", category="Food")
         )
@@ -340,6 +344,31 @@ def test_budget_half_alert(container) -> None:
         assert progress.budget.last_alert_level == 50
         pending = container.notification_service.list_pending()
         assert any(m.kind is NotificationKind.BUDGET_HALF for m in pending)
+
+    run_async(_run())
+
+
+def test_raising_budget_limit_resets_alert_watermark(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Food", now.month, now.year, Decimal("100"))
+        await container.add_transaction.execute(
+            make_transaction(acc.id, amount="100", category="Food")
+        )
+        progress = await container.get_budget_progress.execute(
+            category_id="Food", month=now.month, year=now.year
+        )
+        assert progress.budget.last_alert_level == 100
+        await container.set_budget.execute("Food", now.month, now.year, Decimal("500"))
+        progress = await container.get_budget_progress.execute(
+            category_id="Food", month=now.month, year=now.year
+        )
+        assert progress.budget.last_alert_level == 0
+        assert progress.budget.amount_limit == Decimal("500.00")
 
     run_async(_run())
 
@@ -431,5 +460,46 @@ def test_recalculate_missing_fx_raises(container) -> None:
                     tx_type=TransactionType.EXPENSE,
                 )
             )
+
+    run_async(_run())
+
+
+def test_debt_payment_does_not_hit_category_budget(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Долг", kind=CategoryKind.EXPENSE)
+        )
+        acc = await container.create_account.execute(make_account(balance="1000"))
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Долг", now.month, now.year, Decimal("500"))
+        debt = await container.create_debt.execute(
+            make_debt(amount="80"), account_id=acc.id
+        )
+        await container.repay_debt.execute(debt.id, Decimal("40"), account_id=acc.id)
+        progress = await container.get_budget_progress.execute(
+            category_id="Долг", month=now.month, year=now.year
+        )
+        assert progress is not None
+        assert progress.spent == Decimal("0.00")
+
+    run_async(_run())
+
+
+def test_budget_matches_category_case_insensitively(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        acc = await container.create_account.execute(make_account())
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Food", now.month, now.year, Decimal("100"))
+        await container.add_transaction.execute(
+            make_transaction(acc.id, amount="25", category="FOOD")
+        )
+        progress = await container.get_budget_progress.execute(
+            category_id="Food", month=now.month, year=now.year
+        )
+        assert progress is not None
+        assert progress.spent == Decimal("25.00")
 
     run_async(_run())

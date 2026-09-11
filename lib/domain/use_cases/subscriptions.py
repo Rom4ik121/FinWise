@@ -83,6 +83,24 @@ def advance_billing_date(
     return _add_months(current, 1)
 
 
+def preview_occurrence_dates(
+    start: datetime,
+    periodicity: Periodicity,
+    *,
+    custom_interval_days: Optional[int] = None,
+    count: int = 3,
+) -> list[datetime]:
+    """Next ``count`` billing dates including ``start``."""
+    cursor = _as_utc(start)
+    out: list[datetime] = []
+    for _ in range(max(1, count)):
+        out.append(cursor)
+        cursor = advance_billing_date(
+            cursor, periodicity, custom_interval_days=custom_interval_days
+        )
+    return out
+
+
 def retreat_billing_date(
     current: datetime,
     periodicity: Periodicity,
@@ -935,6 +953,15 @@ class ProcessDueSubscriptionsUseCase:
 
             account = accounts_by_id.get(sub.account_id)
             if account is None:
+                await self._subscriptions.update(
+                    sub.model_copy(
+                        update={
+                            "status": SubscriptionStatus.PAUSED,
+                            "auto_charge": False,
+                            "updated_at": _utc_now(),
+                        }
+                    )
+                )
                 continue
 
             async def _process_one(

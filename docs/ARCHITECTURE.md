@@ -15,7 +15,7 @@ main.py  →  lib.main.run()
               │
               ├─ lib/core/             конфиг, SQLite engine, DI, логи
               ├─ lib/domain/           сущности, порты репозиториев, use cases
-              ├─ lib/infrastructure/   SQLAlchemy, HTTP, бэкап, биометрия, push, речь
+              ├─ lib/infrastructure/   SQLAlchemy, HTTP, бэкап, биометрия, push
               └─ lib/presentation/     страницы Flet, скины, формы
 ```
 
@@ -107,10 +107,10 @@ Dart/Flutter-мосты, подключаемые только в нативно
 
 | Механизм | Где |
 |----------|-----|
-| PIN | Хэш/соль в `settings`; use cases `Get/Set/ClearPinCredentials`; экран `LockScreen` |
+| PIN | Хэш/соль в `settings`; use cases `Get/Set/ClearPinCredentials`; экран `LockScreen`. После set/clear/restore/wipe PIN **перечитывается** (`AppState.reload_pin_gate`), иначе фоновая блокировка использовала бы хэш со старта сессии. |
 | Face ID | Только face/iris на мобильных (отпечаток / Windows Hello fingerprint **не** предлагаются; desktop → PIN) |
 | Автоблокировка | После ≥ **15 с** в фоне на мобильных (`app.py`) |
-| Ключи бирж | AES-GCM (`secret_box`, файл `.secret_box_key`) |
+| Ключи бирж | AES-GCM (`secret_box`; iOS Keychain, иначе файл `.secret_box_key`) |
 | Ошибки UI | `user_facing_error` / `snack_exception`: доменные English → i18n; сырой technical → `error.generic`; без traceback |
 
 ---
@@ -128,8 +128,10 @@ Dart/Flutter-мосты, подключаемые только в нативно
 
 ## 7. Локализация и тема
 
-- UI-языки: **ru**, **en**, **uz** (`SUPPORTED_LANGS`, picker в Settings).
-- Строки: словарь `STRINGS` + `tr(key, lang, **kwargs)`. Черновик `assets/i18n/uk_be_kk.json` (uk/be/kk) **не подключён**.
+- UI-языки: **en, ru, uk, be, uz, kk, de, es, fr, pt, it, pl, tr, id, zh, ja, ko, hi** (`SUPPORTED_LANGS`, Settings — fullscreen список эндонимов, **English** первым). RTL **ar/he отложены**.
+- Строки: словарь `STRINGS` + JSON overlays `assets/i18n/overlays/{lang}.json` + `tr(key, lang, **kwargs)`. Недостающий ключ → **en**, никогда пустая строка.
+- Первый запуск: язык с устройства (`page.locale` / OS `LANG`); пока пользователь не выбрал язык в Settings (`language_user_set`). Неподдерживаемая локаль → **en**.
+- Первый запуск: **валюта по умолчанию с региона устройства** (`uk-UA` → UAH, `en-US` → USD); пока пользователь не выбрал валюту в Settings и не создал первый счёт (`currency_user_set`). Неизвестная страна / валюта вне каталога → **USD**.
 - Тема: light / dark / system.
 - UI style: **classic** (по умолчанию в рантайме скинов) / **neon** (дефолт в `config` может отличаться — см. `DEFAULT_UI_STYLE` в `config.py`).
 

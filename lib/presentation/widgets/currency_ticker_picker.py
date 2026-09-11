@@ -12,6 +12,7 @@ from lib.presentation.currency_options import (
     _currency_display_name,
     load_currency_catalog,
 )
+from lib.presentation.ui_motion import bind_press, overlay_enter_style
 from lib.presentation.utils import safe_update, tr
 
 
@@ -183,6 +184,7 @@ class CurrencyTickerPicker(ft.Container):
 
     def open(self) -> None:
         """Open searchable ticker picker as a fullscreen overlay."""
+        from lib.presentation.responsive import form_shell_inset, wrap_safe_area
         from lib.presentation.skins import get_active_skin
         from lib.presentation.styles import card_surface, form_header_bar, polish_form_control
         from lib.presentation.theme import is_dark_mode
@@ -211,7 +213,7 @@ class CurrencyTickerPicker(ft.Container):
 
         def _row_tile(row: dict[str, str]) -> ft.Control:
             selected = row["code"] == self._value
-            return ft.Container(
+            tile = ft.Container(
                 border_radius=14,
                 bgcolor=(
                     ft.Colors.PRIMARY_CONTAINER
@@ -269,6 +271,8 @@ class CurrencyTickerPicker(ft.Container):
                     ],
                 ),
             )
+            bind_press(tile, haptic_kind="selection", page=self._page)
+            return tile
 
         def _fill(query: str = "") -> None:
             rows = [r for r in self._rows if currency_row_matches(r, query)]
@@ -324,9 +328,9 @@ class CurrencyTickerPicker(ft.Container):
             bottom=0,
             bgcolor=ft.Colors.SURFACE,
             data=overlay_key,
-            content=ft.SafeArea(
-                expand=True,
-                content=ft.Container(
+            **overlay_enter_style(self._page),
+            content=wrap_safe_area(
+                ft.Container(
                     expand=True,
                     gradient=skin.page_gradient(dark=dark),
                     content=ft.Column(
@@ -341,10 +345,14 @@ class CurrencyTickerPicker(ft.Container):
                                     tooltip=tr("action.cancel", lang),
                                     on_click=_close,
                                 ),
+                                page=self._page,
                             ),
                             ft.Container(
                                 expand=True,
-                                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                                padding=ft.Padding.symmetric(
+                                    horizontal=form_shell_inset(self._page),
+                                    vertical=12,
+                                ),
                                 content=ft.Column(
                                     expand=True,
                                     spacing=12,

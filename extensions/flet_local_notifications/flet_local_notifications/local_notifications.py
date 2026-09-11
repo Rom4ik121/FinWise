@@ -32,6 +32,7 @@ class FinanseLocalNotifications(ft.Service):
             "body": body or "",
             "channel_id": kwargs.get("channel_id") or "finwise_reminders",
             "channel_name": kwargs.get("channel_name") or "FinWise reminders",
+            "payload": str(kwargs.get("payload") or ""),
         }
         return bool(await self._invoke_method("show_notification", payload))
 
@@ -44,6 +45,8 @@ class FinanseLocalNotifications(ft.Service):
         when_iso: str,
         channel_id: str = "finwise_reminders",
         channel_name: str = "FinWise reminders",
+        payload: str = "",
+        **kwargs: Any,
     ) -> bool:
         return bool(
             await self._invoke_method(
@@ -55,6 +58,7 @@ class FinanseLocalNotifications(ft.Service):
                     "when_iso": when_iso,
                     "channel_id": channel_id,
                     "channel_name": channel_name,
+                    "payload": str(payload or kwargs.get("payload") or ""),
                 },
             )
         )
@@ -69,3 +73,20 @@ class FinanseLocalNotifications(ft.Service):
 
     async def cancel_all(self) -> bool:
         return bool(await self._invoke_method("cancel_all"))
+
+    async def cancel_prefixed(self, prefix: str = "finwise:") -> bool:
+        """Cancel pending OS notifications whose payload starts with ``prefix``.
+
+        Re-arming reminders must not call ``cancel_all`` (that drops unrelated
+        scheduled items). FinWise payloads are ``finwise:{kind}:{related_id}``.
+        """
+        return bool(
+            await self._invoke_method(
+                "cancel_prefixed",
+                {"prefix": prefix or "finwise:"},
+            )
+        )
+
+    async def open_system_settings(self) -> bool:
+        """Open OS Settings so the user can enable notifications after a deny."""
+        return bool(await self._invoke_method("open_system_settings"))

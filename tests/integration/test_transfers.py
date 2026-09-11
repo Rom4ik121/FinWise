@@ -235,6 +235,32 @@ def test_delete_transfer_removes_linked_fee(container) -> None:
     run_async(_run())
 
 
+def test_delete_transfer_removes_fee_on_destination(container) -> None:
+    async def _run() -> None:
+        src = await container.create_account.execute(
+            make_account(name="Wallet", balance="1000")
+        )
+        dst = await container.create_account.execute(
+            make_account(name="Cash", balance="100")
+        )
+        out, _incoming = await container.transfer_between_accounts.execute(
+            from_account_id=src.id,
+            to_account_id=dst.id,
+            amount=Decimal("200"),
+            fee=Decimal("10"),
+            fee_account_id=dst.id,
+        )
+        assert await container.delete_transaction.execute(out.id) is True
+        remaining = await container.list_transactions.execute()
+        assert remaining == []
+        src2 = await container.account_repository.get_by_id(src.id)
+        dst2 = await container.account_repository.get_by_id(dst.id)
+        assert src2.balance == Decimal("1000.00")
+        assert dst2.balance == Decimal("100.00")
+
+    run_async(_run())
+
+
 def test_transfer_skipped_in_stats_and_budgets(container) -> None:
     async def _run() -> None:
         await container.create_category.execute(

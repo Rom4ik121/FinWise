@@ -55,8 +55,9 @@
 | `transfer_id` | Общий id пары перевода |
 | `transfer_peer_account_id` | Счёт второй ноги |
 | `items` | Список `TransactionItem` (позиции чека) |
+| `attachments` | Пути к фото чека в `media/` |
 
-**`TransactionItem`:** `name`, `category`, `amount` — сумма позиций должна согласовываться с итогом операции.
+**`TransactionItem`:** `name`, `category`, `amount`, опционально `attachment` (фото этой позиции). Сумма позиций должна согласовываться с итогом операции.
 
 Свойство **`is_transfer`** — true, если задан `transfer_id`.
 
@@ -156,8 +157,10 @@
 
 | Поле | Смысл |
 |------|--------|
-| `default_currency` | Базовая валюта отчётов |
+| `default_currency` | Базовая валюта отчётов (первый запуск — с региона устройства) |
 | `theme`, `ui_style`, `language` | Внешний вид и язык |
+| `language_user_set` | `False` до явного выбора в Settings; авто-язык с устройства только пока флаг сброшен |
+| `currency_user_set` | `False` до выбора валюты в Settings или создания первого счёта; авто-валюта с региона только пока флаг сброшен |
 | `exchange_update_interval_minutes` | Как часто тянуть курсы |
 | `notifications_enabled`, флаги reminder’ов | Пуши / in-app |
 | `reminder_time`, `reminder_days` | Когда напоминать о подписках/долгах |
@@ -165,6 +168,20 @@
 | `dashboard_hide_chart`, `dashboard_chart_days` | График на главной |
 | `low_balance_threshold` | Опциональный порог |
 | `check_balance_before_subscription` | Проверка баланса перед списанием |
+| `tx_filters_json` | Последние фильтры списка операций |
+| `budget_warn_pct`, `budget_limit_pct` | Пороги баннера/пуша бюджета (80 / 100) |
+
+---
+
+## RecurringRule (`recurring_rule.py`)
+
+Шаблон автосоздания дохода или расхода: интервал, `next_run`, pause / skip, `auto_create`. Не путать с `Subscription` (счета за услуги). Создание с датой ≤ сегодня ставит первый прогон на **следующий** период (не проводит операцию сразу).
+
+---
+
+## NetWorthSnapshot (`net_worth.py`)
+
+Дневной снимок суммы счетов с `include_in_total` (без корпоративных) в базовой валюте.
 
 ---
 

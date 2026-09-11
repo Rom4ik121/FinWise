@@ -39,10 +39,11 @@ from lib.presentation.styles import (
     section_title,
 )
 from lib.presentation.money_input import (
+    amount_text,
     attach_grouped_digits,
     format_amount_value,
     make_amount_field,
-    parse_amount,
+    parse_amount_field,
 )
 from lib.presentation.utils import (
     bind_dropdown_select,
@@ -57,6 +58,7 @@ from lib.presentation.utils import (
     tr,
     try_convert_amount,
 )
+from lib.presentation.form_validation import require_name, require_positive_amount
 from lib.presentation.widgets.account_strip_picker import AccountStripPicker
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
@@ -118,10 +120,8 @@ class GoalsPage(ft.Column):
                     body=self._list,
                     page=page,
                     extra=[self._search_tf],
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.TUNE,
@@ -532,7 +532,7 @@ class GoalsPage(ft.Column):
                     (a for a in accounts if a.id == account_picker.value), accounts[0]
                 )
                 try:
-                    amount = parse_amount(amount_tf.value)
+                    amount = parse_amount_field(amount_tf)
                 except (InvalidOperation, ValueError):
                     convert_hint.value = ""
                     safe_update(convert_hint)
@@ -590,7 +590,7 @@ class GoalsPage(ft.Column):
 
             async def _save() -> None:
                 try:
-                    amount = parse_amount(amount_tf.value)
+                    amount = parse_amount_field(amount_tf)
                     if amount <= 0:
                         raise InvalidOperation
                 except (InvalidOperation, ValueError):
@@ -1109,7 +1109,7 @@ class GoalsPage(ft.Column):
 
             async def _save() -> None:
                 try:
-                    amount = parse_amount(amount_tf.value)
+                    amount = parse_amount_field(amount_tf)
                     if amount <= 0:
                         raise InvalidOperation
                 except (InvalidOperation, ValueError):
@@ -1510,7 +1510,7 @@ class GoalsPage(ft.Column):
                 )
             else:
                 items_editor.load_items([])
-                if template.default_amount:
+                if template.default_amount and not amount_text(target_tf).strip():
                     target_tf.value = format_amount_value(template.default_amount, lang)
             _sync_target_visibility()
             _refresh_monthly_hint()
@@ -1562,7 +1562,7 @@ class GoalsPage(ft.Column):
                     items = items_editor.build_items()
                     target = sum(i.target_amount for i in items) if items else Decimal("0")
                 else:
-                    target = parse_amount(target_tf.value)
+                    target = parse_amount_field(target_tf)
             except (InvalidOperation, ValueError):
                 target = Decimal("0")
             current = goal.current_amount if goal else Decimal("0")
@@ -1583,7 +1583,7 @@ class GoalsPage(ft.Column):
                     )
                 )
             try:
-                planned = parse_amount(planned_tf.value)
+                planned = parse_amount_field(planned_tf)
             except (InvalidOperation, ValueError):
                 planned = Decimal("0")
             if planned > 0:
@@ -1648,6 +1648,9 @@ class GoalsPage(ft.Column):
         )
 
         async def _save() -> None:
+            name = require_name(name_tf, self._page, lang)
+            if not name:
+                return
             validation_errors = items_editor.validate()
             if validation_errors:
                 snack(self._page, validation_errors[0], error=True)
@@ -1656,22 +1659,24 @@ class GoalsPage(ft.Column):
             try:
                 if items:
                     target = sum(i.target_amount for i in items)
+                    if target <= 0:
+                        raise InvalidOperation
                 else:
-                    target = parse_amount(target_tf.value)
-                if target <= 0:
-                    raise InvalidOperation
+                    target = require_positive_amount(target_tf, self._page, lang)
+                    if target is None:
+                        return
             except (InvalidOperation, ValueError):
                 snack(self._page, tr("invalid_amount", lang), error=True)
                 return
             deadline = deadline_field.value
             planned_monthly: Decimal | None = None
             try:
-                planned_raw = parse_amount(planned_tf.value)
+                planned_raw = parse_amount_field(planned_tf)
                 if planned_raw > 0:
                     planned_monthly = planned_raw
             except (InvalidOperation, ValueError):
                 planned_monthly = None
-            goal_name = (name_tf.value or "").strip() or "Goal"
+            goal_name = name
             entity = Goal(
                 id=goal.id if goal else Goal(name="tmp", target_amount=1).id,
                 name=goal_name,

@@ -378,6 +378,8 @@ class SettingsModel(Base):
     theme: Mapped[str] = mapped_column(String(32), nullable=False, default="dark")
     ui_style: Mapped[str] = mapped_column(String(32), nullable=False, default="neon")
     language: Mapped[str] = mapped_column(String(8), nullable=False, default="en")
+    language_user_set: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    currency_user_set: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     exchange_update_interval_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=60
     )
@@ -403,6 +405,9 @@ class SettingsModel(Base):
         Boolean, nullable=False, default=False
     )
     completed_tour_goals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    tx_filters_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    budget_warn_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=80)
+    budget_limit_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -481,3 +486,56 @@ class ExchangeConnectionModel(Base):
     )
 
     account: Mapped["AccountModel"] = relationship(back_populates="exchange_connection")
+
+
+class RecurringRuleModel(Base):
+    """Persisted income/expense auto-create template."""
+
+    __tablename__ = "recurring_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
+    account_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    category: Mapped[str] = mapped_column(String(128), nullable=False, default="Прочее")
+    comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    type: Mapped[str] = mapped_column(String(16), nullable=False, default="expense")
+    interval: Mapped[str] = mapped_column(String(16), nullable=False, default="monthly")
+    interval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    next_run: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    skip_next: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    auto_create: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utc_now,
+        onupdate=_utc_now,
+    )
+
+
+class NetWorthSnapshotModel(Base):
+    """Daily include-in-total net worth in the user's base currency."""
+
+    __tablename__ = "net_worth_snapshots"
+    __table_args__ = (
+        UniqueConstraint("captured_on", name="uq_net_worth_captured_on"),
+        Index("ix_net_worth_captured_on", "captured_on"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    captured_on: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )

@@ -13,7 +13,7 @@
 | iOS | `FLET_APP_STORAGE_*` / иначе `~/Library/Application Support/finanse` внутри sandbox |
 | Android | Только **writable** sandbox: `FLET_APP_STORAGE_DATA`, `/data/user/0/com.finanse.app/files/finanse` и аналоги. **Не** произвольный `~/finanse` на корне `/data` (PermissionError) |
 
-Рядом: `backups/`, `exports/`, `logs/`, при необходимости `.secret_box_key`.
+Рядом: `backups/` (в т.ч. `.fwbackup`), `exports/`, `logs/`. На desktop/Android — `.secret_box_key`; на iPhone ключ в Keychain (файл мигрируется и удаляется).
 
 ---
 
@@ -23,7 +23,7 @@
 
 1. **`create_all`** + `_apply_sqlite_column_patches` — догоняет старые файлы без полной Alembic-истории.
 2. **`_ensure_sqlite_indexes`** — идемпотентные составные индексы под горячие фильтры.
-3. Best-effort **`alembic upgrade head`** (если цепочка сломана — предупреждение в лог, приложение продолжает работу на патчах).
+3. Best-effort **`alembic upgrade head`** against the opened DB URL (legacy revision `0002_reminder_time` → `0002`; if the chain still fails — warning in the log, the app continues on patches).
 
 `reset_engine()` — после restore и в тестах.
 
@@ -48,7 +48,7 @@
 | `ix_budgets_month_year` / `category_month` | Месячные лимиты |
 | goals / debts / subscriptions status (+ due / billing) | Списки и напоминания |
 
-**Теги** в JSON: фильтр `tags=` применяется в Python **до** `LIMIT`/`OFFSET` (пагинация корректна; не SQL `LIKE` по JSON).
+**Теги** в JSON: фильтр `tags=` — SQL `EXISTS (json_each(transactions.tags) …)` на каждый требуемый тег, затем `LIMIT`/`OFFSET`. FTS по тегам не используется для exact-tag filter (`csv-import` / `xfer_fee:uuid` ломаются токенизатором). Fallback на Python, если JSON1 недоступен.
 
 ---
 
@@ -77,7 +77,7 @@
 `goal_id` / `debt_id` / `subscription_id` (SET NULL),  
 `goal_credit_amount` / `debt_credit_amount`,  
 `transfer_id`, `transfer_peer_account_id`,  
-`items` (JSON позиций чека), `attachments` (JSON путей к фото в `media/`), timestamps.
+`items` (JSON позиций чека, включая опциональный `attachment` на строке), `attachments` (JSON путей к фото в `media/`), timestamps.
 
 ### `goals`
 
@@ -108,11 +108,15 @@
 
 ### `settings` (строка `id=default`)
 
-`default_currency`, `theme`, `ui_style`, `language`,  
-интервал курсов, флаги уведомлений, `reminder_time` / `reminder_days`,  
-`check_balance_before_subscription`, `budget_alerts`,  
-`pin_hash` / `pin_salt`, `biometric_enabled`,  
+`default_currency`, `theme`, `ui_style`, `language`, `language_user_set`,
+`currency_user_set`,
+интервал курсов, флаги уведомлений, `reminder_time` / `reminder_days`,
+`check_balance_before_subscription`, `budget_alerts`,
+`pin_hash` / `pin_salt`, `biometric_enabled`,
 **`dashboard_hide_chart`**, **`dashboard_chart_days`** (миграция **0017**),
+**`tx_filters_json`**, **`budget_warn_pct`** (по умолчанию 80), **`budget_limit_pct`** (100) — миграция **0028**,
+**`language_user_set`** (миграция **0029**: существующие установки DEFAULT 1, новые — 0 до выбора в Settings),
+**`currency_user_set`** (миграция **0030**: существующие установки DEFAULT 1, новые — 0 до выбора валюты в Settings или первого счёта),
 иконки/цвета целей·долгов·подписок и goal items (миграции **0018–0021**).
 порог низкого баланса и др.
 
@@ -122,6 +126,15 @@
 `last_alert_level`, `account_id` (пустая строка = личный; UUID = корпоративный счёт), timestamps,  
 UNIQUE(category_id, month, year, account_id).
 
+### `recurring_rules`
+
+Шаблоны дохода/расхода (не подписки): `name`, `amount`, `currency`, `account_id`, `category`, `type`,  
+`interval` / `interval_count`, `next_run`, `paused`, `skip_next`, `auto_create`, timestamps.
+
+### `net_worth_snapshots`
+
+Один снимок include-in-total баланса на UTC-день: `captured_on` UNIQUE, `amount`, `currency`, `captured_at`.
+
 ### `exchange_connections`
 
 `account_id` UNIQUE, `provider`, `credentials_encrypted`, `last_sync_at`, `last_error`, `holdings_json`.
@@ -130,12 +143,12 @@ UNIQUE(category_id, month, year, account_id).
 
 ## 6. Alembic (`migrations/versions/`)
 
-Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0027**:
+Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0030**:
 
 | Rev | Суть |
 |-----|------|
 | 0001 | Initial schema |
-| 0002 | `reminder_time` |
+| 0002 | `reminder_time` (revision id **must** be `0002`; a filename leftover `0002_reminder_time` split the graph — `0003` depends on `0002`) |
 | 0003 | `categories` |
 | 0004 | Goals currency / status / projection |
 | 0005 | Debt credit + indexes |
@@ -161,8 +174,11 @@ UNIQUE(category_id, month, year, account_id).
 | 0025 | `budgets.account_id` (corporate-scoped budgets) |
 | 0026 | `transactions.attachments` JSON (receipt photos) |
 | 0027 | `categories.account_id` + UNIQUE(name, account_id) |
+| 0028 | `settings.tx_filters_json`, `budget_warn_pct`, `budget_limit_pct`; `recurring_rules`; `net_worth_snapshots`; FTS5 payee/amount |
+| 0029 | `settings.language_user_set` (явный выбор языка vs авто с устройства) |
+| 0030 | `settings.currency_user_set` (явный выбор валюты vs авто с региона устройства) |
 
-Head: **0027**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
+Head: **0030**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic `upgrade head` targets the **same** SQLite URL as `AppConfig` (`migrations/env.py` honors `sqlalchemy.url`). Installs stamped with the obsolete id `0002_reminder_time` are rewritten to `0002` before upgrade. If upgrade still fails, a warning is logged and column patches keep the app running.
 
 ---
 
@@ -170,7 +186,8 @@ Head: **0027**. Fresh install: `init_db()` + column patches + FTS ensure; Alembi
 
 | Файл | Смысл |
 |------|--------|
-| `backups/finanse_YYYYMMDD_HHMMSS.db` | Ручной backup (timestamp) |
+| `backups/finanse_YYYYMMDD_HHMMSS.db` | Ручной локальный снимок (timestamp) |
+| `backups/finanse_YYYYMMDD_HHMMSS.fwbackup` | Share/restore бандл (AES-GCM zip: db + ключ + media) |
 | `backups/finanse_daily.db` | Ежедневный rolling-снимок (overwrite раз в сутки) |
 | `backups/finanse_daily.day` | Штамп локального дня последней daily-записи |
 

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from lib.presentation.file_transfer import (
+    IMAGE_EXTENSIONS,
     SQLITE_MAGIC,
     classify_restore_payload,
+    pick_image_bytes,
     safe_filename,
 )
 
@@ -18,6 +20,11 @@ def test_safe_filename_strips_path_and_unsafe_chars() -> None:
 def test_classify_sqlite_magic() -> None:
     payload = SQLITE_MAGIC + b"\x00rest"
     assert classify_restore_payload("notes.txt", payload) == "db"
+
+
+def test_classify_fwbackup_magic() -> None:
+    assert classify_restore_payload("notes.txt", b"FWBK\x01\x00rest") == "fwbackup"
+    assert classify_restore_payload("finanse.fwbackup", b"not-magic") == "fwbackup"
 
 
 def test_classify_json_and_db_names() -> None:
@@ -61,3 +68,9 @@ def test_restricted_icloud_downloads_path() -> None:
         raise AssertionError("expected PermissionError")
     except PermissionError:
         pass
+
+
+def test_image_extensions_cover_common_photos() -> None:
+    assert "jpg" in IMAGE_EXTENSIONS
+    assert "heic" in IMAGE_EXTENSIONS
+    assert pick_image_bytes is not None

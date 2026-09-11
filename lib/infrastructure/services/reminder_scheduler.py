@@ -64,9 +64,15 @@ async def schedule_reminders(
 
     created: list[NotificationMessage] = []
     try:
+        lead_days = int(getattr(settings, "reminder_days", 3) or 3)
         if settings.debt_reminders and container.list_debts is not None:
             created.extend(
-                await _schedule_debt_alerts(container, notifier, language=language)
+                await _schedule_debt_alerts(
+                    container,
+                    notifier,
+                    language=language,
+                    lead_days=lead_days,
+                )
             )
         if settings.subscription_reminders and container.list_subscriptions is not None:
             subs = await container.list_subscriptions.execute(active_only=True)
@@ -80,7 +86,6 @@ async def schedule_reminders(
                     account_balances = {a.id: a.balance for a in accounts}
                 except Exception:  # noqa: BLE001
                     logger.debug("Could not load accounts for subscription reminders")
-            lead_days = int(getattr(settings, "reminder_days", 3) or 3)
             created.extend(
                 notifier.schedule_subscription_reminders(
                     subs,
@@ -118,7 +123,10 @@ async def _schedule_os_upcoming(
     language: str,
 ) -> None:
     """Ask the OS to fire reminders even if the app is closed."""
+    from lib.domain.entities.debt import effective_debt_due
     from lib.infrastructure.services.push_notifier import (
+        OS_PAYLOAD_PREFIX,
+        cancel_os_prefixed,
         get_android_notifications,
         reminder_fire_at,
         request_push_permissions,
@@ -137,12 +145,10 @@ async def _schedule_os_upcoming(
         await request_push_permissions()
     except Exception:  # noqa: BLE001
         logger.debug("request_push_permissions before OS schedule failed", exc_info=True)
-    cancel_all = getattr(svc, "cancel_all", None) if svc is not None else None
-    if callable(cancel_all):
-        try:
-            await cancel_all()
-        except Exception:  # noqa: BLE001
-            logger.debug("cancel_all notifications failed", exc_info=True)
+    try:
+        await cancel_os_prefixed(OS_PAYLOAD_PREFIX)
+    except Exception:  # noqa: BLE001
+        logger.debug("cancel_prefixed notifications failed", exc_info=True)
 
     async def _arm(
         *,
@@ -182,7 +188,10 @@ async def _schedule_os_upcoming(
         except Exception:  # noqa: BLE001
             debts = []
         for debt in debts:
-            due = getattr(debt, "due_date", None)
+            due = effective_debt_due(
+                due_date=getattr(debt, "due_date", None),
+                next_payment_date=getattr(debt, "next_payment_date", None),
+            )
             await _arm(
                 title=t("notify.debt_due", language),
                 body=(
@@ -213,12 +222,41 @@ async def _schedule_os_upcoming(
                 due=getattr(sub, "next_billing_date", None),
             )
 
+    # Goals with a deadline can use the same zonedSchedule path.
+    # Budget % thresholds have no calendar date — those stay in-app /
+    # dispatch_push while the app is running (see docs/INFRASTRUCTURE.md).
+    if settings.goal_milestones:
+        list_goals = getattr(container, "list_goals", None)
+        execute = getattr(list_goals, "execute", None) if list_goals is not None else None
+        if callable(execute):
+            try:
+                goals = await execute(status=GoalStatus.ACTIVE)
+            except Exception:  # noqa: BLE001
+                goals = []
+            if not isinstance(goals, (list, tuple)):
+                goals = []
+            for goal in goals:
+                deadline = getattr(goal, "deadline", None)
+                if deadline is None:
+                    continue
+                remaining = getattr(goal, "remaining_amount", None)
+                if remaining is not None and remaining <= 0:
+                    continue
+                await _arm(
+                    title=t("notify.goal_contribute_title", language),
+                    body=f"{goal.name}: {goal.current_amount} / {goal.target_amount} {goal.currency}",
+                    kind=NotificationKind.GOAL_MILESTONE,
+                    related_id=goal.id,
+                    due=deadline,
+                )
+
 
 async def _schedule_debt_alerts(
     container: Any,
     notifier: Any,
     *,
     language: str,
+    lead_days: int = 3,
 ) -> list[NotificationMessage]:
     """Overdue status sync + due-soon / overdue / idle notifications."""
     created: list[NotificationMessage] = []
@@ -254,14 +292,16 @@ async def _schedule_debt_alerts(
         return created
 
     now = datetime.now(timezone.utc)
-    lead = timedelta(days=3)
+    lead = timedelta(days=max(0, int(lead_days)))
     active = await list_debts.execute(status=DebtStatus.ACTIVE)
     overdue = await list_debts.execute(status=DebtStatus.OVERDUE)
     open_debts = [*active, *overdue]
 
     # Due-soon reminders (existing helper still works for ACTIVE with due_date).
     created.extend(
-        notifier.schedule_debt_reminders(active, language=language, lead_days=3)
+        notifier.schedule_debt_reminders(
+            active, language=language, lead_days=int(lead_days)
+        )
     )
 
     # Ensure overdue debts also get an overdue notice if not already pushed.

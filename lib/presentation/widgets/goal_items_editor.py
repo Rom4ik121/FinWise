@@ -9,7 +9,7 @@ from uuid import uuid4
 import flet as ft
 
 from lib.domain.entities.goal import GoalItem
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import amount_text, make_amount_field, parse_amount
 from lib.presentation.styles import labeled_field, labeled_switch, polish_form_control
 from lib.presentation.utils import safe_update, tr
 
@@ -275,7 +275,7 @@ class GoalItemsEditor(ft.Column):
         total = Decimal("0")
         for _, _, amount_tf, _ in self._rows:
             try:
-                total += parse_amount(amount_tf.value)
+                total += parse_amount(amount_text(amount_tf))
             except (InvalidOperation, ValueError):
                 continue
         count = len(self._rows)
@@ -297,7 +297,7 @@ class GoalItemsEditor(ft.Column):
             if not name:
                 continue
             try:
-                target = parse_amount(amount_tf.value)
+                target = parse_amount(amount_text(amount_tf))
             except (InvalidOperation, ValueError):
                 continue
             if target <= 0:
@@ -333,7 +333,7 @@ class GoalItemsEditor(ft.Column):
                     err.visible = True
                     safe_update(err)
             try:
-                target = parse_amount(amount_tf.value)
+                target = parse_amount(amount_text(amount_tf))
                 if target <= 0:
                     raise InvalidOperation
             except (InvalidOperation, ValueError):

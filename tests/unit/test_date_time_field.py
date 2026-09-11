@@ -33,6 +33,10 @@ def test_picker_locale_follows_app_lang() -> None:
     assert picker_locale("ru") == "ru_RU"
     assert picker_locale("en") == "en_US"
     assert picker_locale("uz-UZ") == "uz_UZ"
+    assert picker_locale("uk-UA") == "uk_UA"
+    assert picker_locale("pt-BR") == "pt_BR"
+    assert picker_locale("de") == "de_DE"
+    assert picker_locale("zh-Hans") == "zh_CN"
 
 
 def test_from_local_calendar_matches_phone_wall_clock() -> None:

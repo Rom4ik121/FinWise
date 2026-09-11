@@ -11,7 +11,7 @@ from lib.domain.entities.currency import ExchangeRate
 from lib.domain.entities.debt import DebtDirection, DebtStatus
 from lib.domain.entities.transaction import TransactionType
 from tests.conftest import run_async
-from tests.factories import make_account, make_debt
+from tests.factories import make_account, make_debt, make_transaction
 
 
 def test_debt_crud_and_list(container) -> None:
@@ -509,5 +509,48 @@ def test_manual_debt_payment_sets_fx_credit(container) -> None:
         refreshed = await container.debt_repository.get_by_id(debt.id)
         assert refreshed is not None
         assert refreshed.remaining_amount == Decimal("0.00")
+
+    run_async(_run())
+
+
+def test_untagged_manual_payment_stamps_interest_and_delete_restores(container) -> None:
+    async def _run() -> None:
+        past = datetime.now(timezone.utc) - timedelta(days=40)
+        acc = await container.create_account.execute(make_account(balance="10000"))
+        debt = await container.create_debt.execute(
+            make_debt(amount="1200", interest_rate=Decimal("12")).model_copy(
+                update={"started_at": past}
+            )
+        )
+        debt = await container.update_debt.execute(
+            debt.model_copy(
+                update={
+                    "accrue_interest": True,
+                    "last_interest_accrued_at": past,
+                }
+            )
+        )
+        await container.accrue_debt_interest.execute()
+        before_pay = await container.debt_repository.get_by_id(debt.id)
+        assert before_pay is not None
+        accrued_before = before_pay.accrued_interest
+        assert accrued_before > 0
+        tx = await container.add_transaction.execute(
+            make_transaction(
+                acc.id,
+                amount="200",
+                category="Долг",
+                tx_type=TransactionType.EXPENSE,
+                debt_id=debt.id,
+            )
+        )
+        assert any(str(tag).startswith("debt_interest:") for tag in (tx.tags or []))
+        after_pay = await container.debt_repository.get_by_id(debt.id)
+        assert after_pay is not None
+        assert after_pay.accrued_interest < accrued_before
+        await container.delete_transaction.execute(tx.id)
+        restored = await container.debt_repository.get_by_id(debt.id)
+        assert restored is not None
+        assert restored.accrued_interest == accrued_before
 
     run_async(_run())

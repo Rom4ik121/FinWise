@@ -8,12 +8,17 @@ from typing import Optional
 
 import flet as ft
 
+from lib.presentation.responsive import wrap_safe_area
 from lib.presentation.utils import run_async, safe_update
 
-_BANNER_MS = 1700
+_BANNER_MS = 2300
 _COALESCE_S = 0.4
 _KEY = "_finanse_ui_feedback"
-_TAG = "ui_feedback_toast"
+TOAST_OVERLAY_TAG = "ui_feedback_toast"
+_TAG = TOAST_OVERLAY_TAG
+# Explicit strip height: a left/right/top overlay with no height can expand
+# to the full page.overlay Stack and paint/absorb over the shell.
+TOAST_OVERLAY_HEIGHT = 96
 
 
 class UiFeedback:
@@ -29,7 +34,12 @@ class UiFeedback:
             weight=ft.FontWeight.W_700,
             color=ft.Colors.ON_PRIMARY,
         )
-        pill = ft.Container(
+        self._banner_icon = ft.Icon(
+            ft.Icons.CHECK_CIRCLE,
+            size=17,
+            color=ft.Colors.ON_PRIMARY,
+        )
+        self._pill = ft.Container(
             padding=ft.Padding.symmetric(horizontal=16, vertical=9),
             border_radius=999,
             bgcolor=ft.Colors.PRIMARY,
@@ -42,31 +52,35 @@ class UiFeedback:
             content=ft.Row(
                 spacing=8,
                 tight=True,
-                controls=[
-                    ft.Icon(
-                        ft.Icons.CHECK_CIRCLE,
-                        size=17,
-                        color=ft.Colors.ON_PRIMARY,
-                    ),
-                    self._banner_text,
-                ],
+                controls=[self._banner_icon, self._banner_text],
             ),
         )
-        # CRITICAL: fixed height + transparent host so overlay does not wash the UI.
+        pill = self._pill
+        # Overlay sits above the shell SafeArea — wrap the pill so it clears
+        # notch / Dynamic Island. Height is a thin strip, never the full page.
         self._banner = ft.Container(
             left=0,
             right=0,
             top=0,
-            height=64,
+            height=TOAST_OVERLAY_HEIGHT,
             data=_TAG,
             visible=False,
             opacity=0,
             bgcolor=ft.Colors.TRANSPARENT,
             ignore_interactions=True,
-            animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
-            alignment=ft.Alignment.CENTER,
-            padding=ft.Padding.only(top=12),
-            content=pill,
+            animate_opacity=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+            animate_offset=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+            offset=ft.Offset(0, -0.15),
+            alignment=ft.Alignment.TOP_CENTER,
+            content=wrap_safe_area(
+                ft.Container(
+                    padding=ft.Padding.only(left=12, right=12, bottom=8),
+                    alignment=ft.Alignment.TOP_CENTER,
+                    content=pill,
+                ),
+                expand=False,
+                bottom=False,
+            ),
         )
         self._purge_stale()
         page.overlay.append(self._banner)
@@ -79,31 +93,87 @@ class UiFeedback:
                 except Exception:  # noqa: BLE001
                     pass
 
-    def show(self, message: str) -> None:
-        """Show the save chip."""
+    def show(self, message: str, *, error: bool = False) -> None:
+        """Show the save chip (or a red error chip over fullscreen forms)."""
         now = time.monotonic()
+        self._apply_tone(error)
         if self._busy and (now - self._last_at) < _COALESCE_S:
             self._banner_text.value = message
             try:
                 safe_update(self._banner_text)
+                safe_update(self._pill)
             except Exception:  # noqa: BLE001
                 pass
             return
         self._last_at = now
-        run_async(self.page, self._run, message)
+        run_async(self.page, self._run, message, error)
 
-    async def _run(self, message: str) -> None:
+    def _apply_tone(self, error: bool) -> None:
+        if error:
+            self._banner_icon.icon = ft.Icons.ERROR_OUTLINE
+            self._pill.bgcolor = ft.Colors.ERROR
+            self._pill.shadow = ft.BoxShadow(
+                blur_radius=14,
+                spread_radius=0,
+                color=ft.Colors.with_opacity(0.40, ft.Colors.ERROR),
+                offset=ft.Offset(0, 3),
+            )
+        else:
+            self._banner_icon.icon = ft.Icons.CHECK_CIRCLE
+            self._pill.bgcolor = ft.Colors.PRIMARY
+            self._pill.shadow = ft.BoxShadow(
+                blur_radius=14,
+                spread_radius=0,
+                color=ft.Colors.with_opacity(0.40, ft.Colors.PRIMARY),
+                offset=ft.Offset(0, 3),
+            )
+
+    def _raise_banner(self) -> None:
+        """Keep the toast above fullscreen forms (last overlay wins)."""
+        overlay = getattr(self.page, "overlay", None)
+        if overlay is None:
+            return
+        try:
+            while self._banner in overlay:
+                overlay.remove(self._banner)
+            overlay.append(self._banner)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            items = [item for item in list(overlay) if item is not self._banner]
+            items.append(self._banner)
+            self.page.overlay = items
+        except Exception:  # noqa: BLE001
+            try:
+                overlay.append(self._banner)
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _run(self, message: str, error: bool = False) -> None:
         self._busy = True
         try:
+            self._apply_tone(error)
             self._banner_text.value = message
+            self._raise_banner()
+            self._banner.offset = ft.Offset(0, -0.12)
+            self._banner.opacity = 0
             self._banner.visible = True
+            try:
+                safe_update(self._banner)
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(0.016)
+            self._banner.offset = ft.Offset(0, 0)
             self._banner.opacity = 1
             try:
                 safe_update(self._banner)
             except Exception:  # noqa: BLE001
                 pass
-            await asyncio.sleep(_BANNER_MS / 1000)
+            wait_ms = 2600 if error else _BANNER_MS
+            await asyncio.sleep(wait_ms / 1000)
             self._banner.opacity = 0
+            self._banner.offset = ft.Offset(0, -0.12)
             try:
                 safe_update(self._banner)
             except Exception:  # noqa: BLE001
@@ -172,4 +242,19 @@ def flash_message(page: ft.Page | None, message: str, *, haptic_kind: str | None
     if fb is None:
         return False
     fb.show(message)
+    return True
+
+
+def flash_error(page: ft.Page | None, message: str) -> bool:
+    """Red top toast — visible above fullscreen forms (SnackBar is not)."""
+    try:
+        from lib.presentation.haptics import haptic
+
+        haptic("heavy")
+    except Exception:  # noqa: BLE001
+        pass
+    fb = get_ui_feedback(page)
+    if fb is None:
+        return False
+    fb.show(message, error=True)
     return True

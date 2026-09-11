@@ -31,6 +31,8 @@ class AppSettings(BaseModel):
     theme: str = DEFAULT_THEME
     ui_style: str = DEFAULT_UI_STYLE
     language: str = DEFAULT_LANGUAGE
+    language_user_set: bool = False
+    currency_user_set: bool = False
     exchange_update_interval_minutes: int = DEFAULT_EXCHANGE_UPDATE_INTERVAL_MINUTES
     notifications_enabled: bool = True
     subscription_reminders: bool = True
@@ -39,7 +41,7 @@ class AppSettings(BaseModel):
     budget_alerts: bool = True
     low_balance_threshold: Optional[float] = None
     reminder_time: str = "09:00"  # local HH:MM for daily reminder sweep
-    reminder_days: int = 3  # days before subscription billing to remind
+    reminder_days: int = 3  # days before debt due / subscription billing to remind
     check_balance_before_subscription: bool = True
     biometric_enabled: bool = False
     # Home chart preferences (persisted across restarts).
@@ -50,6 +52,11 @@ class AppSettings(BaseModel):
     completed_tour_debts: bool = True
     completed_tour_analytics: bool = True
     completed_tour_goals: bool = True
+    # Last Transactions search/filter sheet (JSON). Cheap session restore.
+    tx_filters_json: Optional[str] = None
+    # Budget alert thresholds (percent of the monthly limit).
+    budget_warn_pct: int = 80
+    budget_limit_pct: int = 100
     updated_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("reminder_days")
@@ -92,6 +99,24 @@ class AppSettings(BaseModel):
         if days not in (7, 30, 90, 365):
             return 30
         return days
+
+    @field_validator("budget_warn_pct", mode="before")
+    @classmethod
+    def _validate_budget_warn(cls, value: object) -> int:
+        try:
+            pct = int(value if value is not None else 80)
+        except (TypeError, ValueError):
+            return 80
+        return max(1, min(99, pct))
+
+    @field_validator("budget_limit_pct", mode="before")
+    @classmethod
+    def _validate_budget_limit(cls, value: object) -> int:
+        try:
+            pct = int(value if value is not None else 100)
+        except (TypeError, ValueError):
+            return 100
+        return max(1, min(200, pct))
 
     @field_validator("updated_at", mode="before")
     @classmethod

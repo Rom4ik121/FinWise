@@ -14,8 +14,18 @@ from lib.presentation.styles import (
     ICON_CATALOG_BADGE_SELECTED,
     page_header,
 )
+from lib.presentation.haptics import haptic
+from lib.presentation.responsive import wrap_safe_area
+from lib.presentation.ui_motion import (
+    DUR_FAST,
+    bind_press,
+    motion_animation,
+    overlay_enter_style,
+)
 from lib.presentation.utils import safe_update, tr
 from lib.presentation.widgets.fullscreen_form import dismiss_fullscreen, push_overlay
+
+_TILE_SCALE = 1.06
 
 IconRenderer = Callable[[str], ft.Control]
 SelectStr = Callable[[str], None]
@@ -46,6 +56,7 @@ def build_icon_catalog(
     render_icon: IconRenderer,
     on_change: Optional[SelectStr] = None,
     accent: Optional[str] = None,
+    page: ft.Page | None = None,
 ) -> list[ft.Control]:
     """Grouped circular badges with soft fill; logos clip to the circle.
 
@@ -82,8 +93,13 @@ def build_icon_catalog(
             if active
             else None
         )
+        tile.scale = _TILE_SCALE if active else 1.0
 
     def _highlight(key: str) -> None:
+        try:
+            haptic("selection")
+        except Exception:  # noqa: BLE001
+            pass
         previous = selected["value"]
         selected["value"] = key
         to_refresh: list[ft.Container] = []
@@ -119,6 +135,8 @@ def build_icon_catalog(
                 alignment=ft.Alignment.CENTER,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                 ink=True,
+                scale=1,
+                animate_scale=motion_animation(DUR_FAST, page),
                 on_click=lambda _e, k=key: _highlight(k),
                 content=render_icon(key),
             )
@@ -169,6 +187,7 @@ def open_icon_picker(
         selected=current,
         render_icon=render_icon,
         accent=accent,
+        page=page,
     )
 
     body = _picker_list(
@@ -177,6 +196,13 @@ def open_icon_picker(
         controls=[*group_controls, ft.Container(height=8)],
     )
 
+    select_btn = ft.FilledButton(
+        tr("action.select", lang),
+        expand=True,
+        height=48,
+        on_click=_confirm,
+    )
+    bind_press(select_btn, haptic_kind="light", page=page)
     overlay = ft.Container(
         left=0,
         top=0,
@@ -184,9 +210,9 @@ def open_icon_picker(
         bottom=0,
         bgcolor=ft.Colors.SURFACE,
         data=overlay_key,
-        content=ft.SafeArea(
-            expand=True,
-            content=ft.Column(
+        **overlay_enter_style(page),
+        content=wrap_safe_area(
+            ft.Column(
                 expand=True,
                 spacing=0,
                 controls=[
@@ -202,12 +228,7 @@ def open_icon_picker(
                     ft.Container(expand=True, content=body),
                     ft.Container(
                         padding=ft.Padding.only(left=16, right=16, bottom=12, top=4),
-                        content=ft.FilledButton(
-                            tr("action.select", lang),
-                            expand=True,
-                            height=48,
-                            on_click=_confirm,
-                        ),
+                        content=select_btn,
                     ),
                 ],
             ),
@@ -245,8 +266,13 @@ def open_color_picker(
             3 if active else 1,
             ft.Colors.ON_SURFACE if active else ft.Colors.OUTLINE_VARIANT,
         )
+        tile.scale = _TILE_SCALE if active else 1.0
 
     def _highlight(color: str) -> None:
+        try:
+            haptic("selection")
+        except Exception:  # noqa: BLE001
+            pass
         previous = current["value"]
         current["value"] = color
         old = tiles_by_color.get(previous)
@@ -272,6 +298,8 @@ def open_color_picker(
             border_radius=999,
             bgcolor=color,
             ink=True,
+            scale=1,
+            animate_scale=motion_animation(DUR_FAST, page),
             on_click=lambda _e, c=color: _highlight(c),
         )
         _apply_border(color, tile)
@@ -292,6 +320,13 @@ def open_color_picker(
         ],
     )
 
+    select_btn = ft.FilledButton(
+        tr("action.select", lang),
+        expand=True,
+        height=48,
+        on_click=_confirm,
+    )
+    bind_press(select_btn, haptic_kind="light", page=page)
     overlay = ft.Container(
         left=0,
         top=0,
@@ -299,9 +334,9 @@ def open_color_picker(
         bottom=0,
         bgcolor=ft.Colors.SURFACE,
         data=overlay_key,
-        content=ft.SafeArea(
-            expand=True,
-            content=ft.Column(
+        **overlay_enter_style(page),
+        content=wrap_safe_area(
+            ft.Column(
                 expand=True,
                 spacing=0,
                 controls=[
@@ -317,12 +352,7 @@ def open_color_picker(
                     ft.Container(expand=True, content=body),
                     ft.Container(
                         padding=ft.Padding.only(left=16, right=16, bottom=12, top=4),
-                        content=ft.FilledButton(
-                            tr("action.select", lang),
-                            expand=True,
-                            height=48,
-                            on_click=_confirm,
-                        ),
+                        content=select_btn,
                     ),
                 ],
             ),

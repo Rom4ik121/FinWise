@@ -6,9 +6,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from lib.infrastructure.services.push_notifier import (
+    OS_PAYLOAD_PREFIX,
     _icon_path,
     dispatch_push,
     future_os_fire_at,
+    notification_settings_url,
+    os_notification_payload,
     push_disabled_by_env,
     reminder_fire_at,
     stable_notification_id,
@@ -78,6 +81,31 @@ def test_request_push_permissions_false_without_service_on_ios(monkeypatch) -> N
     asyncio.run(_run())
 
 
+def test_should_guide_to_notification_settings_only_on_fresh_enable() -> None:
+    from lib.infrastructure.services.push_notifier import (
+        should_guide_to_notification_settings,
+    )
+
+    assert (
+        should_guide_to_notification_settings(
+            enabled=True, was_enabled=False, granted=False
+        )
+        is True
+    )
+    assert (
+        should_guide_to_notification_settings(
+            enabled=True, was_enabled=True, granted=False
+        )
+        is False
+    )
+    assert (
+        should_guide_to_notification_settings(
+            enabled=True, was_enabled=False, granted=True
+        )
+        is False
+    )
+
+
 def test_future_os_fire_at_keeps_twenty_second_arm() -> None:
     now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
     when = now + timedelta(seconds=20)
@@ -87,3 +115,73 @@ def test_future_os_fire_at_keeps_twenty_second_arm() -> None:
 def test_future_os_fire_at_due_now_shows_immediately() -> None:
     now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
     assert future_os_fire_at(now, now=now) is None
+
+
+def test_notification_settings_url_ios(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    monkeypatch.setattr(pn, "_looks_like_ios", lambda: True)
+    assert pn.notification_settings_url() == "app-settings:"
+
+
+def test_notification_settings_url_android(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    monkeypatch.setattr(pn, "_looks_like_ios", lambda: False)
+    monkeypatch.setattr("lib.core.config._is_android", lambda: True)
+    url = pn.notification_settings_url()
+    assert url is not None
+    assert "APP_NOTIFICATION_SETTINGS" in url
+    assert "com.finanse.app" in url
+
+
+def test_open_system_settings_uses_native_then_launch(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    class _Svc:
+        async def open_system_settings(self) -> bool:
+            return True
+
+    monkeypatch.setattr(pn, "_mobile_service", _Svc())
+
+    async def _run() -> None:
+        assert await pn.open_system_notification_settings(page=None) is True
+
+    import asyncio
+
+    asyncio.run(_run())
+
+
+def test_os_notification_payload_prefix() -> None:
+    assert os_notification_payload("debt_reminder", "abc").startswith(OS_PAYLOAD_PREFIX)
+    assert os_notification_payload("debt_reminder", "abc") == "finwise:debt_reminder:abc"
+
+
+def test_cancel_os_prefixed_never_calls_cancel_all(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    class _Svc:
+        def __init__(self) -> None:
+            self.all_calls = 0
+            self.prefixes: list[str] = []
+
+        async def cancel_all(self) -> bool:
+            self.all_calls += 1
+            return True
+
+        async def cancel_prefixed(self, prefix: str = "finwise:") -> bool:
+            self.prefixes.append(prefix)
+            return True
+
+    svc = _Svc()
+    monkeypatch.setattr(pn, "_mobile_service", svc)
+    monkeypatch.setattr(pn, "push_disabled_by_env", lambda: False)
+
+    async def _run() -> None:
+        assert await pn.cancel_os_prefixed() is True
+
+    import asyncio
+
+    asyncio.run(_run())
+    assert svc.all_calls == 0
+    assert svc.prefixes == ["finwise:"]

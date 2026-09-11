@@ -18,6 +18,7 @@ from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.utils import format_money, format_money_parts, safe_update
 from lib.presentation.responsive import (
+    MIN_TAP,
     fit_font,
     fit_size,
     grid_columns,
@@ -76,6 +77,7 @@ class AccountCard(ft.Container):
         include_sw = ft.Switch(
             value=bool(getattr(account, "include_in_total", True)),
             scale=0.85,
+            tooltip=tr("account.include_in_total", language),
             on_change=(
                 (
                     lambda e, acc=account: on_include_in_total(
@@ -86,17 +88,17 @@ class AccountCard(ft.Container):
                 else None
             ),
         )
-        include_row = ft.Row(
-            spacing=8,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        include_row = ft.Column(
+            spacing=4,
+            tight=True,
             visible=on_include_in_total is not None,
             controls=[
                 ft.Text(
                     tr("account.include_in_total", language),
                     size=fit_font(12, page, columns=cols, minimum=10, maximum=14),
                     color=ft.Colors.ON_SURFACE_VARIANT,
-                    expand=True,
                     max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 include_sw,
             ],
@@ -114,9 +116,26 @@ class AccountCard(ft.Container):
             ),
         )
 
+        self._arrow_container = ft.Container(
+            width=MIN_TAP,
+            height=MIN_TAP,
+            alignment=ft.Alignment.CENTER,
+            ink=True,
+            border_radius=8,
+            on_click=lambda _e: self._toggle(),
+            rotate=ft.Rotate(0),
+            animate_rotation=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
+            content=ft.Icon(
+                ft.Icons.CHEVRON_LEFT_ROUNDED,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                size=20,
+            ),
+        )
+
         header = ft.Row(
-            spacing=12,
+            spacing=8,
             expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.START,
             controls=[
                 account_icon_badge(
                     icon_key,
@@ -140,22 +159,8 @@ class AccountCard(ft.Container):
                         muted_text(subtitle, page=page),
                     ],
                 ),
+                self._arrow_container,
             ],
-        )
-
-        self._arrow_container = ft.Container(
-            width=28,
-            alignment=ft.Alignment.CENTER,
-            ink=True,
-            border_radius=8,
-            on_click=lambda _e: self._toggle(),
-            rotate=ft.Rotate(0),
-            animate_rotation=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
-            content=ft.Icon(
-                ft.Icons.CHEVRON_LEFT_ROUNDED,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-                size=20,
-            ),
         )
 
         figure, code = format_money_parts(account.balance, account.currency)
@@ -185,24 +190,40 @@ class AccountCard(ft.Container):
             ],
         )
 
+        # Keep Edit/Delete/switch outside the open-detail hit target. A parent
+        # ``on_click`` (and bind_press) swallows child IconButton taps on web.
+        detail = ft.Container(
+            ink=True,
+            content=ft.Column(
+                spacing=12,
+                tight=True,
+                controls=[
+                    header,
+                    ft.Column(
+                        spacing=4,
+                        tight=True,
+                        controls=[
+                            balance_row,
+                            *converted_line,
+                        ],
+                    ),
+                    corporate_badge,
+                ],
+            ),
+        )
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(
+            detail,
+            haptic_kind="light",
+            on_click=lambda _e: self._on_front_click(account, on_click, on_edit),
+            page=page,
+        )
         body = ft.Column(
             spacing=12,
             tight=True,
             controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[header, self._arrow_container],
-                ),
-                ft.Column(
-                    spacing=4,
-                    tight=True,
-                    controls=[
-                        balance_row,
-                        *converted_line,
-                    ],
-                ),
-                corporate_badge,
+                detail,
                 include_row,
             ],
         )
@@ -215,7 +236,7 @@ class AccountCard(ft.Container):
             1 for h in (on_sync, on_edit, on_delete) if h is not None
         )
         strip_w = swipe_action_strip_width(page, buttons=max(action_count, 1))
-        # Account cards stack actions vertically — keep a modest column width.
+        # Vertical stack behind the sliding card (not a horizontal face strip).
         _action_width = min(96.0, max(72.0, strip_w / max(action_count, 1) + 24))
         self._reveal_frac = swipe_reveal_offset(
             page, strip_width=_action_width + 8, buttons=1
@@ -266,8 +287,6 @@ class AccountCard(ft.Container):
             border=styled.border,
             offset=ft.Offset(0, 0),
             animate_offset=ft.Animation(_SLIDE_DURATION, ft.AnimationCurve.EASE_OUT),
-            ink=True,
-            on_click=lambda _e: self._on_front_click(account, on_click, on_edit),
             content=body,
         )
 

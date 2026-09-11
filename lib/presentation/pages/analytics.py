@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional, Sequence
 
@@ -32,7 +32,13 @@ from lib.presentation.styles import (
 )
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.ui_motion import restore_scroll, reset_ui_animating, set_ui_animating, snapshot_scroll
+from lib.presentation.ui_motion import (
+    chart_enter,
+    restore_scroll,
+    reset_ui_animating,
+    set_ui_animating,
+    snapshot_scroll,
+)
 from lib.presentation.skins import get_active_skin
 from lib.presentation.theme import is_dark_mode
 from lib.presentation.utils import (
@@ -90,11 +96,59 @@ def _chart_palette() -> Sequence[str]:
 
 _SECTIONS = (
     "flow",
+    "networth",
     "goals",
     "debts",
     "subscriptions",
     "budget",
 )
+_NW_PERIODS = (
+    ("1m", "30d"),
+    ("3m", "90d"),
+    ("1y", "365d"),
+    ("all", "all"),
+)
+
+
+def _downsample_snapshots(snaps: Sequence, max_points: int = 72) -> list:
+    """Keep chart density bounded on long histories."""
+    items = list(snaps)
+    if len(items) <= max_points:
+        return items
+    last_idx = len(items) - 1
+    step = last_idx / (max_points - 1)
+    indexes = sorted({round(i * step) for i in range(max_points - 1)} | {last_idx})
+    return [items[i] for i in indexes]
+
+
+def _net_worth_chart_series(
+    snaps: Sequence,
+) -> tuple[list[str], list[Decimal], list[Decimal]]:
+    """Turn snapshot levels into cumulative-compatible income/expense deltas."""
+    labels: list[str] = []
+    income: list[Decimal] = []
+    expense: list[Decimal] = []
+    prev: Decimal | None = None
+    for snap in snaps:
+        captured = getattr(snap, "captured_on", None)
+        if isinstance(captured, date):
+            labels.append(captured.strftime("%d.%m"))
+        else:
+            labels.append(str(captured or ""))
+        amount = Decimal(str(getattr(snap, "amount", 0) or 0))
+        if prev is None:
+            income.append(amount)
+            expense.append(Decimal("0"))
+        else:
+            diff = amount - prev
+            if diff >= 0:
+                income.append(diff)
+                expense.append(Decimal("0"))
+            else:
+                income.append(Decimal("0"))
+                expense.append(-diff)
+        prev = amount
+    return labels, income, expense
 
 
 def _status_value(value: object) -> str:
@@ -117,6 +171,7 @@ class AnalyticsPage(ft.Column):
         self._page = page
         self._state = state
         self._analytics_period = DEFAULT_ANALYTICS_PERIOD
+        self._nw_period = "30d"
         self._section = "flow"
         self._token = -1
         self._period_row = h_chip_row()
@@ -125,6 +180,7 @@ class AnalyticsPage(ft.Column):
         self._period_chip_map: dict[str, ft.Container] = {}
         self._section_chip_map: dict[str, ft.Container] = {}
         self._animate_charts = False
+        self._charts_entered_keys: set[str] = set()
         self._section_hosts: dict[str, ft.Container] = {}
         self._section_lists: dict[str, ft.ListView] = {}
         self._section_offsets: dict[str, float] = {}
@@ -145,17 +201,15 @@ class AnalyticsPage(ft.Column):
                         expand=True,
                         spacing=6,
                         controls=[
-                            ft.Container(height=40, content=self._period_row),
+                            ft.Container(height=44, content=self._period_row),
                             self._kpi_host,
-                            ft.Container(height=40, content=self._section_chips),
+                            ft.Container(height=44, content=self._section_chips),
                             self._pager,
                         ],
                     ),
                     page=page,
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
@@ -631,6 +685,13 @@ class AnalyticsPage(ft.Column):
             page=self._page,
             animate=bool(self._animate_charts),
         )
+        pie = chart_enter(
+            self,
+            pie,
+            self._page,
+            refresh=bool(self._animate_charts),
+            key=f"pie:{title}",
+        )
         from lib.presentation.responsive import fit_font
 
         legend_size = fit_font(12, self._page, minimum=10, maximum=14)
@@ -828,6 +889,21 @@ class AnalyticsPage(ft.Column):
             except Exception:  # noqa: BLE001
                 budget_cats = {}
 
+        nw_snaps: list = []
+        list_nw = getattr(c, "list_net_worth_snapshots", None)
+        if list_nw is not None:
+            try:
+                nw_cfg = resolve_analytics_period(self._nw_period, now)
+                date_from = (
+                    nw_cfg.date_from.date() if nw_cfg.date_from is not None else None
+                )
+                nw_snaps = await list_nw.execute(
+                    date_from=date_from,
+                    date_to=nw_cfg.date_to.date(),
+                )
+            except Exception:  # noqa: BLE001
+                nw_snaps = []
+
         net = period_income - period_expense
         net_color = amount_color(net >= 0, dark=dark)
         income_ops = 0
@@ -971,19 +1047,25 @@ class AnalyticsPage(ft.Column):
                         tight=True,
                         controls=[
                             section_title(tr("dashboard.dynamics", lang)),
-                            build_line_chart_image(
-                                period_labels,
-                                series_income,
-                                series_expense,
-                                title="",
-                                width=chart_w,
-                                height=max(chart_h, 180),
-                                dark=dark,
-                                language=lang,
-                                show_income=True,
-                                show_expense=True,
-                                page=self._page,
-                                animate=bool(self._animate_charts),
+                            chart_enter(
+                                self,
+                                build_line_chart_image(
+                                    period_labels,
+                                    series_income,
+                                    series_expense,
+                                    title="",
+                                    width=chart_w,
+                                    height=max(chart_h, 180),
+                                    dark=dark,
+                                    language=lang,
+                                    show_income=True,
+                                    show_expense=True,
+                                    page=self._page,
+                                    animate=bool(self._animate_charts),
+                                ),
+                                self._page,
+                                refresh=bool(self._animate_charts),
+                                key="line",
                             ),
                         ],
                     ),
@@ -994,6 +1076,12 @@ class AnalyticsPage(ft.Column):
 
             pages = [
                 flow_page,
+                self._scroll_page(
+                    "networth",
+                    self._net_worth_controls(
+                        nw_snaps, base, lang, dark, chart_w, chart_h
+                    ),
+                ),
                 self._scroll_page("goals", self._goals_controls(goals, book, base, lang)),
                 self._scroll_page("debts", self._debts_controls(debts, book, base, lang)),
                 self._scroll_page(
@@ -1042,6 +1130,117 @@ class AnalyticsPage(ft.Column):
 
     def _dark(self) -> bool:
         return is_dark_mode(self._page, self._state.theme_mode)
+
+    def _set_nw_period(self, key: str) -> None:
+        if key not in {period for _, period in _NW_PERIODS}:
+            key = "30d"
+        if self._nw_period == key:
+            return
+        self._nw_period = key
+        self._reload_gate.request()
+
+    def _net_worth_controls(
+        self,
+        snaps: list,
+        base: str,
+        lang: str,
+        dark: bool,
+        chart_w: int,
+        chart_h: int,
+    ) -> list[ft.Control]:
+        chips = ft.Row(
+            spacing=6,
+            wrap=True,
+            controls=[
+                self._chip(
+                    tr(f"analytics.networth.{label_key}", lang),
+                    selected=self._nw_period == period_key,
+                    on_click=lambda _e, k=period_key: self._set_nw_period(k),
+                )
+                for label_key, period_key in _NW_PERIODS
+            ],
+        )
+        rows: list[ft.Control] = [
+            section_title(tr("analytics.networth.title", lang)),
+            chips,
+        ]
+        if len(snaps) < 2:
+            if snaps:
+                last = snaps[-1]
+                rows.append(
+                    self._metrics_card(
+                        [
+                            self._metric_cell(
+                                tr("analytics.balance", lang),
+                                last.amount,
+                                last.currency or base,
+                                columns=2,
+                            )
+                        ]
+                    )
+                )
+            rows.append(
+                EmptyState(
+                    tr("empty.networth", lang),
+                    icon=ft.Icons.SHOW_CHART,
+                )
+            )
+            return rows
+        sampled = _downsample_snapshots(snaps)
+        labels, income, expense = _net_worth_chart_series(sampled)
+        last = snaps[-1]
+        first = snaps[0]
+        delta = last.amount - first.amount
+        rows.append(
+            self._metrics_card(
+                [
+                    self._metric_cell(
+                        tr("analytics.balance", lang),
+                        last.amount,
+                        last.currency or base,
+                    ),
+                    self._metric_cell(
+                        tr("analytics.net", lang),
+                        delta,
+                        last.currency or base,
+                        signed=True,
+                        color=amount_color(delta >= 0, dark=dark),
+                    ),
+                ]
+            )
+        )
+        rows.append(
+            card_surface(
+                ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        chart_enter(
+                            self,
+                            build_line_chart_image(
+                                labels,
+                                income,
+                                expense,
+                                title="",
+                                width=chart_w,
+                                height=max(chart_h, 180),
+                                dark=dark,
+                                language=lang,
+                                show_income=True,
+                                show_expense=True,
+                                page=self._page,
+                                animate=bool(self._animate_charts),
+                            ),
+                            self._page,
+                            refresh=bool(self._animate_charts),
+                            key="networth",
+                        ),
+                    ],
+                ),
+                padding=10,
+            )
+        )
+        return rows
 
     def _goals_controls(
         self,

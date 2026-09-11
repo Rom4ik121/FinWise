@@ -26,6 +26,23 @@ def test_currency_dropdown_options_localized() -> None:
     assert "—" in (options[0].text or "")
 
 
+def test_language_picker_lists_english_first() -> None:
+    from lib.infrastructure.services.localization import language_picker_choices
+    from lib.presentation.widgets.language_picker import LanguagePicker
+
+    choices = language_picker_choices()
+    assert choices[0] == ("en", "English")
+    picker = LanguagePicker(
+        page=None,  # type: ignore[arg-type]
+        lang="ru",
+        label="Language",
+        value="ru",
+    )
+    assert picker.value == "ru"
+    picker.set_value("en", notify=False)
+    assert picker.value == "en"
+
+
 def test_account_card_builds() -> None:
     acc = Account(
         name="Cash",
@@ -39,6 +56,45 @@ def test_account_card_builds() -> None:
     assert card is not None
     synced = AccountCard(acc, language="en", exchange_title="Binance", on_sync=lambda _a: None)
     assert synced is not None
+
+
+def test_account_card_swipe_actions_are_vertical_behind_front() -> None:
+    """Edit/Delete live in a vertical stack behind the card, not on the face."""
+    acc = Account(
+        name="Cash",
+        currency="UZS",
+        initial_balance=Decimal("10"),
+        balance=Decimal("10"),
+        icon="wallet",
+        color="#2E7D32",
+    )
+    card = AccountCard(
+        acc,
+        language="en",
+        on_edit=lambda _a: None,
+        on_delete=lambda _a: None,
+        on_sync=lambda _a: None,
+    )
+    stack = card.content
+    assert isinstance(stack, ft.Stack)
+    back, front = stack.controls
+    assert front is card._front
+    assert isinstance(back.content, ft.Container)
+    column = back.content.content
+    assert isinstance(column, ft.Column)
+    assert len(column.controls) == 3
+    for tile in column.controls:
+        assert getattr(tile, "expand", None) is True
+
+    face_icons = set(_find_icons(front))
+    assert ft.Icons.EDIT_OUTLINED not in face_icons
+    assert ft.Icons.DELETE_OUTLINE not in face_icons
+    assert ft.Icons.SYNC not in face_icons
+
+    back_icons = set(_find_icons(back))
+    assert ft.Icons.EDIT_OUTLINED in back_icons
+    assert ft.Icons.DELETE_OUTLINE in back_icons
+    assert ft.Icons.SYNC in back_icons
 
 
 def test_transaction_tile_uses_category_icon() -> None:
@@ -134,10 +190,32 @@ def test_dismiss_fullscreen_drops_overlay_tree() -> None:
     dismiss_fullscreen(page, key="editor")  # type: ignore[arg-type]
     assert page.overlay[0].content is None
     assert page.overlay[0].visible is False
+    assert page.overlay[0].ignore_interactions is True
     second = ft.Container(data="editor", content=ft.Text("b"))
     push_overlay(page, second)  # type: ignore[arg-type]
     assert len(page.overlay) == 1
     assert page.overlay[0].content is second.content
+    assert page.overlay[0].ignore_interactions is False
+
+
+def test_push_overlay_inserts_under_toast() -> None:
+    from lib.presentation.ui_feedback import TOAST_OVERLAY_TAG
+    from lib.presentation.widgets.fullscreen_form import push_overlay
+
+    class _Page:
+        def __init__(self) -> None:
+            self.overlay = [ft.Container(data=TOAST_OVERLAY_TAG, height=64)]
+
+        def update(self) -> None:
+            return None
+
+    page = _Page()
+    sheet = ft.Container(data="editor", content=ft.Text("form"))
+    push_overlay(page, sheet)  # type: ignore[arg-type]
+    assert [getattr(c, "data", None) for c in page.overlay] == [
+        "editor",
+        TOAST_OVERLAY_TAG,
+    ]
 
 
 def test_transaction_tile_builds() -> None:
@@ -207,19 +285,26 @@ def test_charts_empty_and_with_data() -> None:
     assert isinstance(line, ft.Container)
 
 
-def _find_icons(ctrl: ft.Control) -> list:
-    found: list = []
+def _iter_controls(ctrl: ft.Control):
     stack = [ctrl]
     while stack:
         cur = stack.pop()
-        if isinstance(cur, ft.Icon):
-            found.append(getattr(cur, "icon", None) or getattr(cur, "name", None))
+        yield cur
         content = getattr(cur, "content", None)
         if content is not None:
             stack.append(content)
         controls = getattr(cur, "controls", None)
         if controls:
             stack.extend(controls)
+
+
+def _find_icons(ctrl: ft.Control) -> list:
+    found: list = []
+    for cur in _iter_controls(ctrl):
+        if isinstance(cur, ft.Icon):
+            found.append(getattr(cur, "icon", None) or getattr(cur, "name", None))
+        elif isinstance(cur, ft.IconButton):
+            found.append(getattr(cur, "icon", None))
     return found
 
 
@@ -244,7 +329,8 @@ def test_chart_layout_fits_window() -> None:
 
     w, h = chart_layout(None)
     assert w >= 240
-    assert 180 <= h <= 360
+    # Default reference width is 390 (xs); chart_layout caps height at 172.
+    assert 152 <= h <= 360
 
 
 def test_charts_many_periods_scroll() -> None:

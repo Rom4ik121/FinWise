@@ -19,6 +19,7 @@ from lib.presentation.responsive import (
     calendar_cell_size,
     calendar_day_width,
     clamp_content_width,
+    form_shell_inset,
     tap_button_style,
 )
 from lib.presentation.styles import form_save_button
@@ -66,14 +67,32 @@ def _display_text(
     return format_date(value, with_time=with_time)
 
 
+_PICKER_LOCALES: dict[str, str] = {
+    "en": "en_US",
+    "ru": "ru_RU",
+    "uk": "uk_UA",
+    "be": "be_BY",
+    "uz": "uz_UZ",
+    "kk": "kk_KZ",
+    "de": "de_DE",
+    "es": "es_ES",
+    "fr": "fr_FR",
+    "pt": "pt_BR",
+    "it": "it_IT",
+    "pl": "pl_PL",
+    "tr": "tr_TR",
+    "id": "id_ID",
+    "zh": "zh_CN",
+    "ja": "ja_JP",
+    "ko": "ko_KR",
+    "hi": "hi_IN",
+}
+
+
 def picker_locale(lang: str | None) -> str:
     """Map app language code to a locale tag (kept for tests / callers)."""
     code = normalize_lang(lang)
-    return {
-        "ru": "ru_RU",
-        "en": "en_US",
-        "uz": "uz_UZ",
-    }.get(code, "ru_RU")
+    return _PICKER_LOCALES.get(code, "en_US")
 
 
 def month_days(year: int, month: int) -> list[date]:
@@ -94,46 +113,76 @@ def strip_scroll_offset(day: int, *, chip_span: int = _STRIP_SPAN, lead: int = 3
 
 _MONTHS: dict[str, tuple[str, ...]] = {
     "ru": (
-        "Январь",
-        "Февраль",
-        "Март",
-        "Апрель",
-        "Май",
-        "Июнь",
-        "Июль",
-        "Август",
-        "Сентябрь",
-        "Октябрь",
-        "Ноябрь",
-        "Декабрь",
+        "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
     ),
     "en": (
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
     ),
     "uz": (
-        "Yanvar",
-        "Fevral",
-        "Mart",
-        "Aprel",
-        "May",
-        "Iyun",
-        "Iyul",
-        "Avgust",
-        "Sentabr",
-        "Oktabr",
-        "Noyabr",
-        "Dekabr",
+        "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+        "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr",
+    ),
+    "uk": (
+        "Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
+        "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень",
+    ),
+    "be": (
+        "Студзень", "Люты", "Сакавік", "Красавік", "Травень", "Чэрвень",
+        "Ліпень", "Жнівень", "Верасень", "Кастрычнік", "Лістапад", "Снежань",
+    ),
+    "kk": (
+        "Қаңтар", "Ақпан", "Наурыз", "Сәуір", "Мамыр", "Маусым",
+        "Шілде", "Тамыз", "Қыркүйек", "Қазан", "Қараша", "Желтоқсан",
+    ),
+    "de": (
+        "Januar", "Februar", "März", "April", "Mai", "Juni",
+        "Juli", "August", "September", "Oktober", "November", "Dezember",
+    ),
+    "es": (
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ),
+    "fr": (
+        "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+        "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+    ),
+    "pt": (
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+    ),
+    "it": (
+        "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+        "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
+    ),
+    "pl": (
+        "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+        "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+    ),
+    "tr": (
+        "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+    ),
+    "id": (
+        "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+        "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+    ),
+    "zh": (
+        "1月", "2月", "3月", "4月", "5月", "6月",
+        "7月", "8月", "9月", "10月", "11月", "12月",
+    ),
+    "ja": (
+        "1月", "2月", "3月", "4月", "5月", "6月",
+        "7月", "8月", "9月", "10月", "11月", "12月",
+    ),
+    "ko": (
+        "1월", "2월", "3월", "4월", "5월", "6월",
+        "7월", "8월", "9월", "10월", "11월", "12월",
+    ),
+    "hi": (
+        "जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून",
+        "जुलाई", "अगस्त", "सितम्बर", "अक्टूबर", "नवम्बर", "दिसम्बर",
     ),
 }
 
@@ -141,6 +190,21 @@ _WEEKDAYS: dict[str, tuple[str, ...]] = {
     "ru": ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"),
     "en": ("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"),
     "uz": ("Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"),
+    "uk": ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"),
+    "be": ("Пн", "Аў", "Ср", "Чц", "Пт", "Сб", "Нд"),
+    "kk": ("Дс", "Сс", "Ср", "Бс", "Жм", "Сн", "Жс"),
+    "de": ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"),
+    "es": ("Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do"),
+    "fr": ("Lu", "Ma", "Me", "Je", "Ve", "Sa", "Di"),
+    "pt": ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"),
+    "it": ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"),
+    "pl": ("Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"),
+    "tr": ("Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"),
+    "id": ("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"),
+    "zh": ("一", "二", "三", "四", "五", "六", "日"),
+    "ja": ("月", "火", "水", "木", "金", "土", "日"),
+    "ko": ("월", "화", "수", "목", "금", "토", "일"),
+    "hi": ("सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि", "रवि"),
 }
 
 
@@ -398,7 +462,9 @@ class DateTimeField(ft.Column):
             self._minute_dd.value = f"{minute_q:02d}"
         self._picker_open = True
         self._render_grid()
-        form_w = clamp_content_width(self._page, margin=28, max_width=560)
+        form_w = clamp_content_width(
+            self._page, margin=form_shell_inset(self._page), max_width=560
+        )
         apply_btn = form_save_button(
             tr("action.apply", self._lang),
             icon=ft.Icons.CHECK,
@@ -409,7 +475,12 @@ class DateTimeField(ft.Column):
         except Exception:  # noqa: BLE001
             pass
         footer = ft.Container(
-            padding=ft.Padding.only(left=14, right=14, top=10, bottom=14),
+            padding=ft.Padding.only(
+                left=form_shell_inset(self._page),
+                right=form_shell_inset(self._page),
+                top=10,
+                bottom=14,
+            ),
             content=ft.Container(
                 alignment=ft.Alignment.TOP_CENTER,
                 content=ft.Container(width=form_w, content=apply_btn),

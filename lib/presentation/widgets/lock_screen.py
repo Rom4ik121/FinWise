@@ -14,8 +14,10 @@ from lib.presentation.theme import is_dark_mode, page_gradient
 from lib.presentation.responsive import (
     clamp_content_width,
     form_control_width,
+    form_shell_inset,
     page_width,
     scale_font,
+    wrap_safe_area,
 )
 from lib.presentation.utils import run_async, safe_update, snack, tr
 
@@ -63,7 +65,7 @@ class LockScreen(ft.Container):
         self._countdown_task: asyncio.Task[None] | None = None
         field_w = form_control_width(page, preferred=280)
         if field_w is None:
-            field_w = clamp_content_width(page, margin=56, max_width=280)
+            field_w = clamp_content_width(page, margin=form_shell_inset(page) + 40, max_width=280)
         self._pin = ft.TextField(
             label=tr("settings.pin", language),
             password=True,
@@ -78,9 +80,9 @@ class LockScreen(ft.Container):
             on_submit=lambda _e: run_async(page, self._try_pin),
             autofocus=not biometric_enabled,
         )
-        from lib.presentation.form_keyboard import configure_field, wire_field_chain
+        from lib.presentation.form_keyboard import configure_pin_field, wire_field_chain
 
-        configure_field(self._pin, "number")
+        configure_pin_field(self._pin)
         wire_field_chain(page, [self._pin])
         self._error = ft.Text(
             "",
@@ -115,67 +117,77 @@ class LockScreen(ft.Container):
         ]
 
         dark = is_dark_mode(page)
-        card_w = clamp_content_width(page, margin=24, max_width=400)
+        card_w = clamp_content_width(page, margin=16 if page_width(page) < 360 else 24, max_width=400)
         super().__init__(
             expand=True,
             alignment=ft.Alignment.CENTER,
             gradient=page_gradient(dark),
-            padding=ft.Padding.symmetric(horizontal=16, vertical=24),
-            content=ft.Container(
-                width=card_w,
-                padding=24 if page_width(page) < 360 else 28,
-                border_radius=24,
-                bgcolor=ft.Colors.SURFACE_CONTAINER,
-                border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-                shadow=ft.BoxShadow(
-                    blur_radius=30,
-                    color="#00000044",
-                    offset=ft.Offset(0, 12),
-                ),
-                content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=16,
-                    tight=True,
-                    controls=[
-                        ft.Container(
-                            width=72,
-                            height=72,
-                            border_radius=22,
-                            bgcolor=ft.Colors.PRIMARY_CONTAINER,
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(
-                                ft.Icons.FACE_2
-                                if biometric_enabled
-                                else ft.Icons.LOCK,
-                                size=34,
-                                color=ft.Colors.ON_PRIMARY_CONTAINER,
-                            ),
+            content=wrap_safe_area(
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment.CENTER,
+                    padding=ft.Padding.symmetric(
+                        horizontal=12 if page_width(page) < 360 else 16,
+                        vertical=24,
+                    ),
+                    content=ft.Container(
+                        width=card_w,
+                        padding=24 if page_width(page) < 360 else 28,
+                        border_radius=24,
+                        bgcolor=ft.Colors.SURFACE_CONTAINER,
+                        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                        shadow=ft.BoxShadow(
+                            blur_radius=30,
+                            color="#00000044",
+                            offset=ft.Offset(0, 12),
                         ),
-                        ft.Text(
-                            tr("app.name", language),
-                            size=scale_font(28, page, minimum=24, maximum=32),
-                            weight=ft.FontWeight.W_700,
-                            color=ft.Colors.PRIMARY,
-                        ),
-                        ft.Text(
-                            tr(
-                                "lock.subtitle_bio" if biometric_enabled else "lock.subtitle",
-                                language,
-                            ),
-                            size=scale_font(14, page, minimum=12, maximum=16),
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                        self._pin,
-                        self._error,
-                        ft.Column(
-                            spacing=10,
+                        content=ft.Column(
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=16,
                             tight=True,
-                            controls=actions,
+                            controls=[
+                                ft.Container(
+                                    width=72,
+                                    height=72,
+                                    border_radius=22,
+                                    bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                                    alignment=ft.Alignment.CENTER,
+                                    content=ft.Icon(
+                                        ft.Icons.FACE_2
+                                        if biometric_enabled
+                                        else ft.Icons.LOCK,
+                                        size=34,
+                                        color=ft.Colors.ON_PRIMARY_CONTAINER,
+                                    ),
+                                ),
+                                ft.Text(
+                                    tr("app.name", language),
+                                    size=scale_font(28, page, minimum=24, maximum=32),
+                                    weight=ft.FontWeight.W_700,
+                                    color=ft.Colors.PRIMARY,
+                                ),
+                                ft.Text(
+                                    tr(
+                                        "lock.subtitle_bio" if biometric_enabled else "lock.subtitle",
+                                        language,
+                                    ),
+                                    size=scale_font(14, page, minimum=12, maximum=16),
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    text_align=ft.TextAlign.CENTER,
+                                ),
+                                self._pin,
+                                self._error,
+                                ft.Column(
+                                    spacing=10,
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    tight=True,
+                                    controls=actions,
+                                ),
+                            ],
                         ),
-                    ],
+                    ),
                 ),
+                minimum=0,
             ),
         )
         if biometric_enabled and auto_biometric:
@@ -191,6 +203,12 @@ class LockScreen(ft.Container):
             await self._try_biometric()
 
     async def _finish(self) -> None:
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("success")
+        except Exception:  # noqa: BLE001
+            pass
         self._stop_countdown()
         result = self._on_unlocked()
         if hasattr(result, "__await__"):
@@ -254,6 +272,12 @@ class LockScreen(ft.Container):
             return
         self._error.value = tr("lock.wrong_pin", self._lang)
         self._pin.value = ""
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("heavy")
+        except Exception:  # noqa: BLE001
+            pass
         safe_update(self)
 
     async def _try_biometric(self) -> None:

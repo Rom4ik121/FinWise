@@ -55,7 +55,9 @@ def safe_filename(name: str, *, default: str = "restore.bin") -> str:
 
 
 def classify_restore_payload(name: str, payload: bytes) -> str:
-    """Return ``db``, ``json``, ``enc``, or ``unknown`` for a picked restore file."""
+    """Return ``db``, ``fwbackup``, ``json``, ``enc``, or ``unknown``."""
+    if payload.startswith(b"FWBK"):
+        return "fwbackup"
     if payload.startswith(SQLITE_MAGIC):
         return "db"
     if payload.startswith(b"FWEX"):
@@ -64,6 +66,8 @@ def classify_restore_payload(name: str, payload: bytes) -> str:
     stripped = payload.lstrip()
     if stripped.startswith(b"{") or stripped.startswith(b"[") or lowered.endswith(".json"):
         return "json"
+    if lowered.endswith(".fwbackup"):
+        return "fwbackup"
     if lowered.endswith((".fwexport", ".enc")):
         return "enc"
     if lowered.endswith((".db", ".sqlite", ".sqlite3")):
@@ -134,14 +138,24 @@ def _shareable_copy(source: Path) -> Path:
 
 
 async def _share_sandbox_file(
-    page: ft.Page, file_path: Path, *, title: str
+    page: ft.Page,
+    file_path: Path,
+    *,
+    title: str,
+    extra: list[Path] | None = None,
 ) -> str | None:
     """Present the system share sheet. Returns the sandbox path, or None if dismissed."""
     name = file_path.name
     shared = _shareable_copy(file_path)
+    files = [ft.ShareFile(path=str(shared), name=name)]
+    for item in extra or []:
+        if not item.is_file() or item.resolve() == file_path.resolve():
+            continue
+        copied = _shareable_copy(item)
+        files.append(ft.ShareFile(path=str(copied), name=item.name))
     try:
         result = await share_service(page).share_files(
-            [ft.ShareFile(path=str(shared), name=name)],
+            files,
             title=title,
             text=name,
         )
@@ -180,14 +194,21 @@ def _tk_save_as(file_name: str) -> str | None:
     return chosen or None
 
 
-async def offer_saved_file(page: ft.Page, path: Path | str, *, title: str = "FinWise") -> str | None:
+async def offer_saved_file(
+    page: ft.Page,
+    path: Path | str,
+    *,
+    title: str = "FinWise",
+    extra: list[Path | str] | None = None,
+) -> str | None:
     """Let the user keep a generated file. Returns the written path, or None if cancelled."""
     file_path = Path(path)
     if not file_path.is_file():
         raise FileNotFoundError(str(file_path))
+    extras = [Path(item) for item in (extra or []) if Path(item).is_file()]
     # Phones cannot write to iCloud Drive / system Downloads. Share the sandbox file.
     if _mobile(page):
-        return await _share_sandbox_file(page, file_path, title=title)
+        return await _share_sandbox_file(page, file_path, title=title, extra=extras)
 
     data = file_path.read_bytes()
     name = file_path.name
@@ -226,23 +247,57 @@ async def offer_saved_file(page: ft.Page, path: Path | str, *, title: str = "Fin
     return str(written) if written else None
 
 
+IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
+
+
+async def pick_image_bytes(
+    page: ft.Page,
+    *,
+    title: str,
+    source: str = "gallery",
+) -> tuple[str, bytes] | None:
+    """Pick a photo via the existing FilePicker IMAGE path.
+
+    Flet 0.86 has no camera-capture / ``image_picker`` API. ``source`` only
+    changes the dialog title (gallery vs take-photo) so the same storage
+    path is used; on mobile the system image picker often includes a camera
+    control. Desktop Windows falls back to a file dialog.
+    """
+    _ = source
+    return await pick_restore_bytes(
+        page,
+        title=title,
+        extensions=list(IMAGE_EXTENSIONS),
+        images=True,
+    )
+
+
 async def pick_restore_bytes(
     page: ft.Page,
     *,
     title: str,
     extensions: list[str],
+    images: bool = False,
 ) -> tuple[str, bytes] | None:
     """Pick a backup/export file and return ``(name, bytes)``."""
     picker = file_picker(page)
+    kwargs: dict = {
+        "dialog_title": title,
+        "allow_multiple": False,
+        "with_data": True,
+    }
+    if images:
+        image_type = getattr(ft.FilePickerFileType, "IMAGE", None)
+        if image_type is not None:
+            kwargs["file_type"] = image_type
+        elif extensions:
+            kwargs["allowed_extensions"] = extensions
+    elif extensions:
+        kwargs["allowed_extensions"] = extensions
     try:
-        files = await picker.pick_files(
-            dialog_title=title,
-            allow_multiple=False,
-            with_data=True,
-            allowed_extensions=extensions or None,
-        )
+        files = await picker.pick_files(**kwargs)
     except Exception:  # noqa: BLE001
-        logger.debug("pick_files with extensions failed, retrying without filter", exc_info=True)
+        logger.debug("pick_files with filter failed, retrying without filter", exc_info=True)
         files = await picker.pick_files(
             dialog_title=title,
             allow_multiple=False,

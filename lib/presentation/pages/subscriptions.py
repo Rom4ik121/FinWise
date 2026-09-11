@@ -20,6 +20,7 @@ from lib.domain.use_cases.subscription_insights import bucket_charges_by_month
 from lib.domain.use_cases.subscriptions import (
     count_missed_periods,
     monthly_equivalent,
+    preview_occurrence_dates,
 )
 from lib.presentation.account_icons import account_icon_control, entity_icon_groups
 from lib.presentation.dropdown_options import icon_dropdown_option
@@ -33,7 +34,7 @@ from lib.presentation.components.layout.grid import card_grid
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import amount_text, make_amount_field, parse_amount
 from lib.presentation.notification_badges import (
     SUBSCRIPTION_ALERT_KINDS,
     pending_related_ids,
@@ -63,6 +64,7 @@ from lib.presentation.utils import (
     snack_exception,
     tr,
 )
+from lib.presentation.form_validation import require_name, require_positive_amount
 from lib.presentation.widgets.appearance_picker import open_color_picker, open_icon_picker
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
@@ -132,15 +134,18 @@ class SubscriptionsPage(ft.Column):
                     body=self._list,
                     page=page,
                     extra=[self._search_tf],
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.TUNE,
                             tooltip=tr("action.filters", state.language),
                             on_click=lambda _e: self._open_filters(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.EVENT_REPEAT,
+                            tooltip=tr("nav.recurring", state.language),
+                            on_click=lambda _e: state.open_secondary("recurring"),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.ADD,
@@ -348,6 +353,13 @@ class SubscriptionsPage(ft.Column):
                 self._list, [EmptyState(tr("error.generic", lang))], self._page
             )
             return
+
+        pending = getattr(self._state, "pending_edit_subscription_id", None)
+        if pending:
+            self._state.pending_edit_subscription_id = None
+            match = next((s for s in items_all if s.id == pending), None)
+            if match is not None:
+                self._open_editor(match)
 
         if not items:
             if self._search_query.strip():
@@ -1208,6 +1220,31 @@ class SubscriptionsPage(ft.Column):
             label=tr("field.date", lang),
             value=(sub.next_billing_date if sub else datetime.now(timezone.utc)),
         )
+        preview_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+
+        def _refresh_preview(_e: object = None) -> None:
+            try:
+                start = next_field.value or datetime.now(timezone.utc)
+                period = Periodicity(period_dd.value or Periodicity.MONTHLY.value)
+                custom = None
+                if period == Periodicity.CUSTOM:
+                    custom = int(custom_tf.value or "1")
+                dates = preview_occurrence_dates(
+                    start, period, custom_interval_days=custom, count=3
+                )
+                preview_text.value = tr(
+                    "subscription.next_preview",
+                    lang,
+                    dates=", ".join(format_date(d) for d in dates),
+                )
+            except Exception:  # noqa: BLE001
+                preview_text.value = ""
+            try:
+                preview_text.update()
+            except Exception:  # noqa: BLE001
+                pass
+
+        _refresh_preview()
         locked_status = sub is not None and sub.status in (
             SubscriptionStatus.EXPIRED,
             SubscriptionStatus.CANCELLED,
@@ -1334,7 +1371,8 @@ class SubscriptionsPage(ft.Column):
 
         def _apply_template(template: SubscriptionTemplate) -> None:
             name_tf.value = tr(template.name_key, lang)
-            amount_tf.value = template.default_amount
+            if template.default_amount and not amount_text(amount_tf).strip():
+                amount_tf.value = template.default_amount
             period_dd.value = template.periodicity.value
             custom_tf.visible = template.periodicity == Periodicity.CUSTOM
             selected_icon["value"] = template.icon
@@ -1362,17 +1400,17 @@ class SubscriptionsPage(ft.Column):
                 safe_update(custom_tf)
             except Exception:  # noqa: BLE001
                 pass
+            _refresh_preview()
 
         bind_dropdown_select(period_dd, _on_period)
         close_holder: dict[str, object] = {}
 
         async def _save(_e: ft.ControlEvent | None = None) -> None:
-            try:
-                amount = parse_amount(amount_tf.value)
-                if amount <= 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                snack(self._page, tr("invalid_amount", lang), error=True)
+            name = require_name(name_tf, self._page, lang)
+            if not name:
+                return
+            amount = require_positive_amount(amount_tf, self._page, lang)
+            if amount is None:
                 return
             next_date = next_field.value
             start_dt = start_field.value
@@ -1426,11 +1464,11 @@ class SubscriptionsPage(ft.Column):
                         next_billing_date=next_date,
                     ).id
                 ),
-                name=(name_tf.value or "").strip() or "Subscription",
+                name=name,
                 amount=amount,
                 currency=(currency_picker.value or account.currency).upper(),
                 account_id=account.id,
-                category=(name_tf.value or "").strip() or "Subscription",
+                category=name,
                 periodicity=periodicity,
                 custom_interval_days=custom_days,
                 start_date=start,
@@ -1495,6 +1533,7 @@ class SubscriptionsPage(ft.Column):
                     max_payments_tf,
                     form_hint(tr("subscription.max_payments_hint", lang), size=11),
                     next_field,
+                    preview_text,
                 ],
                 icon=ft.Icons.EVENT,
             ),

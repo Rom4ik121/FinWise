@@ -1,14 +1,79 @@
-"""RU/EN/UZ UI string dictionaries and translation helper."""
+"""UI string dictionaries and translation helper."""
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Mapping
 
 logger = logging.getLogger("finanse.infrastructure.services.localization")
 
-SUPPORTED_LANGS = ("ru", "en", "uz")
+# Live UI languages (LTR). RTL (ar/he) is deferred.
+SUPPORTED_LANGS = (
+    "en",
+    "ru",
+    "uk",
+    "be",
+    "uz",
+    "kk",
+    "de",
+    "es",
+    "fr",
+    "pt",
+    "it",
+    "pl",
+    "tr",
+    "id",
+    "zh",
+    "ja",
+    "ko",
+    "hi",
+)
 DEFAULT_LANG = "en"
+# Native endonyms for the Settings picker (not translated).
+LANG_LABELS: dict[str, str] = {
+    "en": "English",
+    "ru": "Русский",
+    "uk": "Українська",
+    "be": "Беларуская",
+    "uz": "Oʻzbekcha",
+    "kk": "Қазақша",
+    "de": "Deutsch",
+    "es": "Español",
+    "fr": "Français",
+    "pt": "Português",
+    "it": "Italiano",
+    "pl": "Polski",
+    "tr": "Türkçe",
+    "id": "Bahasa Indonesia",
+    "zh": "简体中文",
+    "ja": "日本語",
+    "ko": "한국어",
+    "hi": "हिन्दी",
+}
+# Settings picker order (English first so the list never hides it above the fold).
+LANG_PICKER_ORDER = SUPPORTED_LANGS
+
+
+def language_picker_choices() -> tuple[tuple[str, str], ...]:
+    """``(code, endonym)`` rows for Settings. English is always first."""
+    return tuple((code, LANG_LABELS[code]) for code in LANG_PICKER_ORDER)
+
+
+_LANG_ALIASES: dict[str, str] = {
+    "zh-hans": "zh",
+    "zh-cn": "zh",
+    "zh-sg": "zh",
+    "zh-tw": "zh",
+    "zh-hant": "zh",
+    "zh-hk": "zh",
+    "pt-br": "pt",
+    "pt-pt": "pt",
+    "nb": "en",
+    "nn": "en",
+    "in": "id",  # legacy Indonesian tag
+}
 
 STRINGS: dict[str, dict[str, str]] = {
     "account.balance": {
@@ -439,6 +504,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Details",
         "uz": "Tafsilotlar",
     },
+    "form.name_required": {
+        "ru": "Введите название",
+        "en": "Enter a name",
+        "uz": "Nom kiriting",
+    },
     "form.section.main": {
         "ru": "Основное",
         "en": "Main",
@@ -498,6 +568,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Доход и расход",
         "en": "Income & expense",
         "uz": "Daromad va xarajat",
+    },
+    "category.create_hint": {
+        "ru": "Имя, иконка и цвет — категория появится в операциях и бюджетах.",
+        "en": "Name, icon, and color — the category shows up in transactions and budgets.",
+        "uz": "Nom, belgi va rang — kategoriya amaliyot va byudjetlarda ko‘rinadi.",
     },
     "category.create": {
         "ru": "Новая категория",
@@ -1454,6 +1529,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Owed to me",
         "uz": "Menga qarzdorlar",
     },
+    "onboarding.home_hint": {
+        "ru": "Добавьте счёт — затем операции, цели и бюджеты. Данные только на этом устройстве.",
+        "en": "Add an account, then transactions, goals, and budgets. Data stays on this device.",
+        "uz": "Hisob qo‘shing — keyin amaliyot, maqsad va byudjetlar. Ma’lumot shu qurilmada qoladi.",
+    },
     "empty.accounts": {
         "ru": "Создайте свой первый счёт",
         "en": "Create your first account",
@@ -1609,6 +1689,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Attach photo",
         "uz": "Fotosurat biriktirish",
     },
+    "tx.photo_gallery": {
+        "ru": "Галерея",
+        "en": "Gallery",
+        "uz": "Galereya",
+    },
+    "tx.take_photo": {
+        "ru": "Камера",
+        "en": "Take photo",
+        "uz": "Kamera",
+    },
+    "tx.item_photo_remove": {
+        "ru": "Убрать фото",
+        "en": "Remove photo",
+        "uz": "Fotosuratni olib tashlash",
+    },
     "tx.attachments": {
         "ru": "Вложения",
         "en": "Attachments",
@@ -1628,6 +1723,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Фото добавлено",
         "en": "Photo added",
         "uz": "Fotosurat qo‘shildi",
+    },
+    "tx.attachment_too_large": {
+        "ru": "Файл больше 12 МБ",
+        "en": "File is larger than 12 MB",
+        "uz": "Fayl 12 MB dan katta",
     },
     "field.category": {
         "ru": "Категория",
@@ -2846,6 +2946,81 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Oʻzbekcha",
         "uz": "Oʻzbekcha",
     },
+    "lang.uk": {
+        "ru": "Українська",
+        "en": "Українська",
+        "uz": "Українська",
+    },
+    "lang.be": {
+        "ru": "Беларуская",
+        "en": "Беларуская",
+        "uz": "Беларуская",
+    },
+    "lang.kk": {
+        "ru": "Қазақша",
+        "en": "Қазақша",
+        "uz": "Қазақша",
+    },
+    "lang.de": {
+        "ru": "Deutsch",
+        "en": "Deutsch",
+        "uz": "Deutsch",
+    },
+    "lang.es": {
+        "ru": "Español",
+        "en": "Español",
+        "uz": "Español",
+    },
+    "lang.fr": {
+        "ru": "Français",
+        "en": "Français",
+        "uz": "Français",
+    },
+    "lang.pt": {
+        "ru": "Português",
+        "en": "Português",
+        "uz": "Português",
+    },
+    "lang.it": {
+        "ru": "Italiano",
+        "en": "Italiano",
+        "uz": "Italiano",
+    },
+    "lang.pl": {
+        "ru": "Polski",
+        "en": "Polski",
+        "uz": "Polski",
+    },
+    "lang.tr": {
+        "ru": "Türkçe",
+        "en": "Türkçe",
+        "uz": "Türkçe",
+    },
+    "lang.id": {
+        "ru": "Bahasa Indonesia",
+        "en": "Bahasa Indonesia",
+        "uz": "Bahasa Indonesia",
+    },
+    "lang.zh": {
+        "ru": "简体中文",
+        "en": "简体中文",
+        "uz": "简体中文",
+    },
+    "lang.ja": {
+        "ru": "日本語",
+        "en": "日本語",
+        "uz": "日本語",
+    },
+    "lang.ko": {
+        "ru": "한국어",
+        "en": "한국어",
+        "uz": "한국어",
+    },
+    "lang.hi": {
+        "ru": "हिन्दी",
+        "en": "हिन्दी",
+        "uz": "हिन्दी",
+    },
     "loading": {
         "ru": "Загрузка…",
         "en": "Loading…",
@@ -3573,6 +3748,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Data restored",
         "uz": "Ma'lumotlar tiklandi",
     },
+    "settings.restore_locked": {
+        "ru": "Данные восстановлены. Введите PIN из этой резервной копии.",
+        "en": "Data restored. Enter the PIN from this backup.",
+        "uz": "Ma'lumotlar tiklandi. Shu zaxiradagi PIN-ni kiriting.",
+    },
     "settings.notifications": {
         "ru": "Уведомления",
         "en": "Notifications",
@@ -3597,6 +3777,31 @@ STRINGS: dict[str, dict[str, str]] = {
         "ru": "Расписание",
         "en": "Schedule",
         "uz": "Jadval",
+    },
+    "settings.notifications_open_settings": {
+        "ru": "Открыть настройки системы",
+        "en": "Open system settings",
+        "uz": "Tizim sozlamalarini ochish",
+    },
+    "settings.notifications_denied": {
+        "ru": "Разрешение на уведомления отклонено. Включите их в настройках системы.",
+        "en": "Notification permission was denied. Enable it in system settings.",
+        "uz": "Bildirishnoma ruxsati rad etildi. Tizim sozlamalarida yoqing.",
+    },
+    "settings.notifications_settings_failed": {
+        "ru": "Не удалось открыть системные настройки уведомлений",
+        "en": "Could not open system notification settings",
+        "uz": "Tizim bildirishnoma sozlamalarini ochib bo‘lmadi",
+    },
+    "settings.share_backup_hint": {
+        "ru": "Кнопка «Резервная копия» сохраняет зашифрованный файл .fwbackup (база, ключ бирж и фото). Старые .db тоже открываются.",
+        "en": "Backup saves an encrypted .fwbackup (database, exchange key, and photos). Older .db files still restore.",
+        "uz": "Zaxira shifrlangan .fwbackup saqlaydi (baza, birja kaliti va suratlar). Eski .db ham tiklanadi.",
+    },
+    "settings.restore_bundle_password": {
+        "ru": "Пароль резервной копии",
+        "en": "Backup password",
+        "uz": "Zaxira paroli",
     },
     "settings.export_hint": {
         "ru": "Соберите PDF-отчёт: период, счета и нужные разделы.",
@@ -3758,10 +3963,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "PIN: at least 4 digits",
         "uz": "PIN: kamida 4 belgi",
     },
+    "settings.pin_digits": {
+        "ru": "PIN: 4–8 цифр",
+        "en": "PIN: 4–8 digits",
+        "uz": "PIN: 4–8 ta raqam",
+    },
     "settings.pin_saved": {
         "ru": "PIN сохранён",
         "en": "PIN saved",
         "uz": "PIN saqlandi",
+    },
+    "settings.pin_saved_detail": {
+        "ru": "PIN сохранён. Он понадобится, чтобы открыть приложение.",
+        "en": "PIN saved. You’ll need it to unlock the app.",
+        "uz": "PIN saqlandi. Ilovani ochish uchun u kerak bo‘ladi.",
     },
     "settings.rates": {
         "ru": "Курсы валют",
@@ -4593,20 +4808,340 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Both sides of the transfer will be deleted",
         "uz": "O‘tkazmaning ikkala tomoni o‘chiriladi",
     },
+    "empty.transactions_filtered": {
+        "ru": "Нет операций по выбранным фильтрам",
+        "en": "No transactions match the filters",
+        "uz": "Filtrga mos amaliyot yo‘q",
+    },
+    "empty.networth": {
+        "ru": "Недостаточно истории. Снимки появляются при изменении баланса.",
+        "en": "Not enough history yet. Snapshots appear when balances change.",
+        "uz": "Tarix yetarli emas. Balans o‘zgaganda sur’atlar paydo bo‘ladi.",
+    },
+    "filter.account": {
+        "ru": "Счёт",
+        "en": "Account",
+        "uz": "Hisob",
+    },
+    "filter.amount_min": {
+        "ru": "Сумма от",
+        "en": "Amount from",
+        "uz": "Summa dan",
+    },
+    "filter.amount_max": {
+        "ru": "Сумма до",
+        "en": "Amount to",
+        "uz": "Summa gacha",
+    },
+    "filter.clear_all": {
+        "ru": "Сбросить всё",
+        "en": "Clear all",
+        "uz": "Hammasini tozalash",
+    },
+    "filter.period.7d": {
+        "ru": "7 дней",
+        "en": "7 days",
+        "uz": "7 kun",
+    },
+    "filter.period.30d": {
+        "ru": "30 дней",
+        "en": "30 days",
+        "uz": "30 kun",
+    },
+    "filter.period.90d": {
+        "ru": "3 месяца",
+        "en": "3 months",
+        "uz": "3 oy",
+    },
+    "filter.period.365d": {
+        "ru": "Год",
+        "en": "Year",
+        "uz": "Yil",
+    },
+    "filter.period.all": {
+        "ru": "Все даты",
+        "en": "All dates",
+        "uz": "Barcha sanalar",
+    },
+    "action.import_csv": {
+        "ru": "Импорт CSV",
+        "en": "Import CSV",
+        "uz": "CSV import",
+    },
+    "csv.import.title": {
+        "ru": "Импорт выписки",
+        "en": "Import statement",
+        "uz": "Ko‘chirma importi",
+    },
+    "csv.import.hint": {
+        "ru": "CSV: дата, сумма, описание. Первая строка — заголовки. Кодировка и разделитель определяются автоматически.",
+        "en": "CSV: date, amount, description. First row is headers. Encoding and delimiter are detected automatically.",
+        "uz": "CSV: sana, summa, izoh. Birinchi qator — sarlavhalar. Kodlash va ajratuvchi avtomatik aniqlanadi.",
+    },
+    "csv.import.pick": {
+        "ru": "Выбрать CSV",
+        "en": "Choose CSV",
+        "uz": "CSV tanlash",
+    },
+    "csv.import.preset": {
+        "ru": "Шаблон колонок",
+        "en": "Column preset",
+        "uz": "Ustun shabloni",
+    },
+    "csv.import.preset.finwise": {
+        "ru": "Экспорт FinWise",
+        "en": "FinWise export",
+        "uz": "FinWise eksporti",
+    },
+    "csv.import.preset.simple": {
+        "ru": "Дата / сумма / описание",
+        "en": "Date / amount / description",
+        "uz": "Sana / summa / izoh",
+    },
+    "csv.import.preset.ru_bank": {
+        "ru": "Банк (Дата, Сумма, Назначение)",
+        "en": "Bank (Date, Amount, Details)",
+        "uz": "Bank (Sana, Summa, Izoh)",
+    },
+    "csv.import.preset.en_bank": {
+        "ru": "Bank (Date, Amount, Description)",
+        "en": "Bank (Date, Amount, Description)",
+        "uz": "Bank (Date, Amount, Description)",
+    },
+    "csv.import.preset.custom": {
+        "ru": "Свои колонки",
+        "en": "Custom columns",
+        "uz": "Maxsus ustunlar",
+    },
+    "csv.import.col.date": {
+        "ru": "Дата",
+        "en": "Date",
+        "uz": "Sana",
+    },
+    "csv.import.col.amount": {
+        "ru": "Сумма",
+        "en": "Amount",
+        "uz": "Summa",
+    },
+    "csv.import.col.currency": {
+        "ru": "Валюта",
+        "en": "Currency",
+        "uz": "Valyuta",
+    },
+    "csv.import.col.description": {
+        "ru": "Описание",
+        "en": "Description",
+        "uz": "Izoh",
+    },
+    "csv.import.col.account": {
+        "ru": "Счёт (колонка)",
+        "en": "Account column",
+        "uz": "Hisob ustuni",
+    },
+    "csv.import.col.type": {
+        "ru": "Тип (колонка)",
+        "en": "Type column",
+        "uz": "Tur ustuni",
+    },
+    "csv.import.col.none": {
+        "ru": "— нет —",
+        "en": "— none —",
+        "uz": "— yo‘q —",
+    },
+    "csv.import.preview": {
+        "ru": "Предпросмотр",
+        "en": "Preview",
+        "uz": "Ko‘rib chiqish",
+    },
+    "csv.import.commit": {
+        "ru": "Импортировать {count}",
+        "en": "Import {count}",
+        "uz": "{count} ta import",
+    },
+    "csv.import.done": {
+        "ru": "Импортировано: {count}",
+        "en": "Imported: {count}",
+        "uz": "Import qilindi: {count}",
+    },
+    "csv.import.none_valid": {
+        "ru": "Нет корректных строк для импорта",
+        "en": "No valid rows to import",
+        "uz": "Import uchun yaroqli qator yo‘q",
+    },
+    "csv.import.invalid_row": {
+        "ru": "Ошибка в строке {n}",
+        "en": "Error on row {n}",
+        "uz": "{n}-qatorda xato",
+    },
+    "csv.import.account": {
+        "ru": "Счёт по умолчанию",
+        "en": "Default account",
+        "uz": "Standart hisob",
+    },
+    "nav.recurring": {
+        "ru": "Шаблоны",
+        "en": "Templates",
+        "uz": "Shablonlar",
+    },
+    "recurring.empty": {
+        "ru": "Нет повторяющихся шаблонов",
+        "en": "No recurring templates yet",
+        "uz": "Takroriy shablon yo‘q",
+    },
+    "recurring.next": {
+        "ru": "Следующая: {date}",
+        "en": "Next: {date}",
+        "uz": "Keyingi: {date}",
+    },
+    "recurring.skip": {
+        "ru": "Пропустить раз",
+        "en": "Skip once",
+        "uz": "Bir marta o‘tkazib yuborish",
+    },
+    "recurring.pause": {
+        "ru": "Пауза",
+        "en": "Pause",
+        "uz": "Pauza",
+    },
+    "recurring.resume": {
+        "ru": "Возобновить",
+        "en": "Resume",
+        "uz": "Davom ettirish",
+    },
+    "recurring.interval": {
+        "ru": "Интервал",
+        "en": "Interval",
+        "uz": "Interval",
+    },
+    "recurring.interval.daily": {
+        "ru": "Каждый день",
+        "en": "Daily",
+        "uz": "Har kuni",
+    },
+    "recurring.interval.weekly": {
+        "ru": "Каждую неделю",
+        "en": "Weekly",
+        "uz": "Har hafta",
+    },
+    "recurring.interval.monthly": {
+        "ru": "Каждый месяц",
+        "en": "Monthly",
+        "uz": "Har oy",
+    },
+    "recurring.interval.yearly": {
+        "ru": "Каждый год",
+        "en": "Yearly",
+        "uz": "Har yil",
+    },
+    "recurring.preview": {
+        "ru": "Ближайшие даты: {dates}",
+        "en": "Upcoming: {dates}",
+        "uz": "Yaqin sanalar: {dates}",
+    },
+    "recurring.auto_create": {
+        "ru": "Создавать операции автоматически",
+        "en": "Create transactions automatically",
+        "uz": "Amaliyotlarni avtomatik yaratish",
+    },
+    "recurring.interval_count": {
+        "ru": "Каждые N периодов",
+        "en": "Every N periods",
+        "uz": "Har N davr",
+    },
+    "subscription.series_hint": {
+        "ru": "Это одно списание серии. Саму серию меняйте в Подписках.",
+        "en": "This is one occurrence. Edit the series from Subscriptions.",
+        "uz": "Bu seriyaning bitta yozuvi. Seriyani Obunalar bo‘limida o‘zgartiring.",
+    },
+    "subscription.edit_series": {
+        "ru": "Открыть серию",
+        "en": "Open series",
+        "uz": "Seriyani ochish",
+    },
+    "subscription.next_preview": {
+        "ru": "Далее: {dates}",
+        "en": "Next: {dates}",
+        "uz": "Keyingi: {dates}",
+    },
+    "analytics.tab.networth": {
+        "ru": "Капитал",
+        "en": "Net worth",
+        "uz": "Kapital",
+    },
+    "analytics.networth.title": {
+        "ru": "Капитал во времени",
+        "en": "Net worth over time",
+        "uz": "Kapital dinamikasi",
+    },
+    "analytics.networth.1m": {
+        "ru": "1М",
+        "en": "1M",
+        "uz": "1O",
+    },
+    "analytics.networth.3m": {
+        "ru": "3М",
+        "en": "3M",
+        "uz": "3O",
+    },
+    "analytics.networth.1y": {
+        "ru": "1Г",
+        "en": "1Y",
+        "uz": "1Y",
+    },
+    "analytics.networth.all": {
+        "ru": "Всё",
+        "en": "All",
+        "uz": "Hammasi",
+    },
+    "settings.budget_thresholds": {
+        "ru": "Пороги уведомлений о бюджете",
+        "en": "Budget alert thresholds",
+        "uz": "Byudjet ogohlantirish chegaralari",
+    },
+    "settings.budget_warn_pct": {
+        "ru": "Предупреждение, %",
+        "en": "Warning, %",
+        "uz": "Ogohlantirish, %",
+    },
+    "settings.budget_limit_pct": {
+        "ru": "Лимит, %",
+        "en": "Limit, %",
+        "uz": "Limit, %",
+    },
+    "home.search": {
+        "ru": "Поиск операций",
+        "en": "Search transactions",
+        "uz": "Amaliyotlarni qidirish",
+    },
+    "home.budget_alert": {
+        "ru": "Бюджет: {category} {percent}%",
+        "en": "Budget: {category} {percent}%",
+        "uz": "Byudjet: {category} {percent}%",
+    },
+    "home.budget_alert_body": {
+        "ru": "Открыть бюджеты",
+        "en": "Open budgets",
+        "uz": "Byudjetlarni ochish",
+    },
 }
 
 
 def normalize_lang(lang: str | None) -> str:
-    """Normalize language codes to ``ru`` / ``en`` / ``uz``."""
+    """Normalize a locale tag to a live UI language code."""
     if not lang:
         return DEFAULT_LANG
     code = lang.strip().lower().replace("_", "-")
-    if code.startswith("ru"):
-        return "ru"
-    if code.startswith("en"):
-        return "en"
-    if code.startswith("uz"):
-        return "uz"
+    if "." in code:
+        code = code.split(".", 1)[0]
+    if code in SUPPORTED_LANGS:
+        return code
+    if code in _LANG_ALIASES:
+        return _LANG_ALIASES[code]
+    primary = code.split("-", 1)[0]
+    if primary in SUPPORTED_LANGS:
+        return primary
+    if primary in _LANG_ALIASES:
+        return _LANG_ALIASES[primary]
     logger.debug("Unsupported language %r; falling back to %s", lang, DEFAULT_LANG)
     return DEFAULT_LANG
 
@@ -4641,29 +5176,216 @@ def merge_strings(extra: Mapping[str, Mapping[str, str]]) -> None:
         bucket = STRINGS.setdefault(key, {})
         for lang, value in translations.items():
             bucket[normalize_lang(lang)] = value
+    _fill_missing_from_english()
+
+
+def _i18n_root() -> Path:
+    return Path(__file__).resolve().parents[3] / "assets" / "i18n"
+
+
+def _merge_flat_overlay(lang: str, payload: Mapping[str, object]) -> None:
+    for key, raw in payload.items():
+        name = str(key)
+        if name not in STRINGS or name.startswith("zzz."):
+            continue
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        STRINGS[name][lang] = text
+
+
+def _merge_nested_overlay(payload: Mapping[str, object]) -> None:
+    for key, translations in payload.items():
+        name = str(key)
+        if name not in STRINGS or name.startswith("zzz."):
+            continue
+        if not isinstance(translations, Mapping):
+            continue
+        bucket = STRINGS[name]
+        for lang, raw in translations.items():
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            code = str(lang).strip().lower().replace("_", "-")
+            if code not in SUPPORTED_LANGS:
+                primary = code.split("-", 1)[0]
+                if primary not in SUPPORTED_LANGS:
+                    continue
+                code = primary
+            bucket[code] = text
+
+
+def _load_json_overlay(path: Path) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("i18n overlay skipped %s: %s", path.name, exc)
+        return
+    if not isinstance(payload, dict) or not payload:
+        return
+    sample = next(iter(payload.values()))
+    if isinstance(sample, dict):
+        _merge_nested_overlay(payload)
+        return
+    stem = path.stem.lower()
+    if stem in SUPPORTED_LANGS:
+        _merge_flat_overlay(stem, payload)
+
+
+def _fill_missing_from_english() -> None:
+    """Never leave a live language blank — copy English (then Russian)."""
+    for _key, bucket in STRINGS.items():
+        fallback = (bucket.get("en") or bucket.get("ru") or "").strip()
+        if not fallback:
+            for lang in SUPPORTED_LANGS:
+                candidate = str(bucket.get(lang) or "").strip()
+                if candidate:
+                    fallback = candidate
+                    break
+        if not fallback:
+            continue
+        for lang in SUPPORTED_LANGS:
+            current = str(bucket.get(lang) or "").strip()
+            if not current:
+                bucket[lang] = fallback
+
+
+def load_i18n_overlays() -> None:
+    """Merge JSON overlays from ``assets/i18n`` into :data:`STRINGS``."""
+    root = _i18n_root()
+    legacy = root / "uk_be_kk.json"
+    if legacy.is_file():
+        _load_json_overlay(legacy)
+    overlay_dir = root / "overlays"
+    if overlay_dir.is_dir():
+        for path in sorted(overlay_dir.glob("*.json")):
+            stem = path.stem.lower()
+            if stem.startswith("_") or stem not in SUPPORTED_LANGS:
+                continue
+            _load_json_overlay(path)
+    _fill_missing_from_english()
+
+
+load_i18n_overlays()
 
 
 # Default category labels keyed by the Russian seed name.
 _CATEGORY_NAME_I18N: dict[str, dict[str, str]] = {
-    "Еда": {"en": "Food", "uz": "Ovqat"},
-    "Транспорт": {"en": "Transport", "uz": "Transport"},
-    "Жильё": {"en": "Housing", "uz": "Uy-joy"},
-    "Коммунальные": {"en": "Utilities", "uz": "Kommunal"},
-    "Здоровье": {"en": "Health", "uz": "Salomatlik"},
-    "Развлечения": {"en": "Entertainment", "uz": "Ko‘ngilochar"},
-    "Одежда": {"en": "Clothes", "uz": "Kiyim"},
-    "Образование": {"en": "Education", "uz": "Ta’lim"},
-    "Зарплата": {"en": "Salary", "uz": "Maosh"},
-    "Подарки": {"en": "Gifts", "uz": "Sovg‘alar"},
-    "Накопление": {"en": "Savings", "uz": "Jamg‘arma"},
-    "Инвестиции": {"en": "Investments", "uz": "Investitsiyalar"},
-    "Прочее": {"en": "Other", "uz": "Boshqa"},
-    "Долг": {"en": "Debt", "uz": "Qarz"},
-    "Перевод": {"en": "Transfer", "uz": "O‘tkazma"},
-    "Торговля": {"en": "Trading", "uz": "Savdo"},
-    "Комиссия": {"en": "Fee", "uz": "Komissiya"},
-    "Депозит": {"en": "Deposit", "uz": "Depozit"},
-    "Вывод": {"en": "Withdrawal", "uz": "Yechib olish"},
+    "Еда": {
+        "en": "Food", "uz": "Ovqat", "uk": "Їжа", "be": "Ежа", "kk": "Тамақ",
+        "de": "Essen", "es": "Comida", "fr": "Alimentation", "pt": "Alimentação",
+        "it": "Cibo", "pl": "Jedzenie", "tr": "Yemek", "id": "Makanan",
+        "zh": "餐饮", "ja": "食費", "ko": "식비", "hi": "भोजन",
+    },
+    "Транспорт": {
+        "en": "Transport", "uz": "Transport", "uk": "Транспорт", "be": "Транспарт",
+        "kk": "Көлік", "de": "Transport", "es": "Transporte", "fr": "Transport",
+        "pt": "Transporte", "it": "Trasporti", "pl": "Transport", "tr": "Ulaşım",
+        "id": "Transportasi", "zh": "交通", "ja": "交通", "ko": "교통", "hi": "यातायात",
+    },
+    "Жильё": {
+        "en": "Housing", "uz": "Uy-joy", "uk": "Житло", "be": "Жыллё", "kk": "Баспана",
+        "de": "Wohnen", "es": "Vivienda", "fr": "Logement", "pt": "Moradia",
+        "it": "Abitazione", "pl": "Mieszkanie", "tr": "Konut", "id": "Tempat tinggal",
+        "zh": "住房", "ja": "住居", "ko": "주거", "hi": "आवास",
+    },
+    "Коммунальные": {
+        "en": "Utilities", "uz": "Kommunal", "uk": "Комунальні", "be": "Камунальныя",
+        "kk": "Коммуналдық", "de": "Nebenkosten", "es": "Servicios", "fr": "Charges",
+        "pt": "Contas", "it": "Utenze", "pl": "Media", "tr": "Faturalar",
+        "id": "Utilitas", "zh": "水电", "ja": "光熱費", "ko": "공과금", "hi": "उपयोगिताएँ",
+    },
+    "Здоровье": {
+        "en": "Health", "uz": "Salomatlik", "uk": "Здоров’я", "be": "Здароўе",
+        "kk": "Денсаулық", "de": "Gesundheit", "es": "Salud", "fr": "Santé",
+        "pt": "Saúde", "it": "Salute", "pl": "Zdrowie", "tr": "Sağlık",
+        "id": "Kesehatan", "zh": "健康", "ja": "健康", "ko": "건강", "hi": "स्वास्थ्य",
+    },
+    "Развлечения": {
+        "en": "Entertainment", "uz": "Ko‘ngilochar", "uk": "Розваги", "be": "Забавы",
+        "kk": "Ойын-сауық", "de": "Freizeit", "es": "Ocio", "fr": "Loisirs",
+        "pt": "Lazer", "it": "Svago", "pl": "Rozrywka", "tr": "Eğlence",
+        "id": "Hiburan", "zh": "娱乐", "ja": "娯楽", "ko": "여가", "hi": "मनोरंजन",
+    },
+    "Одежда": {
+        "en": "Clothes", "uz": "Kiyim", "uk": "Одяг", "be": "Адзенне", "kk": "Киім",
+        "de": "Kleidung", "es": "Ropa", "fr": "Vêtements", "pt": "Roupas",
+        "it": "Abbigliamento", "pl": "Odzież", "tr": "Giyim", "id": "Pakaian",
+        "zh": "服装", "ja": "衣服", "ko": "의류", "hi": "कपड़े",
+    },
+    "Образование": {
+        "en": "Education", "uz": "Ta’lim", "uk": "Освіта", "be": "Адукацыя",
+        "kk": "Білім", "de": "Bildung", "es": "Educación", "fr": "Éducation",
+        "pt": "Educação", "it": "Istruzione", "pl": "Edukacja", "tr": "Eğitim",
+        "id": "Pendidikan", "zh": "教育", "ja": "教育", "ko": "교육", "hi": "शिक्षा",
+    },
+    "Зарплата": {
+        "en": "Salary", "uz": "Maosh", "uk": "Зарплата", "be": "Зарплата",
+        "kk": "Жалақы", "de": "Gehalt", "es": "Salario", "fr": "Salaire",
+        "pt": "Salário", "it": "Stipendio", "pl": "Pensja", "tr": "Maaş",
+        "id": "Gaji", "zh": "工资", "ja": "給料", "ko": "급여", "hi": "वेतन",
+    },
+    "Подарки": {
+        "en": "Gifts", "uz": "Sovg‘alar", "uk": "Подарунки", "be": "Падарункі",
+        "kk": "Сыйлықтар", "de": "Geschenke", "es": "Regalos", "fr": "Cadeaux",
+        "pt": "Presentes", "it": "Regali", "pl": "Prezenty", "tr": "Hediyeler",
+        "id": "Hadiah", "zh": "礼物", "ja": "贈り物", "ko": "선물", "hi": "उपहार",
+    },
+    "Накопление": {
+        "en": "Savings", "uz": "Jamg‘arma", "uk": "Накопичення", "be": "Назапашванне",
+        "kk": "Жинақ", "de": "Sparen", "es": "Ahorro", "fr": "Épargne",
+        "pt": "Poupança", "it": "Risparmi", "pl": "Oszczędności", "tr": "Birikim",
+        "id": "Tabungan", "zh": "储蓄", "ja": "貯蓄", "ko": "저축", "hi": "बचत",
+    },
+    "Инвестиции": {
+        "en": "Investments", "uz": "Investitsiyalar", "uk": "Інвестиції",
+        "be": "Інвестыцыі", "kk": "Инвестициялар", "de": "Investitionen",
+        "es": "Inversiones", "fr": "Investissements", "pt": "Investimentos",
+        "it": "Investimenti", "pl": "Inwestycje", "tr": "Yatırımlar",
+        "id": "Investasi", "zh": "投资", "ja": "投資", "ko": "투자", "hi": "निवेश",
+    },
+    "Прочее": {
+        "en": "Other", "uz": "Boshqa", "uk": "Інше", "be": "Іншае", "kk": "Басқа",
+        "de": "Sonstiges", "es": "Otros", "fr": "Autre", "pt": "Outros",
+        "it": "Altro", "pl": "Inne", "tr": "Diğer", "id": "Lainnya",
+        "zh": "其他", "ja": "その他", "ko": "기타", "hi": "अन्य",
+    },
+    "Долг": {
+        "en": "Debt", "uz": "Qarz", "uk": "Борг", "be": "Доўг", "kk": "Қарыз",
+        "de": "Schulden", "es": "Deuda", "fr": "Dette", "pt": "Dívida",
+        "it": "Debito", "pl": "Dług", "tr": "Borç", "id": "Hutang",
+        "zh": "债务", "ja": "負債", "ko": "부채", "hi": "कर्ज़",
+    },
+    "Перевод": {
+        "en": "Transfer", "uz": "O‘tkazma", "uk": "Переказ", "be": "Перавод",
+        "kk": "Аударым", "de": "Überweisung", "es": "Transferencia", "fr": "Virement",
+        "pt": "Transferência", "it": "Bonifico", "pl": "Przelew", "tr": "Transfer",
+        "id": "Transfer", "zh": "转账", "ja": "振替", "ko": "이체", "hi": "स्थानांतरण",
+    },
+    "Торговля": {
+        "en": "Trading", "uz": "Savdo", "uk": "Торгівля", "be": "Гандаль",
+        "kk": "Сауда", "de": "Handel", "es": "Trading", "fr": "Trading",
+        "pt": "Negociação", "it": "Trading", "pl": "Trading", "tr": "Alım satım",
+        "id": "Perdagangan", "zh": "交易", "ja": "取引", "ko": "거래", "hi": "ट्रेडिंग",
+    },
+    "Комиссия": {
+        "en": "Fee", "uz": "Komissiya", "uk": "Комісія", "be": "Камісія",
+        "kk": "Комиссия", "de": "Gebühr", "es": "Comisión", "fr": "Commission",
+        "pt": "Tarifa", "it": "Commissione", "pl": "Prowizja", "tr": "Komisyon",
+        "id": "Biaya", "zh": "手续费", "ja": "手数料", "ko": "수수료", "hi": "शुल्क",
+    },
+    "Депозит": {
+        "en": "Deposit", "uz": "Depozit", "uk": "Депозит", "be": "Дэпазіт",
+        "kk": "Депозит", "de": "Einzahlung", "es": "Depósito", "fr": "Dépôt",
+        "pt": "Depósito", "it": "Deposito", "pl": "Wpłata", "tr": "Yatırma",
+        "id": "Setoran", "zh": "充值", "ja": "入金", "ko": "입금", "hi": "जमा",
+    },
+    "Вывод": {
+        "en": "Withdrawal", "uz": "Yechib olish", "uk": "Виведення", "be": "Вывад",
+        "kk": "Шығару", "de": "Auszahlung", "es": "Retiro", "fr": "Retrait",
+        "pt": "Saque", "it": "Prelievo", "pl": "Wypłata", "tr": "Çekim",
+        "id": "Penarikan", "zh": "提现", "ja": "出金", "ko": "출금", "hi": "निकासी",
+    },
 }
 
 

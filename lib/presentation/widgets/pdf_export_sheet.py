@@ -15,15 +15,17 @@ from lib.presentation.analytics_period import (
     EXPORT_PERIOD_KEYS,
     resolve_export_period,
 )
-from lib.presentation.responsive import clamp_content_width
+from lib.presentation.responsive import clamp_content_width, form_shell_inset
 from lib.presentation.skins import get_active_skin
 from lib.presentation.styles import form_save_button, form_section, labeled_switch
 from lib.presentation.theme import is_dark_mode
+from lib.presentation.ui_motion import DUR_FAST, bind_press, motion_animation
 from lib.presentation.utils import format_date, run_async, safe_update, snack, tr
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.fullscreen_form import CloseFn, open_fullscreen_form
 
 AccountScope = Literal["all", "personal", "corporate", "selected"]
+_CHIP_SCALE = 1.03
 
 
 @dataclass(frozen=True)
@@ -45,9 +47,10 @@ def _chip(
     selected: bool,
     on_click,
     dark: bool,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     skin = get_active_skin()
-    return ft.Container(
+    chip = ft.Container(
         padding=ft.Padding.symmetric(horizontal=12, vertical=8),
         border_radius=20,
         ink=True,
@@ -56,6 +59,8 @@ def _chip(
             1,
             skin.primary_hex(dark=dark) if selected else ft.Colors.OUTLINE_VARIANT,
         ),
+        scale=_CHIP_SCALE if selected else 1,
+        animate_scale=motion_animation(DUR_FAST, page),
         on_click=on_click,
         content=ft.Text(
             label,
@@ -65,6 +70,8 @@ def _chip(
             color=skin.badge_fg(dark=dark) if selected else ft.Colors.ON_SURFACE_VARIANT,
         ),
     )
+    bind_press(chip, haptic_kind="selection", page=page)
+    return chip
 
 
 def _tint_chip(chip: ft.Container, *, selected: bool, dark: bool) -> None:
@@ -79,6 +86,7 @@ def _tint_chip(chip: ft.Container, *, selected: bool, dark: bool) -> None:
         label.color = (
             skin.badge_fg(dark=dark) if selected else ft.Colors.ON_SURFACE_VARIANT
         )
+    chip.scale = _CHIP_SCALE if selected else 1
 
 
 def _end_of_local_day(dt: datetime) -> datetime:
@@ -147,12 +155,13 @@ def open_pdf_export_sheet(
 
     def _set_period(key: str) -> None:
         nonlocal period_key
-        if period_key == key:
-            return
+        changed = period_key != key
         period_key = key
         for item_key, chip in period_chips.items():
             _tint_chip(chip, selected=item_key == key, dark=dark)
             safe_update(chip)
+        if not changed:
+            return
         custom_box.visible = key == "custom"
         safe_update(custom_box)
 
@@ -162,6 +171,7 @@ def open_pdf_export_sheet(
             selected=key == period_key,
             on_click=lambda _e, k=key: _set_period(k),
             dark=dark,
+            page=page,
         )
 
     account_checks: dict[str, ft.Checkbox] = {}
@@ -188,12 +198,13 @@ def open_pdf_export_sheet(
 
     def _set_scope(next_scope: AccountScope) -> None:
         nonlocal scope
-        if scope == next_scope:
-            return
+        changed = scope != next_scope
         scope = next_scope
         for item_key, chip in scope_chips.items():
             _tint_chip(chip, selected=item_key == next_scope, dark=dark)
             safe_update(chip)
+        if not changed:
+            return
         accounts_box.visible = next_scope == "selected"
         safe_update(accounts_box)
 
@@ -209,6 +220,7 @@ def open_pdf_export_sheet(
                 selected=key == scope,
                 on_click=lambda _e, k=key: _set_scope(k),
                 dark=dark,
+                page=page,
             )
 
     section_switches: dict[str, ft.Switch] = {
@@ -302,7 +314,7 @@ def open_pdf_export_sheet(
 
     close_holder: dict[str, CloseFn] = {}
     busy = {"on": False}
-    form_w = clamp_content_width(page, margin=28, max_width=560)
+    form_w = clamp_content_width(page, margin=form_shell_inset(page), max_width=560)
     status = ft.Text(
         "",
         size=12,
@@ -411,6 +423,7 @@ def open_pdf_export_sheet(
         icon=ft.Icons.PICTURE_AS_PDF,
         on_click=lambda e: run_async(page, _save),
     )
+    bind_press(export_btn, haptic_kind="light", page=page)
     try:
         export_btn.width = form_w
     except Exception:  # noqa: BLE001

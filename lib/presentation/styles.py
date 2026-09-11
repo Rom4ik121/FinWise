@@ -29,12 +29,40 @@ def glass_layer(*, elevated: bool = False, opacity: float | None = None) -> dict
     )
     if not skin.glass:
         return {"bgcolor": token, "blur": None}
+    from lib.presentation.ui_motion import prefers_reduced_motion
+
     fill_opacity = opacity if opacity is not None else (0.40 if elevated else 0.32)
+    # Reduce Motion / Classic: skip expensive backdrop blur.
+    blur = None if prefers_reduced_motion() else skin.backdrop_blur()
     return {
         "bgcolor": skin.glass_fill(token, opacity=fill_opacity),
-        "blur": skin.backdrop_blur(),
+        "blur": blur,
         "clip_behavior": ft.ClipBehavior.ANTI_ALIAS,
     }
+
+
+def nav_chrome_layer(page: ft.Page | None = None) -> dict:
+    """Translucent glass fill for the floating tab pill (Classic and Neon).
+
+    Cards may stay opaque on Classic; the nav must not become a solid slab.
+    Backdrop blur is skipped for Reduce Motion and for compact *web* (smear),
+    but kept on native compact Windows / iOS / Android.
+    """
+    from lib.presentation.responsive import is_compact
+    from lib.presentation.ui_motion import is_web_page, prefers_reduced_motion
+
+    token = ft.Colors.SURFACE_CONTAINER
+    bgcolor = ft.Colors.with_opacity(0.58, token)
+    skip_blur = prefers_reduced_motion(page)
+    if not skip_blur and is_web_page(page) and is_compact(page):
+        skip_blur = True
+    if skip_blur:
+        blur = None
+    else:
+        blur = get_active_skin().backdrop_blur() or ft.Blur(
+            8, 8, ft.BlurTileMode.CLAMP
+        )
+    return {"bgcolor": bgcolor, "blur": blur}
 
 
 def card_surface(
@@ -75,8 +103,17 @@ def card_surface(
         **glass_layer(),
     }
     if animate:
-        kwargs["animate"] = ft.Animation(220, ft.AnimationCurve.EASE_OUT)
-    return ft.Container(**kwargs)
+        from lib.presentation.ui_motion import motion_animation
+
+        anim = motion_animation(220)
+        if anim is not None:
+            kwargs["animate"] = anim
+    card = ft.Container(**kwargs)
+    if on_click is not None:
+        from lib.presentation.ui_motion import bind_press
+
+        bind_press(card, haptic_kind="light")
+    return card
 
 
 def hero_card(
@@ -115,6 +152,8 @@ def section_title(text: str, *, page: ft.Page | None = None) -> ft.Text:
         size=scale_font(15, page),
         weight=ft.FontWeight.W_700,
         color=ft.Colors.ON_SURFACE,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        max_lines=2,
     )
 
 
@@ -221,8 +260,12 @@ def page_header(
     leading: Optional[ft.Control] = None,
     page: ft.Page | None = None,
 ) -> ft.Container:
-    """Page top bar — sits below SafeArea, clear of notch / status bar."""
-    from lib.presentation.responsive import content_inset, scale_font
+    """Page top bar — sits below wrap_safe_area (notch / Dynamic Island)."""
+    from lib.presentation.responsive import (
+        header_title_size,
+        is_narrow,
+        page_frame_inset,
+    )
 
     left: list[ft.Control] = []
     if leading is not None:
@@ -230,21 +273,38 @@ def page_header(
     left.append(
         ft.Text(
             title,
-            size=scale_font(22, page, minimum=18, maximum=28),
+            size=header_title_size(page),
             weight=ft.FontWeight.W_700,
             color=ft.Colors.ON_SURFACE,
             overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=1,
+            max_lines=2 if is_narrow(page) else 1,
             expand=True,
         )
     )
-    inset = content_inset(page)
+    inset = page_frame_inset(page)
+    actions_row = ft.Row(
+        controls=list(actions or []),
+        tight=True,
+        spacing=0,
+        wrap=False,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
     return ft.Container(
         # Horizontal inset + comfortable tap height under Dynamic Island / notch.
-        padding=ft.Padding.only(left=inset + 4, right=10, top=12, bottom=8),
+        padding=ft.Padding.only(
+            left=inset + 4,
+            right=inset + 4,
+            top=12,
+            bottom=8,
+        ),
+        # Flutter forbids Expanded inside a wrapping Flex. wrap=True here
+        # plus the expand=True title row zeros the whole page on Windows xs
+        # (nav still paints from the shell). Title ellipsis handles overflow.
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            wrap=False,
+            spacing=4,
             controls=[
                 ft.Row(
                     controls=left,
@@ -253,12 +313,7 @@ def page_header(
                     expand=True,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.Row(
-                    controls=list(actions or []),
-                    tight=True,
-                    spacing=0,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
+                actions_row,
             ],
         ),
     )
@@ -454,11 +509,26 @@ def icon_badge(
 def labeled_switch(label: str, switch: ft.Switch) -> ft.Control:
     """Switch with wrapping label — avoids clipping long Russian strings."""
     switch.label = ""
+    if not getattr(switch, "_fw_haptic_bound", False):
+        setattr(switch, "_fw_haptic_bound", True)
+        previous = switch.on_change
+
+        def _on_change(e: ft.ControlEvent) -> None:
+            try:
+                from lib.presentation.haptics import haptic
+
+                haptic("selection")
+            except Exception:  # noqa: BLE001
+                pass
+            if callable(previous):
+                previous(e)
+
+        switch.on_change = _on_change
     return ft.Row(
         spacing=10,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
-            ft.Text(label, size=13, expand=True, max_lines=3),
+            ft.Text(label, size=13, expand=True, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
             switch,
         ],
     )
@@ -610,25 +680,28 @@ def form_header_bar(
     *,
     leading: Optional[ft.Control] = None,
     actions: Optional[Sequence[ft.Control]] = None,
+    page: ft.Page | None = None,
 ) -> ft.Container:
     """Compact form top bar with glass strip (titles stay readable)."""
+    from lib.presentation.responsive import header_title_size, is_narrow
+
     left: list[ft.Control] = []
     if leading is not None:
         left.append(leading)
     left.append(
         ft.Text(
             title,
-            size=18,
+            size=header_title_size(page, base=18),
             weight=ft.FontWeight.W_700,
             color=ft.Colors.ON_SURFACE,
             overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=1,
+            max_lines=2 if is_narrow(page) else 1,
             expand=True,
         )
     )
     skin = get_active_skin()
     return ft.Container(
-        padding=ft.Padding.only(left=8, right=12, top=10, bottom=10),
+        padding=ft.Padding.only(left=8, right=8, top=10, bottom=10),
         border=ft.Border.only(
             bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.OUTLINE_VARIANT))
         ),
@@ -636,6 +709,8 @@ def form_header_bar(
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            wrap=False,
+            spacing=4,
             controls=[
                 ft.Row(
                     controls=left,
@@ -710,6 +785,12 @@ def choice_chips(
         if selected["value"] == key:
             return
         selected["value"] = key
+        try:
+            from lib.presentation.haptics import haptic
+
+            haptic("selection")
+        except Exception:  # noqa: BLE001
+            pass
         _rebuild()
         on_changed(key)
 

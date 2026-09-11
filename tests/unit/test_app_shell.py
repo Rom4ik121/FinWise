@@ -1,0 +1,218 @@
+"""Shared tab shell: fill-positioned Stack pane, compact switcher duration 0."""
+
+from __future__ import annotations
+
+import flet as ft
+
+from lib.presentation.app import FinanseApp
+from lib.presentation.responsive import (
+    is_compact,
+    uses_column_nav_shell,
+)
+
+
+class _FakeWindow:
+    def __init__(self, width: float, height: float) -> None:
+        self.width = width
+        self.height = height
+        self.min_width = 320
+        self.min_height = 560
+
+
+class _FakePage:
+    def __init__(self, width: float, height: float = 780) -> None:
+        self.width = width
+        self.height = height
+        self.window = _FakeWindow(width, height)
+        self.web = False
+        self.platform = "windows"
+        self.overlay: list = []
+        self.controls: list = []
+        self.padding = 0
+        self.on_resize = None
+
+    def update(self) -> None:
+        return None
+
+    def add(self, control: object) -> None:
+        self.controls.append(control)
+
+
+def _assert_pane_clears_nav(app: FinanseApp, page: _FakePage) -> None:
+    pane = app._content_pane
+    assert pane.left == 0 and pane.top == 0
+    assert pane.right == 0
+    assert pane.bottom == 0
+    assert pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
+    assert pane.expand is True
+    overlay = app._nav_overlay
+    overlay_bg = str(getattr(overlay, "bgcolor", None) or "").lower()
+    assert overlay_bg in ("", "transparent", "colors.transparent")
+    assert overlay.clip_behavior == ft.ClipBehavior.NONE
+    from lib.presentation.styles import nav_chrome_layer
+
+    layer = nav_chrome_layer(page)  # type: ignore[arg-type]
+    assert app._nav_host.bgcolor == layer["bgcolor"]
+    assert app._nav_host.bgcolor != ft.Colors.SURFACE_CONTAINER
+    if not getattr(page, "web", False):
+        assert app._nav_host.blur is not None
+
+
+def test_uses_column_nav_shell_at_phone_widths() -> None:
+    assert uses_column_nav_shell(_FakePage(320)) is True  # type: ignore[arg-type]
+    assert uses_column_nav_shell(_FakePage(375)) is True  # type: ignore[arg-type]
+    assert uses_column_nav_shell(_FakePage(420)) is True  # type: ignore[arg-type]
+    assert uses_column_nav_shell(_FakePage(421)) is False  # type: ignore[arg-type]
+    assert uses_column_nav_shell(_FakePage(1280)) is False  # type: ignore[arg-type]
+
+
+def test_is_compact_inclusive_at_420() -> None:
+    assert is_compact(_FakePage(420)) is True  # type: ignore[arg-type]
+    assert is_compact(_FakePage(421)) is False  # type: ignore[arg-type]
+
+
+def test_narrow_shell_fill_positions_content_pane() -> None:
+    """xs: fill-positioned pane; glass pill floats over content, no rear strip."""
+    page = _FakePage(375, 667)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    pane = app._content_pane
+    nav = app._nav_overlay
+    assert app._shell.content is app._shell_stack
+    assert app._shell_stack.fit == ft.StackFit.EXPAND
+    assert app._shell_stack.clip_behavior == ft.ClipBehavior.NONE
+    assert app._shell_stack.controls == [pane, nav]
+    _assert_pane_clears_nav(app, page)
+    assert pane.opacity == 1
+    assert pane.ignore_interactions is False
+    assert nav.left == 0 and nav.right == 0 and nav.bottom == 0
+    assert nav.expand is False
+    assert nav.height is not None
+    assert float(nav.height) < 667 * 0.18
+    assert isinstance(app._content, ft.AnimatedSwitcher)
+    assert app._content.duration == 0
+    assert app._content.reverse_duration == 0
+    assert app._nav_host.blur is not None
+    assert app._stage.width == 375
+    assert app._stage.height == 667
+
+
+def test_wide_shell_keeps_stack_overlay() -> None:
+    page = _FakePage(1280, 800)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    pane = app._content_pane
+    nav = app._nav_overlay
+    assert app._shell.content is app._shell_stack
+    _assert_pane_clears_nav(app, page)
+    assert nav.left == 0 and nav.right == 0 and nav.bottom == 0
+    assert float(nav.height) < 800 * 0.18
+    assert isinstance(app._content, ft.AnimatedSwitcher)
+    assert app._content.duration == 220
+
+
+def test_resize_wide_to_narrow_keeps_positioned_pane() -> None:
+    page = _FakePage(1280, 800)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    page.width = 360
+    page.height = 640
+    page.window.width = 360
+    page.window.height = 640
+    app._apply_nav_metrics()
+    app._apply_shell_mode()
+    app._sync_stage_size()
+    assert app._shell.content is app._shell_stack
+    pane = app._content_pane
+    _assert_pane_clears_nav(app, page)
+    assert app._stage.width == 360
+    pad = pane.padding
+    assert float(getattr(pad, "left", 0) or 0) == 0
+    assert app._content.duration == 0
+    assert app._nav_host.blur is not None
+    assert not isinstance(app._shell, ft.SafeArea)
+
+
+def test_desktop_gutters_move_to_shell_and_clear_on_squeeze() -> None:
+    """Stale page_frame 200px inset must not stay when the window is squeezed."""
+    page = _FakePage(1400, 800)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    pad = app._content_pane.padding
+    assert float(getattr(pad, "left", 0) or 0) >= 180
+    assert not isinstance(app._shell, ft.SafeArea)
+    page.width = 320
+    page.height = 667
+    page.window.width = 320
+    page.window.height = 667
+    app._apply_nav_metrics()
+    app._apply_shell_mode()
+    app._sync_stage_size()
+    pad = app._content_pane.padding
+    assert float(getattr(pad, "left", 0) or 0) == 0
+    assert float(getattr(pad, "right", 0) or 0) == 0
+    _assert_pane_clears_nav(app, page)
+    assert app._content.duration == 0
+
+
+def test_resize_narrow_to_wide_restores_fade() -> None:
+    page = _FakePage(375, 667)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    page.width = 1100
+    page.height = 800
+    page.window.width = 1100
+    page.window.height = 800
+    app._apply_nav_metrics()
+    app._apply_shell_mode()
+    app._sync_stage_size()
+    assert app._shell.content is app._shell_stack
+    assert app._nav_overlay.bottom == 0
+    _assert_pane_clears_nav(app, page)
+    assert app._content.duration == 220
+
+
+def test_hiding_nav_lets_pane_fill_the_bottom() -> None:
+    """Secondary routes / lock: no tab bar, so the body uses the full height."""
+    page = _FakePage(375, 667)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    app._set_nav_chrome_visible(False)
+    assert app._content_pane.bottom == 0
+    assert app._content_pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
+    app._set_nav_chrome_visible(True)
+    _assert_pane_clears_nav(app, page)
+
+
+def test_gutter_sync_does_not_drop_pane_clip() -> None:
+    """Regression: _sync_shell_gutters used to reset clip to NONE (nav bleed)."""
+    page = _FakePage(375, 667)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    app._sync_shell_gutters()
+    app._sync_stage_size()
+    _assert_pane_clears_nav(app, page)
+
+
+def test_resize_event_notes_viewport_before_inset_math() -> None:
+    """Event size wins when both page.width and window.width stay at 1266."""
+    from lib.presentation.responsive import page_width
+
+    page = _FakePage(1266, 800)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    app._render = lambda **_kw: None  # type: ignore[method-assign]
+    app._forget_cached_views = lambda: None  # type: ignore[method-assign]
+    app._install_resize_handler()
+    page.on_resize(type("Resize", (), {"width": 312, "height": 640})())
+    assert page_width(page) == 312  # type: ignore[arg-type]
+    assert app._content_pane.left == 0
+    assert app._content.duration == 0
+    pad = app._content_pane.padding
+    assert float(getattr(pad, "left", 0) or 0) == 0
+    assert float(getattr(pad, "right", 0) or 0) == 0
+    assert app._content_pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
+    assert app._content_pane.bottom == 0
+
+
+def test_compact_web_skips_nav_blur() -> None:
+    """Backdrop blur smears on ~375 web; native compact still gets glass."""
+    web = _FakePage(375, 667)
+    web.web = True
+    app = FinanseApp(web, object())  # type: ignore[arg-type]
+    assert app._nav_host.blur is None
+    native = _FakePage(375, 667)
+    app2 = FinanseApp(native, object())  # type: ignore[arg-type]
+    assert app2._nav_host.blur is not None

@@ -10,7 +10,7 @@ from typing import Optional, Protocol, Sequence
 from pydantic import BaseModel
 
 from lib.domain.entities.budget import Budget, BudgetProgress
-from lib.domain.entities.category import CategoryKind
+from lib.domain.entities.category import CategoryKind, category_names_equal
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.settings import AppSettings
@@ -168,14 +168,18 @@ class SetBudgetUseCase:
                 updated_at=now,
             )
         else:
-            budget = existing.model_copy(
-                update={
-                    "amount_limit": limit,
-                    "spent": spent,
-                    "account_id": scope,
-                    "updated_at": now,
-                }
-            )
+            limit_changed = quantize_money(existing.amount_limit) != limit
+            patch = {
+                "amount_limit": limit,
+                "spent": spent,
+                "account_id": scope,
+                "updated_at": now,
+            }
+            # Limit change invalidates prior 80/100 watermarks so a raise can
+            # alert again, and a cut can re-fire if already over.
+            if limit_changed:
+                patch["last_alert_level"] = 0
+            budget = existing.model_copy(update=patch)
         return await self._budgets.save(budget)
 
 
@@ -458,6 +462,14 @@ async def apply_expense_delta(
         name, moment.month, moment.year, account_id=scope
     )
     if budget is None:
+        month_rows = await budgets.list_for_month(
+            moment.month, moment.year, account_id=scope
+        )
+        budget = next(
+            (row for row in month_rows if category_names_equal(row.category_id, name)),
+            None,
+        )
+    if budget is None:
         return None
     base = normalize_currency_code(
         settings.default_currency if settings is not None else currency
@@ -501,13 +513,24 @@ async def _maybe_notify(
         if not getattr(settings, "budget_alerts", True):
             return
     percent = budget.percent_used
+    warn_pct = 80
+    limit_pct = 100
+    if settings is not None:
+        try:
+            warn_pct = int(getattr(settings, "budget_warn_pct", 80) or 80)
+        except (TypeError, ValueError):
+            warn_pct = 80
+        try:
+            limit_pct = int(getattr(settings, "budget_limit_pct", 100) or 100)
+        except (TypeError, ValueError):
+            limit_pct = 100
+        if limit_pct < warn_pct:
+            limit_pct = warn_pct
     level = 0
-    if percent >= 100:
-        level = 100
-    elif percent >= 80:
-        level = 80
-    elif percent >= 50:
-        level = 50
+    if percent >= limit_pct:
+        level = limit_pct
+    elif percent >= warn_pct:
+        level = warn_pct
     if level == 0:
         if budget.last_alert_level != 0:
             await budgets.save(
@@ -584,6 +607,8 @@ async def _month_category_spent(
             continue
         if tx.goal_id or tx.goal_credit_amount is not None:
             continue
+        if tx.debt_id or tx.debt_credit_amount is not None:
+            continue
         if any(
             str(tag).startswith(_TRANSFER_FEE_TAG_PREFIX)
             for tag in (tx.tags or [])
@@ -596,7 +621,12 @@ async def _month_category_spent(
             if converted is None:
                 src = normalize_currency_code(tx.currency or base)
                 raise ValueError(f"No exchange rate for {src}/{base}")
-            totals[category] = totals.get(category, Decimal("0")) + converted
+            matched = next(
+                (key for key in totals if category_names_equal(key, category)),
+                None,
+            )
+            key = matched or category
+            totals[key] = totals.get(key, Decimal("0")) + converted
     return {k: quantize_money(v) for k, v in totals.items()}
 
 
@@ -624,4 +654,7 @@ async def _sum_expenses(
         account_id=account_id,
         accounts=accounts,
     )
-    return totals.get(want, Decimal("0.00"))
+    for key, value in totals.items():
+        if category_names_equal(key, want):
+            return value
+    return Decimal("0.00")

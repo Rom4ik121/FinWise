@@ -134,7 +134,19 @@ def aggregate_cashflow_period(
         else:
             expense += converted
             period_expense[key] += converted
-            expense_totals[tx.category] += converted
+            if getattr(tx, "items", None):
+                for item in tx.items:
+                    line_amt = book.convert(item.amount, src, base) if src != base else item.amount
+                    if line_amt is None:
+                        if src == base:
+                            line_amt = item.amount
+                        else:
+                            ok = False
+                            continue
+                    cat = (getattr(item, "category", None) or tx.category or "").strip()
+                    expense_totals[cat] += line_amt
+            else:
+                expense_totals[tx.category] += converted
 
     by_expense = sorted(expense_totals.items(), key=lambda kv: kv[1], reverse=True)
     by_income = sorted(income_totals.items(), key=lambda kv: kv[1], reverse=True)

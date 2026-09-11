@@ -88,8 +88,56 @@ class FinanseLocalNotificationsService extends FletService {
       case "cancel_all":
         await _plugin.cancelAll();
         return true;
+      case "cancel_prefixed":
+        return _cancelPrefixed(args);
+      case "open_system_settings":
+        return _openSystemSettings();
       default:
         throw Exception("Unknown FinanseLocalNotifications method: $name");
+    }
+  }
+
+  Future<bool> _openSystemSettings() async {
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await SystemChannels.platform.invokeMethod<void>(
+          'SystemNavigator.routeToNotificationSettings',
+        );
+        return true;
+      }
+      if (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS) {
+        // Handled in Python via page.launch_url('app-settings:') when this
+        // channel is missing; still try the Flutter settings route.
+        try {
+          await SystemChannels.platform.invokeMethod<void>(
+            'SystemNavigator.routeToNotificationSettings',
+          );
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+    } catch (err) {
+      debugPrint("open_system_settings failed: $err");
+    }
+    return false;
+  }
+
+  Future<bool> _cancelPrefixed(dynamic args) async {
+    final prefix = (_asMap(args)["prefix"] as String?) ?? "finwise:";
+    try {
+      final pending = await _plugin.pendingNotificationRequests();
+      for (final req in pending) {
+        final payload = req.payload ?? "";
+        if (payload.startsWith(prefix)) {
+          await _plugin.cancel(req.id);
+        }
+      }
+      return true;
+    } catch (err) {
+      debugPrint("cancel_prefixed failed: $err");
+      return false;
     }
   }
 
@@ -174,12 +222,17 @@ class FinanseLocalNotificationsService extends FletService {
     final ios = _plugin.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
     if (ios != null) {
-      final ok = await ios.requestPermissions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-      return ok ?? false;
+      try {
+        final settings = await ios.checkPermissions();
+        if (settings != null) {
+          return settings.isEnabled;
+        }
+      } catch (err) {
+        debugPrint("iOS checkPermissions failed: $err");
+      }
+      // Do not call requestPermissions here — that re-prompts / returns
+      // the one-shot grant result instead of current OS settings.
+      return true;
     }
     return true;
   }
@@ -228,14 +281,21 @@ class FinanseLocalNotificationsService extends FletService {
     final id = (map["id"] as num?)?.toInt() ?? 1;
     final title = (map["title"] as String?) ?? "FinWise";
     final body = (map["body"] as String?) ?? "";
+    final payload = (map["payload"] as String?) ?? "";
     try {
-      await _plugin.show(id, title, body, _details(map));
+      await _plugin.show(id, title, body, _details(map), payload: payload);
       return true;
     } catch (err) {
       debugPrint("show with notification icon failed: $err");
     }
     try {
-      await _plugin.show(id, title, body, _details(map, androidIcon: false));
+      await _plugin.show(
+        id,
+        title,
+        body,
+        _details(map, androidIcon: false),
+        payload: payload,
+      );
       return true;
     } catch (err) {
       debugPrint("show fallback failed: $err");
@@ -273,6 +333,7 @@ class FinanseLocalNotificationsService extends FletService {
     final id = (map["id"] as num?)?.toInt() ?? 1;
     final title = (map["title"] as String?) ?? "FinWise";
     final body = (map["body"] as String?) ?? "";
+    final payload = (map["payload"] as String?) ?? "";
     final details = _details(map);
     final at = _toTz(when);
     try {
@@ -285,6 +346,7 @@ class FinanseLocalNotificationsService extends FletService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+        payload: payload,
       );
       return true;
     } catch (err) {
@@ -300,6 +362,7 @@ class FinanseLocalNotificationsService extends FletService {
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+        payload: payload,
       );
       return true;
     } catch (err) {

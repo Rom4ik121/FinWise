@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -25,6 +26,7 @@ from lib.domain.use_cases.debts import (
     debt_credit_amount,
     is_debt_principal_tx,
     reverse_debt_payment_credit,
+    with_debt_interest_tag,
 )
 from lib.domain.use_cases.goals import (
     allocate_goal_contribution_credit,
@@ -39,6 +41,8 @@ from lib.domain.use_cases.goals import (
 )
 from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
 
+logger = logging.getLogger("finanse.domain.transactions")
+
 FEE_CATEGORY = "Комиссия"
 TRANSFER_FEE_TAG_PREFIX = "xfer_fee:"
 
@@ -50,6 +54,18 @@ def transfer_fee_tag(transfer_id: str) -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def _invoke_after_commit(hook: object) -> None:
+    """Best-effort post-commit hook (net-worth snapshot). Never fails the ledger write."""
+    if hook is None:
+        return
+    try:
+        result = hook()  # type: ignore[operator]
+        if hasattr(result, "__await__"):
+            await result  # type: ignore[misc]
+    except Exception:  # noqa: BLE001
+        logger.warning("Post-commit hook failed", exc_info=True)
 
 
 def _balance_delta(tx_type: TransactionType, amount: Decimal) -> Decimal:
@@ -309,6 +325,8 @@ async def _sync_budget_expense(
         return
     if transaction.goal_id or transaction.goal_credit_amount is not None:
         return
+    if transaction.debt_id or transaction.debt_credit_amount is not None:
+        return
     from lib.domain.use_cases.budgets import apply_expense_delta
 
     settings = None
@@ -392,6 +410,7 @@ class AddTransactionUseCase:
         self._notifications = notifications
         self._currencies = currencies
         self._session_factory = session_factory
+        self._after_commit: Optional[Callable[[], object]] = None
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Persist ``transaction``, update account balance, sync goal/debt if linked."""
@@ -435,7 +454,7 @@ class AddTransactionUseCase:
 
             created = await self._apply_goal_contribution(created)
             await self._apply_goal_withdrawal(created)
-            await self._apply_debt_payment(created)
+            created = await self._apply_debt_payment(created)
             await _sync_budget_expense(
                 self._budgets,
                 created,
@@ -450,10 +469,14 @@ class AddTransactionUseCase:
         if self._session_factory is not None:
             # TransferAccountsUseCase already owns an outer UoW — reuse it.
             if in_unit_of_work():
-                return await _persist()
-            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
-                return await _persist()
-        return await _persist()
+                created = await _persist()
+            else:
+                with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                    created = await _persist()
+        else:
+            created = await _persist()
+        await _invoke_after_commit(self._after_commit)
+        return created
 
     async def _apply_goal_contribution(self, transaction: Transaction) -> Transaction:
         return await _credit_goal_from_transaction(
@@ -476,17 +499,21 @@ class AddTransactionUseCase:
         )
         await self._goals.update(updated)
 
-    async def _apply_debt_payment(self, transaction: Transaction) -> None:
+    async def _apply_debt_payment(self, transaction: Transaction) -> Transaction:
         if self._debts is None or not _is_debt_payment(transaction):
-            return
+            return transaction
         debt = await self._debts.get_by_id(transaction.debt_id or "")
         if debt is None:
-            return
+            return transaction
         credit = debt_credit_amount(transaction)
+        stamped = with_debt_interest_tag(transaction, debt, credit)
+        if stamped.tags != transaction.tags:
+            transaction = await self._transactions.update(stamped)
         updated = apply_debt_payment_credit(
             debt, credit, transaction=transaction, roll_schedule=True
         )
         await self._debts.update(updated)
+        return transaction
 
 
 class UpdateTransactionUseCase:
@@ -513,6 +540,7 @@ class UpdateTransactionUseCase:
         self._notifications = notifications
         self._currencies = currencies
         self._session_factory = session_factory
+        self._after_commit: Optional[Callable[[], object]] = None
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Replace an existing transaction and fix derived balances."""
@@ -588,7 +616,7 @@ class UpdateTransactionUseCase:
                 _balance_delta(saved.type, saved.amount),
             )
             saved = await self._apply_goal_ledger(saved)
-            await self._apply_debt_payment(saved)
+            saved = await self._apply_debt_payment(saved)
             await _sync_budget_expense(
                 self._budgets,
                 existing,
@@ -611,10 +639,14 @@ class UpdateTransactionUseCase:
 
         if self._session_factory is not None:
             if in_unit_of_work():
-                return await _persist()
-            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
-                return await _persist()
-        return await _persist()
+                saved = await _persist()
+            else:
+                with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                    saved = await _persist()
+        else:
+            saved = await _persist()
+        await _invoke_after_commit(self._after_commit)
+        return saved
 
     async def _apply_account_delta(self, account_id: str, delta: Decimal) -> None:
         account = await self._accounts.get_by_id(account_id)
@@ -661,17 +693,21 @@ class UpdateTransactionUseCase:
             )
             await self._goals.update(updated)
 
-    async def _apply_debt_payment(self, transaction: Transaction) -> None:
+    async def _apply_debt_payment(self, transaction: Transaction) -> Transaction:
         if self._debts is None or not _is_debt_payment(transaction):
-            return
+            return transaction
         debt = await self._debts.get_by_id(transaction.debt_id or "")
         if debt is None:
-            return
+            return transaction
         credit = debt_credit_amount(transaction)
+        stamped = with_debt_interest_tag(transaction, debt, credit)
+        if stamped.tags != transaction.tags:
+            transaction = await self._transactions.update(stamped)
         updated = apply_debt_payment_credit(
             debt, credit, transaction=transaction, roll_schedule=True
         )
         await self._debts.update(updated)
+        return transaction
 
     async def _reverse_debt_payment(self, transaction: Transaction) -> None:
         if self._debts is None or not _is_debt_payment(transaction):
@@ -712,6 +748,7 @@ class DeleteTransactionUseCase:
         self._currencies = currencies
         self._session_factory = session_factory
         self._media_cleanup = media_cleanup
+        self._after_commit: Optional[Callable[[], object]] = None
 
     async def execute(self, transaction_id: str) -> bool:
         """Remove a transaction and undo account / goal / debt side effects."""
@@ -726,21 +763,15 @@ class DeleteTransactionUseCase:
                 peers = await self._transactions.list(transfer_id=existing.transfer_id)
                 peer_ids = [p.id for p in peers if p.id != existing.id]
                 fee_tag = transfer_fee_tag(existing.transfer_id)
-                source = next(
-                    (p for p in peers if p.type == TransactionType.EXPENSE),
-                    existing if existing.type == TransactionType.EXPENSE else None,
+                fees = await self._transactions.list(
+                    category=FEE_CATEGORY,
+                    tags=[fee_tag],
                 )
-                if source is not None:
-                    fees = await self._transactions.list(
-                        account_id=source.account_id,
-                        category=FEE_CATEGORY,
-                        tags=[fee_tag],
-                    )
-                    fee_ids = [
-                        f.id
-                        for f in fees
-                        if f.id != existing.id and f.id not in peer_ids
-                    ]
+                fee_ids = [
+                    f.id
+                    for f in fees
+                    if f.id != existing.id and f.id not in peer_ids
+                ]
             ok = await self._delete_one(existing)
             for peer_id in peer_ids:
                 peer = await self._transactions.get_by_id(peer_id)
@@ -754,10 +785,14 @@ class DeleteTransactionUseCase:
 
         if self._session_factory is not None:
             if in_unit_of_work():
-                return await _run()
-            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
-                return await _run()
-        return await _run()
+                ok = await _run()
+            else:
+                with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                    ok = await _run()
+        else:
+            ok = await _run()
+        await _invoke_after_commit(self._after_commit)
+        return ok
 
     async def _delete_one(self, existing: Transaction) -> bool:
         """Reverse one row without looking up its transfer peer."""
@@ -835,6 +870,8 @@ class ListTransactionsUseCase:
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         query: Optional[str] = None,
+        amount_min: Optional[Decimal] = None,
+        amount_max: Optional[Decimal] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
@@ -854,6 +891,8 @@ class ListTransactionsUseCase:
             transfer_id=transfer_id,
             has_transfer=has_transfer,
             query=query,
+            amount_min=amount_min,
+            amount_max=amount_max,
             limit=limit,
             offset=offset,
         )

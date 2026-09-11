@@ -1,47 +1,25 @@
+# GitHub-hosted macOS cannot produce a signed App Store / Ad Hoc IPA
+# (no Apple Distribution cert, no matching profile, no Flet iOS patch watch).
+# Use Codemagic workflows in codemagic.yaml instead:
+#   ios-ipa      — Ad Hoc (device testing)
+#   ios-appstore — App Store / TestFlight
+#   ios-smoke    — unsigned smoke
+#
+# This workflow stays as a pointer so the old "Build iOS" action is not mistaken
+# for a shippable artifact.
+
 name: Build iOS
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: macos-latest
-
+  redirect:
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Set up Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.x'
-        channel: 'stable'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flet
-        flutter doctor
-
-    - name: Bootstrap Flet iOS Project
-      run: flet build ipa --no-codesign || true
-
-    - name: Build iOS App (.app)
-      run: flutter build ios --release --no-codesign
-
-    - name: Package to IPA
-      run: |
-        mkdir -p Payload
-        cp -r build/ios/iphoneos/Runner.app Payload/
-        zip -r flet_app.ipa Payload
-
-    - name: Upload IPA Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: flet-ios-app
-        path: flet_app.ipa
+      - name: Use Codemagic for IPA
+        run: |
+          echo "Signed IPA builds run on Codemagic (codemagic.yaml)."
+          echo "Workflows: ios-ipa (Ad Hoc), ios-appstore (App Store), ios-smoke."
+          echo "See docs/CODEMAGIC.md"
+          exit 0

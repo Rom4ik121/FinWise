@@ -80,6 +80,14 @@ def push_disabled_by_env() -> bool:
     }
 
 
+OS_PAYLOAD_PREFIX = "finwise:"
+
+
+def os_notification_payload(kind: str, related_id: str | None = None) -> str:
+    """Payload stored on the OS notification for prefix cancel / replace."""
+    return f"{OS_PAYLOAD_PREFIX}{kind}:{related_id or ''}"
+
+
 def stable_notification_id(kind: str, related_id: str | None = None) -> int:
     """Stable positive int id for replaceable OS notifications."""
     digest = hashlib.md5(f"{kind}:{related_id or ''}".encode("utf-8")).hexdigest()
@@ -217,6 +225,20 @@ def _show_linux_notification(title: str, body: str) -> bool:
         return False
 
 
+def should_guide_to_notification_settings(
+    *,
+    enabled: bool,
+    was_enabled: bool,
+    granted: bool,
+) -> bool:
+    """True only when the user just turned reminders on and the OS still denies.
+
+    Saving unrelated settings while notifications stay on must not reopen
+    system Settings after a sticky deny.
+    """
+    return bool(enabled) and not granted and not was_enabled
+
+
 async def request_push_permissions() -> bool:
     """Request OS notification permission when supported."""
     if push_disabled_by_env():
@@ -237,6 +259,73 @@ async def request_push_permissions() -> bool:
         return bool(granted)
     except Exception:  # noqa: BLE001
         logger.exception("OS notification permission request failed")
+        return False
+
+
+def notification_settings_url() -> str | None:
+    """OS Settings URL for notification permission (iOS / Android)."""
+    if _looks_like_ios():
+        return "app-settings:"
+    try:
+        from lib.core.config import _is_android
+
+        android = bool(_is_android())
+    except Exception:  # noqa: BLE001
+        android = sys.platform == "android"
+    if not android:
+        return None
+    return (
+        "intent:#Intent;action=android.settings.APP_NOTIFICATION_SETTINGS;"
+        "S.android.provider.extra.APP_PACKAGE=com.finanse.app;end"
+    )
+
+
+async def open_system_notification_settings(page: Any | None = None) -> bool:
+    """Open the OS Settings screen for this app's notification permission."""
+    svc = _mobile_service
+    opener = getattr(svc, "open_system_settings", None) if svc is not None else None
+    if callable(opener):
+        try:
+            if await opener():
+                return True
+        except Exception:  # noqa: BLE001
+            logger.debug("Native open_system_settings failed", exc_info=True)
+    url = notification_settings_url()
+    host = page if page is not None else _push_page
+    if not url or host is None:
+        return False
+    try:
+        launch = getattr(host, "launch_url", None)
+        if callable(launch):
+            result = launch(url)
+            if asyncio.iscoroutine(result):
+                await result
+            return True
+    except Exception:  # noqa: BLE001
+        logger.debug("page.launch_url settings failed", exc_info=True)
+    try:
+        import flet as ft
+
+        from lib.infrastructure.services.flet_services import (
+            attach_page_service,
+            existing_page_service,
+        )
+
+        launcher = existing_page_service(host, ft.UrlLauncher)
+        if launcher is None:
+            launcher = ft.UrlLauncher()
+            if not attach_page_service(host, launcher, native_extension=False):
+                return False
+        mode = getattr(ft, "LaunchMode", None)
+        kwargs = {}
+        if mode is not None:
+            external = getattr(mode, "EXTERNAL_APPLICATION", None)
+            if external is not None:
+                kwargs["mode"] = external
+        await launcher.launch_url(url, **kwargs)
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not open system notification settings")
         return False
 
 
@@ -295,6 +384,7 @@ async def show_os_notification(
                 importance="high",
                 play_sound=True,
                 enable_vibration=True,
+                payload=os_notification_payload(kind, related_id),
             )
             logger.info("OS notification shown id=%s kind=%s", nid, kind)
             return True
@@ -345,6 +435,7 @@ async def schedule_os_notification(
                 when_iso=when_utc.isoformat(),
                 channel_id=ANDROID_CHANNEL_ID,
                 channel_name=ANDROID_CHANNEL_NAME,
+                payload=os_notification_payload(kind, related_id),
             )
             return True
         except Exception:  # noqa: BLE001
@@ -416,6 +507,32 @@ def dispatch_push(
     task = loop.create_task(_go())
     _push_tasks.add(task)
     task.add_done_callback(_log_push_task)
+
+
+async def cancel_os_prefixed(prefix: str = OS_PAYLOAD_PREFIX) -> bool:
+    """Cancel pending OS notifications by payload prefix — never ``cancel_all``.
+
+    Re-arming debt/subscription/goal reminders used to call ``cancel_all``,
+    which dropped unrelated scheduled items. FinWise payloads start with
+    ``finwise:``.
+    """
+    if push_disabled_by_env():
+        return False
+    svc = _mobile_service
+    if svc is None:
+        return False
+    fn = getattr(svc, "cancel_prefixed", None)
+    if not callable(fn):
+        logger.debug(
+            "cancel_prefixed unavailable on notification service; "
+            "leaving existing OS notifications in place"
+        )
+        return False
+    try:
+        return bool(await fn(prefix or OS_PAYLOAD_PREFIX))
+    except Exception:  # noqa: BLE001
+        logger.debug("cancel_prefixed failed", exc_info=True)
+        return False
 
 
 def register_android_notifications(page: Any) -> bool:

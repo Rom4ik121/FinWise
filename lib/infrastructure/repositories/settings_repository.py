@@ -36,6 +36,8 @@ def _to_entity(model: SettingsModel) -> AppSettings:
         theme=model.theme,
         ui_style=getattr(model, "ui_style", None) or DEFAULT_UI_STYLE,
         language=model.language,
+        language_user_set=bool(getattr(model, "language_user_set", False)),
+        currency_user_set=bool(getattr(model, "currency_user_set", False)),
         exchange_update_interval_minutes=model.exchange_update_interval_minutes,
         notifications_enabled=model.notifications_enabled,
         subscription_reminders=model.subscription_reminders,
@@ -55,6 +57,9 @@ def _to_entity(model: SettingsModel) -> AppSettings:
         completed_tour_debts=bool(getattr(model, "completed_tour_debts", False)),
         completed_tour_analytics=bool(getattr(model, "completed_tour_analytics", False)),
         completed_tour_goals=bool(getattr(model, "completed_tour_goals", False)),
+        tx_filters_json=getattr(model, "tx_filters_json", None) or None,
+        budget_warn_pct=int(getattr(model, "budget_warn_pct", None) or 80),
+        budget_limit_pct=int(getattr(model, "budget_limit_pct", None) or 100),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
 
@@ -65,6 +70,8 @@ def _apply_entity(model: SettingsModel, entity: AppSettings) -> None:
     model.theme = entity.theme
     model.ui_style = entity.ui_style
     model.language = entity.language
+    model.language_user_set = bool(getattr(entity, "language_user_set", False))
+    model.currency_user_set = bool(getattr(entity, "currency_user_set", False))
     model.exchange_update_interval_minutes = entity.exchange_update_interval_minutes
     model.notifications_enabled = entity.notifications_enabled
     model.subscription_reminders = entity.subscription_reminders
@@ -84,6 +91,9 @@ def _apply_entity(model: SettingsModel, entity: AppSettings) -> None:
     model.completed_tour_debts = bool(getattr(entity, "completed_tour_debts", False))
     model.completed_tour_analytics = bool(getattr(entity, "completed_tour_analytics", False))
     model.completed_tour_goals = bool(getattr(entity, "completed_tour_goals", False))
+    model.tx_filters_json = (entity.tx_filters_json or None)
+    model.budget_warn_pct = int(getattr(entity, "budget_warn_pct", 80) or 80)
+    model.budget_limit_pct = int(getattr(entity, "budget_limit_pct", 100) or 100)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 
 
@@ -133,6 +143,8 @@ class SqlAlchemySettingsRepository(SettingsRepository):
                     id=DEFAULT_SETTINGS_ID,
                     language=lang,
                     default_currency=currency,
+                    language_user_set=False,
+                    currency_user_set=False,
                     # Legacy tour flags — feature removed; mark done so old DBs stay quiet.
                     completed_onboarding=True,
                     completed_tour_debts=True,

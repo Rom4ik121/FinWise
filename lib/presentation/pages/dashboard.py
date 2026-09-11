@@ -12,7 +12,7 @@ from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.transaction import TransactionType
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups, mark_progress
 from lib.presentation.reload_gate import ReloadGate
-from lib.presentation.ui_motion import replace_controls, ui_animation
+from lib.presentation.ui_motion import chart_enter, replace_controls, ui_animation
 from lib.presentation.haptics import haptic
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
@@ -90,6 +90,7 @@ class DashboardPage(ft.Column):
         self._sections_open = True
         self._balance_cache: dict = {}
         self._animate_charts = False
+        self._charts_entered_keys: set[str] = set()
         # Stable slots for in-place toggle mutate (avoid full ListView rebuild).
         self._balance_label: ft.Text | None = None
         self._balance_code_label: ft.Text | None = None
@@ -102,6 +103,7 @@ class DashboardPage(ft.Column):
         self._sections_hint: ft.Text | None = None
         self._sections_slot: ft.Container | None = None
         self._budget_slot: ft.Container | None = None
+        self._alert_slot: ft.Container | None = None
         self._add_slot: ft.Container | None = None
         self._slots_ready = False
         super().__init__(
@@ -418,19 +420,25 @@ class DashboardPage(ft.Column):
             if not self._hide_chart:
                 zeros = [Decimal("0")] * max(len(incomes), 1)
                 chart_w, chart_h = compact_chart_size(self._page)
-                self._chart_slot.content = build_line_chart_image(
-                    periods,
-                    incomes if not hidden else zeros,
-                    expenses if not hidden else zeros,
-                    width=chart_w,
-                    height=chart_h,
-                    language=lang,
-                    dark=True,
-                    show_income=True,
-                    show_expense=True,
-                    page=self._page,
-                    compact=True,
-                    animate=bool(animate_chart) and not hidden,
+                self._chart_slot.content = chart_enter(
+                    self,
+                    build_line_chart_image(
+                        periods,
+                        incomes if not hidden else zeros,
+                        expenses if not hidden else zeros,
+                        width=chart_w,
+                        height=chart_h,
+                        language=lang,
+                        dark=True,
+                        show_income=True,
+                        show_expense=True,
+                        page=self._page,
+                        compact=True,
+                        animate=bool(animate_chart) and not hidden,
+                    ),
+                    self._page,
+                    refresh=bool(animate_chart) and not hidden,
+                    key="hero",
                 )
             safe_update(self._chart_slot)
 
@@ -527,6 +535,7 @@ class DashboardPage(ft.Column):
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
             no_wrap=True,
+            expand=True,
         )
         balance_code = ft.Text(
             "" if hidden else base,
@@ -575,6 +584,7 @@ class DashboardPage(ft.Column):
         self._chart_btn = chart_btn
         today_row = ft.Row(
             spacing=8,
+            tight=True,
             controls=[
                 self._today_box(
                     label=tr("dashboard.today_income", lang),
@@ -616,6 +626,8 @@ class DashboardPage(ft.Column):
                         color=ft.Colors.ON_SURFACE_VARIANT,
                         weight=ft.FontWeight.W_500,
                         expand=True,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                     eye_btn,
                 ],
@@ -624,10 +636,10 @@ class DashboardPage(ft.Column):
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 wrap=False,
+                tight=True,
                 controls=[
                     balance_label,
                     balance_code,
-                    ft.Container(expand=True),
                     chart_btn,
                 ],
             ),
@@ -647,6 +659,14 @@ class DashboardPage(ft.Column):
             page=self._page,
             compact=True,
             animate=bool(self._animate_charts),
+        )
+        self._charts_entered_keys.discard("hero")
+        chart = chart_enter(
+            self,
+            chart,
+            self._page,
+            refresh=bool(self._animate_charts),
+            key="hero",
         )
         chart_slot = ft.Container(
             ink=True,
@@ -740,6 +760,8 @@ class DashboardPage(ft.Column):
                                         size=15,
                                         weight=ft.FontWeight.W_700,
                                         color=ft.Colors.ON_SURFACE,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
                                     hint,
                                 ],
@@ -763,6 +785,7 @@ class DashboardPage(ft.Column):
             controls=[
                 ft.Row(
                     spacing=8,
+                    tight=True,
                     controls=[
                         shortcut_chip(
                             tr("nav.goals", lang),
@@ -782,6 +805,7 @@ class DashboardPage(ft.Column):
                 ),
                 ft.Row(
                     spacing=8,
+                    tight=True,
                     controls=[
                         shortcut_chip(
                             tr("nav.subscriptions", lang),
@@ -804,6 +828,7 @@ class DashboardPage(ft.Column):
                 ),
                 ft.Row(
                     spacing=8,
+                    tight=True,
                     controls=[
                         shortcut_chip(
                             tr("nav.budgets", lang),
@@ -826,7 +851,9 @@ class DashboardPage(ft.Column):
 
     def _analytics_button(self, lang: str) -> ft.Container:
         """Full-width entry to the analytics secondary screen."""
-        return ft.Container(
+        from lib.presentation.ui_motion import bind_press
+
+        btn = ft.Container(
             height=scale_size(52, self._page, minimum=48, maximum=64),
             border_radius=16,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -838,15 +865,16 @@ class DashboardPage(ft.Column):
                 offset=ft.Offset(0, 4),
             ),
             ink=True,
-            on_click=lambda _e: self._state.open_secondary("analytics"),
             padding=ft.Padding.symmetric(horizontal=16, vertical=12),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
                 controls=[
                     ft.Row(
                         spacing=10,
                         tight=True,
+                        expand=True,
                         controls=[
                             ft.Container(
                                 width=32,
@@ -865,6 +893,9 @@ class DashboardPage(ft.Column):
                                 size=14,
                                 weight=ft.FontWeight.W_700,
                                 color=ft.Colors.ON_SURFACE,
+                                expand=True,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
                             ),
                         ],
                     ),
@@ -876,6 +907,13 @@ class DashboardPage(ft.Column):
                 ],
             ),
         )
+        bind_press(
+            btn,
+            haptic_kind="light",
+            on_click=lambda _e: self._state.open_secondary("analytics"),
+            page=self._page,
+        )
+        return btn
 
     async def reload(self, animate: bool = False) -> None:
         """Reload dashboard data from use cases."""
@@ -930,6 +968,7 @@ class DashboardPage(ft.Column):
                     EmptyState(
                         tr("empty.accounts", lang),
                         icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED,
+                        hint=tr("onboarding.home_hint", lang),
                         action_label=tr("empty.accounts_action", lang),
                         on_action=lambda _e: self._open_first_account(),
                     )
@@ -990,7 +1029,19 @@ class DashboardPage(ft.Column):
         try:
             motion = animate
             with ui_animation(motion):
-                budget_widget = await self._budgets_widget(lang, base)
+                budget_items = None
+                budget_uc = getattr(c, "get_budgets_for_month", None)
+                if budget_uc is not None:
+                    try:
+                        budget_items = await budget_uc.execute(now.month, now.year)
+                    except Exception:  # noqa: BLE001
+                        budget_items = []
+                budget_widget = await self._budgets_widget(
+                    lang, base, items=budget_items
+                )
+                alert_widget = await self._budget_alert_banner(
+                    lang, items=budget_items
+                )
 
                 def _add_button() -> ft.Control:
                     return dual_add_button(
@@ -1021,6 +1072,7 @@ class DashboardPage(ft.Column):
 
                 def _build() -> list[ft.Control]:
                     return [
+                        _host("_alert_slot", alert_widget),
                         self._balance_panel(
                             lang,
                             total,
@@ -1075,6 +1127,9 @@ class DashboardPage(ft.Column):
                                 budgets_badge=budgets_badge,
                             )
                             safe_update(self._sections_slot)
+                        if self._alert_slot is not None:
+                            self._alert_slot.content = alert_widget
+                            safe_update(self._alert_slot)
                         self._budget_slot.content = budget_widget
                         safe_update(self._budget_slot)
                     except Exception as exc:  # noqa: BLE001
@@ -1111,17 +1166,76 @@ class DashboardPage(ft.Column):
             await flush_chart_draws()
             self._animate_charts = False
 
-    async def _budgets_widget(self, lang: str, currency: str) -> ft.Control:
+    async def _budget_alert_banner(
+        self, lang: str, *, items: list | None = None
+    ) -> ft.Control:
+        settings = self._state.settings
+        if not getattr(settings, "budget_alerts", True):
+            return ft.Container()
+        if items is None:
+            uc = getattr(self._state.container, "get_budgets_for_month", None)
+            if uc is None:
+                return ft.Container()
+            now = datetime.now(timezone.utc)
+            try:
+                items = await uc.execute(now.month, now.year)
+            except Exception:  # noqa: BLE001
+                return ft.Container()
+        warn = int(getattr(settings, "budget_warn_pct", 80) or 80)
+        hot = [p for p in items if float(p.percent) >= warn]
+        if not hot:
+            return ft.Container()
+        top = hot[0]
+        cat = localize_category_name(top.category_id, lang)
+        percent = f"{float(top.percent):.0f}"
+
+        def _open(_e: ft.ControlEvent | None = None) -> None:
+            self._state.pending_budget_id = top.budget.id
+            self._state.open_secondary("budgets")
+
+        return card_surface(
+            ft.Row(
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.ERROR),
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
+                        expand=True,
+                        controls=[
+                            ft.Text(
+                                tr("home.budget_alert", lang, category=cat, percent=percent),
+                                weight=ft.FontWeight.W_700,
+                                size=13,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            muted_text(tr("home.budget_alert_body", lang), size=11),
+                        ],
+                    ),
+                ],
+            ),
+            ink=True,
+            on_click=_open,
+            accent=ft.Colors.ERROR,
+            padding=12,
+        )
+
+    async def _budgets_widget(
+        self, lang: str, currency: str, *, items: list | None = None
+    ) -> ft.Control:
         """Category budgets for the current month."""
-        now = datetime.now(timezone.utc)
-        uc = getattr(self._state.container, "get_budgets_for_month", None)
         title = section_title(tr("dashboard.budgets", lang))
-        if uc is None:
-            return ft.Column(tight=True, spacing=8, controls=[title])
-        try:
-            items = await uc.execute(now.month, now.year)
-        except Exception:  # noqa: BLE001
-            items = []
+        if items is None:
+            now = datetime.now(timezone.utc)
+            uc = getattr(self._state.container, "get_budgets_for_month", None)
+            if uc is None:
+                return ft.Column(tight=True, spacing=8, controls=[title])
+            try:
+                items = await uc.execute(now.month, now.year)
+            except Exception:  # noqa: BLE001
+                items = []
         shown = sorted(items, key=lambda p: p.percent, reverse=True)
         cat_map: dict[str, object] = {}
         list_cats = getattr(self._state.container, "list_categories", None)

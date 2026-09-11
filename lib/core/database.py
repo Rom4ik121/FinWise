@@ -132,6 +132,51 @@ def init_db(config: Optional[AppConfig] = None, *, echo: bool = False) -> Engine
     return engine
 
 
+# Filename leftover used this id; 0003.down_revision is ``0002``.
+_LEGACY_ALEMBIC_REVISIONS = {
+    "0002_reminder_time": "0002",
+}
+
+
+def rewrite_legacy_alembic_revisions(db_path: object) -> bool:
+    """Map obsolete Alembic revision ids so ``upgrade head`` can walk the chain.
+
+    Returns True when a row was rewritten.
+    """
+    from pathlib import Path
+    import sqlite3
+
+    path = Path(str(db_path))
+    if not path.is_file():
+        return False
+    conn = sqlite3.connect(str(path))
+    try:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+        ).fetchone()
+        if row is None:
+            return False
+        current = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        if not current:
+            return False
+        old = str(current[0] or "")
+        mapped = _LEGACY_ALEMBIC_REVISIONS.get(old)
+        if not mapped:
+            return False
+        conn.execute(
+            "UPDATE alembic_version SET version_num = ? WHERE version_num = ?",
+            (mapped, old),
+        )
+        conn.commit()
+        logger.info("Rewrote legacy Alembic revision %s → %s", old, mapped)
+        return True
+    except sqlite3.Error:
+        logger.debug("Alembic revision rewrite skipped", exc_info=True)
+        return False
+    finally:
+        conn.close()
+
+
 def _try_alembic_upgrade(config: Optional[AppConfig] = None) -> None:
     """Best-effort ``alembic upgrade head`` (idempotent; warn on failure)."""
     try:
@@ -144,10 +189,11 @@ def _try_alembic_upgrade(config: Optional[AppConfig] = None) -> None:
         migrations = root / "migrations"
         if not (migrations / "env.py").is_file():
             return
+        cfg = config or get_default_config()
+        rewrite_legacy_alembic_revisions(cfg.db_path)
         alembic_cfg = AlembicConfig()
         alembic_cfg.set_main_option("script_location", str(migrations))
         alembic_cfg.set_main_option("prepend_sys_path", str(root))
-        cfg = config or get_default_config()
         alembic_cfg.set_main_option("sqlalchemy.url", cfg.database_url)
         command.upgrade(alembic_cfg, "head")
     except Exception as exc:  # noqa: BLE001
@@ -189,6 +235,13 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("completed_tour_debts", "BOOLEAN NOT NULL DEFAULT 1"),
             ("completed_tour_analytics", "BOOLEAN NOT NULL DEFAULT 1"),
             ("completed_tour_goals", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("tx_filters_json", "TEXT"),
+            ("budget_warn_pct", "INTEGER NOT NULL DEFAULT 80"),
+            ("budget_limit_pct", "INTEGER NOT NULL DEFAULT 100"),
+            # Existing installs already chose (or lived with) a language.
+            ("language_user_set", "BOOLEAN NOT NULL DEFAULT 1"),
+            # Existing installs already have a default currency (do not auto-flip).
+            ("currency_user_set", "BOOLEAN NOT NULL DEFAULT 1"),
         ],
         "budgets": [
             ("last_alert_level", "INTEGER NOT NULL DEFAULT 0"),
@@ -501,6 +554,28 @@ def _ensure_transactions_fts(engine: Engine) -> None:
     """Create and backfill FTS5 index for transaction free-text search."""
     if engine.url.get_backend_name() != "sqlite":
         return
+    create_sql = """
+        CREATE VIRTUAL TABLE transactions_fts USING fts5(
+            id UNINDEXED,
+            category,
+            comment,
+            tags,
+            payee,
+            amount,
+            tokenize = 'unicode61 remove_diacritics 2'
+        )
+    """
+    fill_sql = """
+        INSERT INTO transactions_fts(id, category, comment, tags, payee, amount)
+        SELECT
+            id,
+            COALESCE(category, ''),
+            COALESCE(comment, ''),
+            COALESCE(CAST(tags AS TEXT), ''),
+            COALESCE(CAST(items AS TEXT), ''),
+            COALESCE(CAST(amount AS TEXT), '')
+        FROM transactions
+    """
     with engine.begin() as conn:
         tables = {
             row[0]
@@ -510,31 +585,26 @@ def _ensure_transactions_fts(engine: Engine) -> None:
         }
         if "transactions" not in tables:
             return
+        needs_rebuild = "transactions_fts" not in tables
         if "transactions_fts" in tables:
+            try:
+                cols = {
+                    str(row[1])
+                    for row in conn.exec_driver_sql(
+                        "PRAGMA table_info(transactions_fts)"
+                    ).fetchall()
+                }
+                if "amount" not in cols or "payee" not in cols:
+                    needs_rebuild = True
+            except Exception:  # noqa: BLE001
+                needs_rebuild = True
+        if not needs_rebuild:
             return
         try:
-            conn.exec_driver_sql(
-                """
-                CREATE VIRTUAL TABLE transactions_fts USING fts5(
-                    id UNINDEXED,
-                    category,
-                    comment,
-                    tags,
-                    tokenize = 'unicode61 remove_diacritics 2'
-                )
-                """
-            )
-            conn.exec_driver_sql(
-                """
-                INSERT INTO transactions_fts(id, category, comment, tags)
-                SELECT
-                    id,
-                    COALESCE(category, ''),
-                    COALESCE(comment, ''),
-                    COALESCE(CAST(tags AS TEXT), '')
-                FROM transactions
-                """
-            )
+            if "transactions_fts" in tables:
+                conn.exec_driver_sql("DROP TABLE IF EXISTS transactions_fts")
+            conn.exec_driver_sql(create_sql)
+            conn.exec_driver_sql(fill_sql)
             logger.info("Created transactions_fts FTS5 index")
         except Exception as exc:  # noqa: BLE001
             logger.warning("transactions_fts setup skipped: %s", exc)

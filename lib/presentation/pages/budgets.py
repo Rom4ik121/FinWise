@@ -30,7 +30,7 @@ from lib.presentation.components.layout.grid import card_grid
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import amount_text, make_amount_field, parse_amount
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
     mark_related_read,
@@ -47,6 +47,7 @@ from lib.presentation.utils import (
     snack_exception,
     tr,
 )
+from lib.presentation.form_validation import require_positive_amount
 from lib.presentation.widgets.budget_sparkline import budget_spend_sparkline
 from lib.presentation.widgets.budget_summary_ring import (
     budget_list_card,
@@ -98,10 +99,8 @@ class BudgetsPage(ft.Column):
                     body=self._list,
                     page=page,
                     extra=[self._search_tf],
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.CONTENT_COPY,
@@ -220,6 +219,12 @@ class BudgetsPage(ft.Column):
             self._state.settings,
             BUDGET_ALERT_KINDS,
         )
+        pending = getattr(self._state, "pending_budget_id", None)
+        open_pending: str | None = None
+        if pending:
+            open_pending = str(pending)
+            self._alert_ids.add(open_pending)
+            self._state.pending_budget_id = None
         try:
             items = await self._state.container.get_budgets_for_month.execute(
                 self._month, self._year
@@ -250,8 +255,11 @@ class BudgetsPage(ft.Column):
         total_spent = sum((item.spent for item in items), Decimal("0"))
         remaining = total_limit - total_spent
         over_count = sum(1 for item in items if item.is_over_budget)
+        warn_pct = int(getattr(self._state.settings, "budget_warn_pct", 80) or 80)
         warning_count = sum(
-            1 for item in items if (not item.is_over_budget) and item.percent >= 80
+            1
+            for item in items
+            if (not item.is_over_budget) and item.percent >= warn_pct
         )
         now = datetime.now(timezone.utc)
         lookback_y, lookback_m = shift_month(self._year, self._month, -5)
@@ -355,6 +363,10 @@ class BudgetsPage(ft.Column):
                 card_grid(packed, self._page, min_card=300, maximum=2)
             )
         replace_controls(self._list, controls, self._page)
+        if open_pending:
+            match = next((p for p in items if p.budget.id == open_pending), None)
+            if match is not None:
+                self._open_detail(match)
 
     def _on_filter(self, value: str) -> None:
         self._filter = value or "all"
@@ -364,12 +376,13 @@ class BudgetsPage(ft.Column):
         self, items: list[BudgetProgress], lang: str
     ) -> list[BudgetProgress]:
         q = self._search_query.strip().casefold()
+        warn_pct = int(getattr(self._state.settings, "budget_warn_pct", 80) or 80)
         out: list[BudgetProgress] = []
         for item in items:
             if self._filter == "over" and not item.is_over_budget:
                 continue
             if self._filter == "warning" and (
-                item.is_over_budget or item.percent < 80
+                item.is_over_budget or item.percent < warn_pct
             ):
                 continue
             if q:
@@ -606,7 +619,7 @@ class BudgetsPage(ft.Column):
                 except Exception:  # noqa: BLE001
                     pass
             picker.select_name(template.category)
-            if not (limit_tf.value or "").strip():
+            if not amount_text(limit_tf).strip():
                 limit_tf.value = template.default_amount
                 safe_update(limit_tf)
             await _refresh_suggest()
@@ -716,10 +729,10 @@ class BudgetsPage(ft.Column):
             if not name:
                 snack(self._page, tr("budgets.category_required", lang), error=True)
                 return
-            try:
-                limit = parse_amount(limit_tf.value)
-            except (InvalidOperation, ValueError):
-                snack(self._page, tr("budgets.limit_required", lang), error=True)
+            limit = require_positive_amount(
+                limit_tf, self._page, lang, message_key="budgets.limit_required"
+            )
+            if limit is None:
                 return
             try:
                 await self._state.container.set_budget.execute(

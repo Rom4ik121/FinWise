@@ -28,6 +28,14 @@ from lib.infrastructure.repositories.transaction_fts import (
 logger = logging.getLogger("finanse.infrastructure.repositories.transaction")
 
 
+def _json_each_tag_clause(tag: str, bind: str):
+    """SQL EXISTS so tag filters can use LIMIT/OFFSET instead of a Python scan."""
+    return text(
+        "EXISTS (SELECT 1 FROM json_each(transactions.tags) "
+        f"WHERE json_each.value = :{bind})"
+    ).bindparams(**{bind: tag})
+
+
 def _items_from_model(raw: object) -> list[TransactionItem]:
     if not raw:
         return []
@@ -42,6 +50,7 @@ def _items_from_model(raw: object) -> list[TransactionItem]:
                     name=str(row.get("name") or ""),
                     amount=Decimal(str(row.get("amount") or "0")),
                     category=str(row.get("category") or ""),
+                    attachment=str(row.get("attachment") or ""),
                 )
             )
         except (ValueError, TypeError, ArithmeticError):
@@ -55,6 +64,7 @@ def _items_to_json(items: list[TransactionItem]) -> list[dict]:
             "name": item.name,
             "amount": str(item.amount),
             "category": item.category,
+            "attachment": item.attachment or "",
         }
         for item in items
     ]
@@ -205,6 +215,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         query: Optional[str] = None,
+        amount_min: Optional[Decimal] = None,
+        amount_max: Optional[Decimal] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
@@ -223,6 +235,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             transfer_id,
             has_transfer,
             (query or "").strip() or None,
+            amount_min,
+            amount_max,
             limit,
             offset,
         )
@@ -255,6 +269,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 category=model.category,
                 comment=model.comment or "",
                 tags=list(model.tags or []),
+                amount=model.amount,
+                items=getattr(model, "items", None),
             )
             logger.debug("Created transaction %s", model.id)
             return _to_entity(model)
@@ -273,6 +289,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 category=model.category,
                 comment=model.comment or "",
                 tags=list(model.tags or []),
+                amount=model.amount,
+                items=getattr(model, "items", None),
             )
             logger.debug("Updated transaction %s", model.id)
             return _to_entity(model)
@@ -347,6 +365,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                     category=model.category,
                     comment=model.comment or "",
                     tags=list(model.tags or []),
+                    amount=model.amount,
+                    items=getattr(model, "items", None),
                 )
                 count += 1
             logger.debug(
@@ -379,6 +399,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         transfer_id: Optional[str],
         has_transfer: Optional[bool],
         query: Optional[str],
+        amount_min: Optional[Decimal],
+        amount_max: Optional[Decimal],
         limit: Optional[int],
         offset: int,
     ) -> list[Transaction]:
@@ -419,9 +441,21 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 stmt = stmt.where(TransactionModel.transfer_id.is_not(None))
             elif has_transfer is False:
                 stmt = stmt.where(TransactionModel.transfer_id.is_(None))
+            if amount_min is not None:
+                stmt = stmt.where(TransactionModel.amount >= amount_min)
+            if amount_max is not None:
+                stmt = stmt.where(TransactionModel.amount <= amount_max)
 
             q = (query or "").strip()
             if q:
+                pattern = f"%{q}%"
+                like_clause = or_(
+                    TransactionModel.category.ilike(pattern),
+                    TransactionModel.comment.ilike(pattern),
+                    cast(TransactionModel.tags, String).ilike(pattern),
+                    cast(TransactionModel.amount, String).ilike(pattern),
+                    cast(TransactionModel.items, String).ilike(pattern),
+                )
                 match = build_fts_match(q)
                 fts_ids: list[str] | None = None
                 if match:
@@ -436,27 +470,39 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                         fts_ids = [str(r[0]) for r in rows]
                     except Exception:  # noqa: BLE001
                         fts_ids = None
-                if fts_ids is not None:
-                    if not fts_ids:
-                        return []
-                    stmt = stmt.where(TransactionModel.id.in_(fts_ids))
-                else:
-                    # LIKE fallback when FTS table is missing.
-                    pattern = f"%{q}%"
+                if fts_ids:
                     stmt = stmt.where(
-                        or_(
-                            TransactionModel.category.ilike(pattern),
-                            TransactionModel.comment.ilike(pattern),
-                            cast(TransactionModel.tags, String).ilike(pattern),
-                        )
+                        or_(TransactionModel.id.in_(fts_ids), like_clause)
                     )
+                else:
+                    # FTS miss / missing table: substring match on title, comment, lines.
+                    stmt = stmt.where(like_clause)
 
             stmt = stmt.order_by(TransactionModel.date.desc())
-            # Tags live in JSON — filter in Python *before* limit/offset so
-            # pagination matches the filtered set (AUDIT #63).
-            if tags:
+            required_tags = [str(t) for t in (tags or []) if str(t)]
+            if required_tags:
+                tagged_stmt = stmt
+                for i, tag in enumerate(required_tags):
+                    tagged_stmt = tagged_stmt.where(_json_each_tag_clause(tag, f"tag_req_{i}"))
+                if offset:
+                    tagged_stmt = tagged_stmt.offset(offset)
+                if limit is not None:
+                    tagged_stmt = tagged_stmt.limit(limit)
+                nested = session.begin_nested()
+                try:
+                    rows = session.scalars(tagged_stmt).all()
+                    nested.commit()
+                    return [_to_entity(r) for r in rows]
+                except Exception:  # noqa: BLE001
+                    nested.rollback()
+                    logger.debug(
+                        "json_each tags filter unavailable; Python fallback",
+                        exc_info=True,
+                    )
+                # Fallback: JSON1 missing — filter in Python *before* limit/offset
+                # so pagination still matches the filtered set (AUDIT #63).
                 rows = session.scalars(stmt).all()
-                required = set(tags)
+                required = set(required_tags)
                 entities = [
                     e
                     for e in (_to_entity(r) for r in rows)
