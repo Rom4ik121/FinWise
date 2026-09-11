@@ -140,3 +140,186 @@ def test_schedule_goal_off_track_reminder() -> None:
         assert "Trip" in created[0].body
 
     asyncio.run(_run())
+
+
+def test_in_app_debt_lead_days_uses_settings() -> None:
+    svc = NotificationService(default_lead_days=3)
+    due = datetime.now(timezone.utc) + timedelta(days=2)
+    debt = Debt(
+        counterparty="Bank",
+        amount=100,
+        remaining_amount=100,
+        direction=DebtDirection.I_OWE,
+        due_date=due,
+        status=DebtStatus.ACTIVE,
+    )
+    list_debts = MagicMock()
+
+    async def _list_debts(**kwargs):
+        if kwargs.get("status") == DebtStatus.OVERDUE:
+            return []
+        return [debt]
+
+    list_debts.execute = AsyncMock(side_effect=_list_debts)
+    container = MagicMock()
+    container.notification_service = svc
+    container.list_debts = list_debts
+    container.list_subscriptions = None
+    container.mark_overdue_debts = None
+    container.list_transactions = None
+    container.get_goal_projection = None
+    container.list_goals = None
+
+    settings = AppSettings(
+        notifications_enabled=True,
+        debt_reminders=True,
+        subscription_reminders=False,
+        goal_milestones=False,
+        reminder_days=1,
+    )
+
+    async def _run() -> None:
+        created = await schedule_reminders(container, settings, language="ru")
+        assert created == []
+
+    asyncio.run(_run())
+    assert svc.list_pending() == []
+
+
+def test_os_rearm_cancels_by_prefix_not_cancel_all(monkeypatch) -> None:
+    from lib.infrastructure.services.push_notifier import set_android_notifications
+    from lib.infrastructure.services.reminder_scheduler import _schedule_os_upcoming
+
+    class FakeOs:
+        def __init__(self) -> None:
+            self.cancel_all_calls = 0
+            self.prefixes: list[str] = []
+
+        async def request_permissions(self) -> bool:
+            return True
+
+        async def cancel_all(self) -> bool:
+            self.cancel_all_calls += 1
+            return True
+
+        async def cancel_prefixed(self, prefix: str = "finwise:") -> bool:
+            self.prefixes.append(prefix)
+            return True
+
+        async def schedule_notification(self, *args, **kwargs) -> bool:
+            return True
+
+        async def show_notification(self, *args, **kwargs) -> bool:
+            return True
+
+    fake = FakeOs()
+    set_android_notifications(fake)
+    monkeypatch.setattr(
+        "lib.infrastructure.services.push_notifier.push_disabled_by_env",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "lib.infrastructure.services.push_notifier.schedule_os_notification",
+        AsyncMock(return_value=True),
+    )
+    now = datetime.now(timezone.utc)
+    debt = Debt(
+        counterparty="Bank",
+        amount=100,
+        remaining_amount=100,
+        direction=DebtDirection.I_OWE,
+        due_date=now + timedelta(days=60),
+        next_payment_date=now + timedelta(days=2),
+        status=DebtStatus.ACTIVE,
+    )
+    list_debts = MagicMock()
+    list_debts.execute = AsyncMock(return_value=[debt])
+    container = MagicMock()
+    container.list_debts = list_debts
+    container.list_subscriptions = None
+    container.list_goals = None
+    settings = AppSettings(
+        notifications_enabled=True,
+        debt_reminders=True,
+        subscription_reminders=False,
+        goal_milestones=False,
+        reminder_days=3,
+    )
+
+    async def _run() -> None:
+        try:
+            await _schedule_os_upcoming(container, settings, language="en")
+        finally:
+            set_android_notifications(None)
+
+    asyncio.run(_run())
+    assert fake.cancel_all_calls == 0
+    assert fake.prefixes == ["finwise:"]
+
+
+def test_os_debt_schedule_uses_effective_due_not_raw_due_date(monkeypatch) -> None:
+    from lib.infrastructure.services.push_notifier import set_android_notifications
+    from lib.infrastructure.services.reminder_scheduler import _schedule_os_upcoming
+
+    armed: list[dict] = []
+
+    async def _capture(title, body, **kwargs):
+        armed.append({"title": title, "body": body, **kwargs})
+        return True
+
+    class FakeOs:
+        async def request_permissions(self) -> bool:
+            return True
+
+        async def cancel_prefixed(self, prefix: str = "finwise:") -> bool:
+            return True
+
+        async def schedule_notification(self, *args, **kwargs) -> bool:
+            return True
+
+        async def show_notification(self, *args, **kwargs) -> bool:
+            return True
+
+    set_android_notifications(FakeOs())
+    monkeypatch.setattr(
+        "lib.infrastructure.services.push_notifier.push_disabled_by_env",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "lib.infrastructure.services.push_notifier.schedule_os_notification",
+        _capture,
+    )
+    now = datetime.now(timezone.utc)
+    debt = Debt(
+        counterparty="Installment",
+        amount=100,
+        remaining_amount=100,
+        direction=DebtDirection.I_OWE,
+        due_date=now + timedelta(days=60),
+        next_payment_date=now + timedelta(days=2),
+        status=DebtStatus.ACTIVE,
+    )
+    list_debts = MagicMock()
+    list_debts.execute = AsyncMock(return_value=[debt])
+    container = MagicMock()
+    container.list_debts = list_debts
+    container.list_subscriptions = None
+    container.list_goals = None
+    settings = AppSettings(
+        notifications_enabled=True,
+        debt_reminders=True,
+        subscription_reminders=False,
+        goal_milestones=False,
+        reminder_days=3,
+    )
+
+    async def _run() -> None:
+        try:
+            await _schedule_os_upcoming(container, settings, language="en")
+        finally:
+            set_android_notifications(None)
+
+    asyncio.run(_run())
+    assert len(armed) == 1
+    assert armed[0]["related_id"] == debt.id
+    assert armed[0]["when"] is not None

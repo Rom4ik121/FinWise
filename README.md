@@ -101,7 +101,7 @@ FinWise/
 ## Сборка на телефон
 
 Нативные функции (Face ID, пуши) работают в **собранном** APK/IPA.  
-`flet run --android` — web-клиент без Dart-плагинов.
+`flet run --android` / `flet run --ios` — web-клиент без Dart-плагинов; **ими нельзя проверить iOS-уведомления**. Нужен новый TestFlight / Ad Hoc IPA (см. [docs/CODEMAGIC.md](docs/CODEMAGIC.md)).
 
 **Android (APK):**
 

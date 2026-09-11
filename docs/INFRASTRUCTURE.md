@@ -23,7 +23,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | Класс | Таблица / таблицы | Заметки |
 |-------|------------------|---------|
 | `SqlAlchemyAccountRepository` | `accounts` | CRUD, `active_only`, `corporate`, `include_in_total` |
-| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`/сумме; **теги** дофильтровываются в Python **до** LIMIT/OFFSET; FTS5 (category/comment/tags/payee/amount); `reassign_category` — массовое переименование (личный ledger vs `account_id`) + FTS |
+| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`/сумме; **теги** — SQL `json_each` EXISTS + `LIMIT`/`OFFSET` (Python fallback если JSON1 нет); FTS5 (category/comment/tags/payee/amount); `reassign_category` — массовое переименование (личный ledger vs `account_id`) + FTS |
 | `SqlAlchemyGoalRepository` | `goals` | status / priority / сортировки |
 | `SqlAlchemyDebtRepository` | `debts` | status / direction |
 | `SqlAlchemySubscriptionRepository` | `subscriptions` | `list_due(as_of)` |
@@ -115,8 +115,8 @@ Wipe таблиц с учётом FK, мастер-ключа secret_box и ка
 | Модуль | Роль |
 |--------|------|
 | `notification_service.py` | Очередь in-app уведомлений; `push` → `dispatch_push` |
-| `push_notifier.py` | Mobile (`FinanseLocalNotifications`), Windows toast, Linux `notify-send`. iOS: ask permission after first frame (not in `initialize()`); AppDelegate must set `UNUserNotificationCenter.delegate` **and** `willPresent` (иначе баннеры молчат, пока приложение открыто). Если permission denied — кнопка открывает системные настройки (`app-settings:` / Android notification settings). Не подменять уже прикреплённый Flet-сервис новым экземпляром. Ближайшие напоминания `zonedSchedule` (порог 2с), не схлопывать 20с в `show()`. Android: `@drawable/ic_stat_finwise` (не adaptive mipmap). |
-| `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней вперёд |
+| `push_notifier.py` | Mobile (`FinanseLocalNotifications`), Windows toast, Linux `notify-send`. iOS: ask permission after first frame (not in `initialize()`); AppDelegate must set `UNUserNotificationCenter.delegate` **and** `willPresent` (иначе баннеры молчат, пока приложение открыто). Если permission denied в Settings — snack **и** deep-link в системные настройки (`app-settings:` / Android notification settings); кнопка «Open system settings» тоже. Не подменять уже прикреплённый Flet-сервис новым экземпляром. Ближайшие напоминания `zonedSchedule` (порог 2с), не схлопывать 20с в `show()`. Payload `finwise:{kind}:{id}` для `cancel_prefixed` (ре-arm **не** вызывает `cancel_all`). Android: `@drawable/ic_stat_finwise` (не adaptive mipmap). **Web / `flet run --ios` не проверяют iOS push** — нужен новый IPA. |
+| `reminder_scheduler.py` | In-app долги/подписки/цели + OS schedule ~30 дней. Долги: `effective_debt_due` (min of `next_payment_date`, `due_date`) и `settings.reminder_days` (не хардкод 3). Цели с `deadline` — OS `zonedSchedule`. **Бюджетные пороги %** — только in-app / `dispatch_push` пока приложение запущено (нет календарной даты). |
 
 Env: **`FINANCE_DISABLE_PUSH=1`** — отключить OS-push (в pytest включено autouse).
 

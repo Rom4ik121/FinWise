@@ -1043,8 +1043,19 @@ class DashboardPage(ft.Column):
         try:
             motion = animate
             with ui_animation(motion):
-                budget_widget = await self._budgets_widget(lang, base)
-                alert_widget = await self._budget_alert_banner(lang)
+                budget_items = None
+                budget_uc = getattr(c, "get_budgets_for_month", None)
+                if budget_uc is not None:
+                    try:
+                        budget_items = await budget_uc.execute(now.month, now.year)
+                    except Exception:  # noqa: BLE001
+                        budget_items = []
+                budget_widget = await self._budgets_widget(
+                    lang, base, items=budget_items
+                )
+                alert_widget = await self._budget_alert_banner(
+                    lang, items=budget_items
+                )
 
                 def _add_button() -> ft.Control:
                     return dual_add_button(
@@ -1169,18 +1180,21 @@ class DashboardPage(ft.Column):
             await flush_chart_draws()
             self._animate_charts = False
 
-    async def _budget_alert_banner(self, lang: str) -> ft.Control:
+    async def _budget_alert_banner(
+        self, lang: str, *, items: list | None = None
+    ) -> ft.Control:
         settings = self._state.settings
         if not getattr(settings, "budget_alerts", True):
             return ft.Container()
-        uc = getattr(self._state.container, "get_budgets_for_month", None)
-        if uc is None:
-            return ft.Container()
-        now = datetime.now(timezone.utc)
-        try:
-            items = await uc.execute(now.month, now.year)
-        except Exception:  # noqa: BLE001
-            return ft.Container()
+        if items is None:
+            uc = getattr(self._state.container, "get_budgets_for_month", None)
+            if uc is None:
+                return ft.Container()
+            now = datetime.now(timezone.utc)
+            try:
+                items = await uc.execute(now.month, now.year)
+            except Exception:  # noqa: BLE001
+                return ft.Container()
         warn = int(getattr(settings, "budget_warn_pct", 80) or 80)
         hot = [p for p in items if float(p.percent) >= warn]
         if not hot:
@@ -1222,17 +1236,20 @@ class DashboardPage(ft.Column):
             padding=12,
         )
 
-    async def _budgets_widget(self, lang: str, currency: str) -> ft.Control:
+    async def _budgets_widget(
+        self, lang: str, currency: str, *, items: list | None = None
+    ) -> ft.Control:
         """Category budgets for the current month."""
-        now = datetime.now(timezone.utc)
-        uc = getattr(self._state.container, "get_budgets_for_month", None)
         title = section_title(tr("dashboard.budgets", lang))
-        if uc is None:
-            return ft.Column(tight=True, spacing=8, controls=[title])
-        try:
-            items = await uc.execute(now.month, now.year)
-        except Exception:  # noqa: BLE001
-            items = []
+        if items is None:
+            now = datetime.now(timezone.utc)
+            uc = getattr(self._state.container, "get_budgets_for_month", None)
+            if uc is None:
+                return ft.Column(tight=True, spacing=8, controls=[title])
+            try:
+                items = await uc.execute(now.month, now.year)
+            except Exception:  # noqa: BLE001
+                items = []
         shown = sorted(items, key=lambda p: p.percent, reverse=True)
         cat_map: dict[str, object] = {}
         list_cats = getattr(self._state.container, "list_categories", None)

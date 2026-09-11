@@ -48,7 +48,7 @@
 | `ix_budgets_month_year` / `category_month` | Месячные лимиты |
 | goals / debts / subscriptions status (+ due / billing) | Списки и напоминания |
 
-**Теги** в JSON: фильтр `tags=` применяется в Python **до** `LIMIT`/`OFFSET` (пагинация корректна; не SQL `LIKE` по JSON).
+**Теги** в JSON: фильтр `tags=` — SQL `EXISTS (json_each(transactions.tags) …)` на каждый требуемый тег, затем `LIMIT`/`OFFSET`. FTS по тегам не используется для exact-tag filter (`csv-import` / `xfer_fee:uuid` ломаются токенизатором). Fallback на Python, если JSON1 недоступен.
 
 ---
 

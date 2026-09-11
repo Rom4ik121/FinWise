@@ -51,9 +51,7 @@ workflows:
             exit 1
           fi
 
-          python3 scripts/patch_ios_appdelegate.py --watch --project-root build/flutter --timeout 900 &
-          WATCH_PID=$!
-          trap 'kill "$WATCH_PID" 2>/dev/null || true' EXIT
+          python3 scripts/flet_build_with_ios_patch.py --timeout 7200 -- \
           flet build ipa \
             --org com.finanse.app \
             --product "$APP_NAME" \
@@ -75,8 +73,6 @@ workflows:
             --yes \
             --no-rich-output \
             --verbose
-          kill "$WATCH_PID" 2>/dev/null || true
-          python3 scripts/patch_ios_appdelegate.py --project-root build/flutter || true
       - name: Locate IPA
         script: |
           echo "Searching for IPA artifacts..."
@@ -109,11 +105,12 @@ workflows:
           test -f vendor/ccxt/pyproject.toml
       - name: Build iOS project (may still need signing for IPA export)
         script: |
-          set -e
+          set -euo pipefail
           # If this fails on binary wheels, fix deps before spending signed-build minutes.
+          # Always watch+patch+verify AppDelegate willPresent (same as signed IPA workflows).
           EXCLUDES="--exclude build --exclude dist --exclude storage --exclude secrets --exclude .venv --exclude venv --exclude .git --exclude .github --exclude .cursor --exclude .claude --exclude .flet --exclude .pytest_cache --exclude .mypy_cache --exclude .ruff_cache --exclude .tox --exclude .hypothesis --exclude htmlcov --exclude __pycache__ --exclude tests --exclude docs --exclude scripts --exclude vendor --exclude agent-transcripts --exclude agent-tools --exclude AGENTS.md --exclude pytest.ini --exclude codemagic.yaml"
-          flet build ipa --org com.finanse.app --product FinWise --splash-color "#0B1220" --splash-dark-color "#0B1220" $EXCLUDES --yes --no-rich-output --verbose || \
-          flet build ios-simulator --org com.finanse.app --product FinWise --splash-color "#0B1220" --splash-dark-color "#0B1220" $EXCLUDES --yes --no-rich-output --verbose
+          python3 scripts/flet_build_with_ios_patch.py --timeout 7200 -- bash -lc \
+            "flet build ipa --org com.finanse.app --product FinWise --splash-color '#0B1220' --splash-dark-color '#0B1220' $EXCLUDES --yes --no-rich-output --verbose || flet build ios-simulator --org com.finanse.app --product FinWise --splash-color '#0B1220' --splash-dark-color '#0B1220' $EXCLUDES --yes --no-rich-output --verbose"
     artifacts:
       - build/**/*.ipa
       - build/**/*.app
@@ -162,9 +159,7 @@ workflows:
             exit 1
           fi
 
-          python3 scripts/patch_ios_appdelegate.py --watch --project-root build/flutter --timeout 900 &
-          WATCH_PID=$!
-          trap 'kill "$WATCH_PID" 2>/dev/null || true' EXIT
+          python3 scripts/flet_build_with_ios_patch.py --timeout 7200 -- \
           flet build ipa \
             --org com.finanse.app \
             --product "$APP_NAME" \
@@ -186,8 +181,6 @@ workflows:
             --yes \
             --no-rich-output \
             --verbose
-          kill "$WATCH_PID" 2>/dev/null || true
-          python3 scripts/patch_ios_appdelegate.py --project-root build/flutter || true
       - name: Locate IPA
         script: |
           echo "Searching for IPA artifacts..."

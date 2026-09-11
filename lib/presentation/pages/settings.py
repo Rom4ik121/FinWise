@@ -1106,6 +1106,10 @@ class SettingsPage(ft.Column):
                         tr("settings.notifications_denied", lang),
                         error=True,
                     )
+                    try:
+                        await open_system_notification_settings(self._page)
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception:  # noqa: BLE001
                 pass
         created = await schedule_reminders(

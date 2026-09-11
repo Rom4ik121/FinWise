@@ -216,7 +216,7 @@ def patch_project(project_root: Path) -> bool:
     return changed
 
 
-def watch(path: Path, *, timeout: float = 600.0, interval: float = 0.4) -> int:
+def watch(path: Path, *, timeout: float = 7200.0, interval: float = 0.4) -> int:
     """Patch iOS Runner files whenever Flet rewrites them, until timeout."""
     project_root = path
     if path.name == "AppDelegate.swift":
@@ -235,6 +235,28 @@ def watch(path: Path, *, timeout: float = 600.0, interval: float = 0.4) -> int:
     return 0 if patched_once else 1
 
 
+def verify_project(project_root: Path) -> int:
+    """Return 0 when AppDelegate has delegate + willPresent hooks."""
+    app_delegate = project_root / "ios" / "Runner" / "AppDelegate.swift"
+    if not app_delegate.is_file():
+        print(f"No AppDelegate.swift under {project_root}", file=sys.stderr)
+        return 1
+    text = app_delegate.read_text(encoding="utf-8")
+    missing: list[str] = []
+    if MARKER not in text:
+        missing.append("UNUserNotificationCenter.delegate hook")
+    if PRESENT_MARKER not in text and "willPresent" not in text:
+        missing.append("willPresent (foreground banners)")
+    if missing:
+        print(
+            "iOS AppDelegate missing: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+        return 1
+    print(f"Verified iOS notification hooks: {app_delegate}", flush=True)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -250,13 +272,21 @@ def main() -> int:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=900.0,
-        help="Watch timeout in seconds (default: 900)",
+        default=7200.0,
+        help="Watch timeout in seconds (default: 7200; must outlive flet build)",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Fail if AppDelegate is missing willPresent / delegate hooks",
     )
     args = parser.parse_args()
     root = Path(args.project_root)
     if args.watch:
         return watch(root, timeout=args.timeout)
+    if args.verify:
+        patch_project(root)
+        return verify_project(root)
     if not (root / "ios" / "Runner" / "AppDelegate.swift").is_file():
         print(f"No AppDelegate.swift under {root}", file=sys.stderr)
         return 1

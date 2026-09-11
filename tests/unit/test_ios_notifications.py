@@ -10,6 +10,7 @@ from scripts.patch_ios_appdelegate import (
     install_privacy_manifest,
     patch_info_plist_text,
     patch_text,
+    verify_project,
 )
 
 
@@ -126,3 +127,26 @@ def test_is_mobile_platform_from_ios_string(monkeypatch) -> None:
     )
     page = type("Page", (), {"web": False, "platform": "ios"})()
     assert is_mobile_platform(page) is True
+
+
+def test_verify_project_requires_delegate_and_will_present(tmp_path) -> None:
+    runner = tmp_path / "ios" / "Runner"
+    runner.mkdir(parents=True)
+    app = runner / "AppDelegate.swift"
+    app.write_text(FLET_APPDELEGATE, encoding="utf-8")
+    assert verify_project(tmp_path) == 1
+    from scripts.patch_ios_appdelegate import patch_file
+
+    assert patch_file(app) is True
+    assert verify_project(tmp_path) == 0
+
+
+def test_verify_project_missing_appdelegate(tmp_path) -> None:
+    assert verify_project(tmp_path) == 1
+
+
+def test_flet_build_wrapper_requires_command() -> None:
+    from scripts.flet_build_with_ios_patch import main
+
+    assert main([]) == 2
+    assert main(["--timeout", "1"]) == 2

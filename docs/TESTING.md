@@ -55,7 +55,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Курсы / RateBook | `test_rate_book.py`, currency helpers |
 | Проекции | `test_goal_projection.py`, `test_debt_projection.py` |
 | Подписки (биллинг) | `test_subscription_billing.py` |
-| Reminders / push | `test_reminder_scheduler.py`, `test_notification_service.py`, `test_push_notifier.py` |
+| Reminders / push | `test_reminder_scheduler.py` (OS `effective_debt_due`, `reminder_days`, prefix cancel), `test_notification_service.py`, `test_push_notifier.py` |
 | AppState / скины | `test_app_state.py`, `test_skins.py` |
 | Иконки / каталог | `test_account_icons.py`, `test_icon_catalog.py`, `test_exchanges.py` (в т.ч. auth → user_facing) |
 | Аналитика периодов | `test_analytics_period.py` |
@@ -65,7 +65,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Файлы / Flet services | `test_file_transfer.py`, `test_flet_services.py` |
 | Push | `test_push_notifier.py`, `test_notification_service.py` |
 | Пути iOS/Android | `test_config_ios.py` |
-| iOS IPA patch | `test_ios_notifications.py` (AppDelegate, Info.plist, PrivacyInfo) |
+| iOS IPA patch | `test_ios_notifications.py` (AppDelegate, Info.plist, PrivacyInfo, `--verify`) |
 | PIN / lock | `test_encryption.py`, `test_app_state.py` (`reload_pin_gate`) |
 | Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key, fwbackup) |
 | Формы | `test_form_validation.py`, `test_money_input.py` (live grouping + caret-prepend `50` + write-echo `500`) |

@@ -54,7 +54,9 @@
 
 Фильтр репозитория **`has_debt`** — sparklines долгов не сканируют весь ledger.
 
-Лента операций (UI): день/диапазон + пагинация страницы; теги фильтруются в Python **до** LIMIT; поиск ограничен scan limit.
+Лента операций (UI): день/диапазон + пагинация страницы; теги фильтруются в SQL через `json_each` **до** LIMIT (не Python full-scan); поиск ограничен scan limit.
+
+На ~5k операций: страница списка 50 ≈ 2–3 ms. Фильтр по тегу раньше сканировал все подходящие строки в Python (~165 ms на 5k); после `json_each` + SQL `LIMIT` остаётся в том же порядке, что и остальные фильтры.
 
 ---
 
@@ -123,7 +125,7 @@
 
 `tests/unit/test_performance.py` покрывает:
 
-- tags-before-limit  
+- tags-before-limit (`json_each` + paging with newer untagged rows)  
 - rate cache  
 - pending_counts  
 - budget recalc batch  
@@ -160,6 +162,7 @@
 - Dashboard in-place mutate (balance/chart/sections slots; soft reload);
 - ListView storms: goals/debts/subs entity cache + no spinner on search filter;
 - SQL FTS5 `transactions_fts` (Alembic **0022**/**0028** + `database.py` ensure: category/comment/tags/payee/amount); UI `query=`.
+- Tag filter via SQLite `json_each` (no Python full-scan before LIMIT). Dashboard home fetches `get_budgets_for_month` once per reload (banner + widget).
 
 ---
 

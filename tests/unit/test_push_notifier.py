@@ -6,10 +6,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from lib.infrastructure.services.push_notifier import (
+    OS_PAYLOAD_PREFIX,
     _icon_path,
     dispatch_push,
     future_os_fire_at,
     notification_settings_url,
+    os_notification_payload,
     push_disabled_by_env,
     reminder_fire_at,
     stable_notification_id,
@@ -123,3 +125,38 @@ def test_open_system_settings_uses_native_then_launch(monkeypatch) -> None:
     import asyncio
 
     asyncio.run(_run())
+
+
+def test_os_notification_payload_prefix() -> None:
+    assert os_notification_payload("debt_reminder", "abc").startswith(OS_PAYLOAD_PREFIX)
+    assert os_notification_payload("debt_reminder", "abc") == "finwise:debt_reminder:abc"
+
+
+def test_cancel_os_prefixed_never_calls_cancel_all(monkeypatch) -> None:
+    from lib.infrastructure.services import push_notifier as pn
+
+    class _Svc:
+        def __init__(self) -> None:
+            self.all_calls = 0
+            self.prefixes: list[str] = []
+
+        async def cancel_all(self) -> bool:
+            self.all_calls += 1
+            return True
+
+        async def cancel_prefixed(self, prefix: str = "finwise:") -> bool:
+            self.prefixes.append(prefix)
+            return True
+
+    svc = _Svc()
+    monkeypatch.setattr(pn, "_mobile_service", svc)
+    monkeypatch.setattr(pn, "push_disabled_by_env", lambda: False)
+
+    async def _run() -> None:
+        assert await pn.cancel_os_prefixed() is True
+
+    import asyncio
+
+    asyncio.run(_run())
+    assert svc.all_calls == 0
+    assert svc.prefixes == ["finwise:"]

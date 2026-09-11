@@ -80,6 +80,14 @@ def push_disabled_by_env() -> bool:
     }
 
 
+OS_PAYLOAD_PREFIX = "finwise:"
+
+
+def os_notification_payload(kind: str, related_id: str | None = None) -> str:
+    """Payload stored on the OS notification for prefix cancel / replace."""
+    return f"{OS_PAYLOAD_PREFIX}{kind}:{related_id or ''}"
+
+
 def stable_notification_id(kind: str, related_id: str | None = None) -> int:
     """Stable positive int id for replaceable OS notifications."""
     digest = hashlib.md5(f"{kind}:{related_id or ''}".encode("utf-8")).hexdigest()
@@ -362,6 +370,7 @@ async def show_os_notification(
                 importance="high",
                 play_sound=True,
                 enable_vibration=True,
+                payload=os_notification_payload(kind, related_id),
             )
             logger.info("OS notification shown id=%s kind=%s", nid, kind)
             return True
@@ -412,6 +421,7 @@ async def schedule_os_notification(
                 when_iso=when_utc.isoformat(),
                 channel_id=ANDROID_CHANNEL_ID,
                 channel_name=ANDROID_CHANNEL_NAME,
+                payload=os_notification_payload(kind, related_id),
             )
             return True
         except Exception:  # noqa: BLE001
@@ -483,6 +493,32 @@ def dispatch_push(
     task = loop.create_task(_go())
     _push_tasks.add(task)
     task.add_done_callback(_log_push_task)
+
+
+async def cancel_os_prefixed(prefix: str = OS_PAYLOAD_PREFIX) -> bool:
+    """Cancel pending OS notifications by payload prefix — never ``cancel_all``.
+
+    Re-arming debt/subscription/goal reminders used to call ``cancel_all``,
+    which dropped unrelated scheduled items. FinWise payloads start with
+    ``finwise:``.
+    """
+    if push_disabled_by_env():
+        return False
+    svc = _mobile_service
+    if svc is None:
+        return False
+    fn = getattr(svc, "cancel_prefixed", None)
+    if not callable(fn):
+        logger.debug(
+            "cancel_prefixed unavailable on notification service; "
+            "leaving existing OS notifications in place"
+        )
+        return False
+    try:
+        return bool(await fn(prefix or OS_PAYLOAD_PREFIX))
+    except Exception:  # noqa: BLE001
+        logger.debug("cancel_prefixed failed", exc_info=True)
+        return False
 
 
 def register_android_notifications(page: Any) -> bool:

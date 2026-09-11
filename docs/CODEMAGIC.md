@@ -31,7 +31,19 @@ The IPA patch (`scripts/patch_ios_appdelegate.py`) also:
 - strips Flet's leftover AdMob test ID and unused mic/camera/location strings
 - sets `ITSAppUsesNonExemptEncryption=false` and HTTPS-only ATS
 
+**Every IPA workflow** (`ios-ipa`, `ios-appstore`, **`ios-smoke`**) runs `scripts/flet_build_with_ios_patch.py`: watch during `flet build`, then **`--verify`**. The build **fails** if AppDelegate is missing the delegate / `willPresent` hooks. Do not use a post-patch `|| true` — that shipped TestFlight builds without foreground banners.
+
 Without a **new** IPA, plugin / Python / plist changes will not appear on device.
+
+### iOS notifications: how to verify on a device
+
+Web preview and `flet run --ios` **cannot** validate iOS local notifications (native plugin is skipped when `page.web` is true). Use a **new** TestFlight or Ad Hoc IPA.
+
+1. Install the IPA built from this branch (`ios-appstore` / `ios-ipa`).
+2. Settings → enable Notifications → allow the system prompt (or **Open system settings** if previously denied).
+3. With FinWise **in the foreground**, a “push ready” banner should appear (`willPresent`). If permission was denied in Settings, saving Notifications **opens iOS Settings**.
+4. Create an active debt whose **next payment** (not only final `due_date`) is within reminder days → leave the app; the OS should fire at `reminder_time`.
+5. Budget % alerts stay **in-app / while the app is running** (no calendar date to `zonedSchedule`). Goals **with a deadline** are OS-scheduled like debts.
 
 **Не** ставить `flet-android-notifications` в iOS-сборку: конфликт версий Flutter-пакета `timezone` с `flet_local_notifications`.
 
@@ -137,7 +149,7 @@ Workflow `ios-ipa` подключает группу `finanse_ios`.
 
 ### Без готовой подписи
 
-Workflow **`ios-smoke`** — проверка, что проект собирается на macOS (IPA не гарантируется).
+Workflow **`ios-smoke`** — проверка, что проект собирается на macOS (IPA не гарантируется). Smoke **also** applies and verifies the AppDelegate / `willPresent` patch (same wrapper as signed IPA).
 
 Оба workflow задают `--splash-color "#0B1220"` / `--splash-dark-color "#0B1220"`.
 
@@ -163,7 +175,7 @@ Codemagic только **собирает**. На Windows: TestFlight / Sideload
 |----|------------|
 | `ios-ipa` | Подписанный Ad Hoc IPA, артефакты `build/ipa/*.ipa` |
 | `ios-appstore` | Подписанный App Store IPA (TestFlight / App Store Connect) |
-| `ios-smoke` | Smoke без полной подписи / simulator fallback |
+| `ios-smoke` | Smoke без полной подписи / simulator fallback; **same** AppDelegate patch + `--verify` as signed workflows |
 
 Исключения из бандла: `build`, `tests`, `docs`, `.cursor`, venv, кэши и т.д. (см. `--exclude` в yaml).
 
