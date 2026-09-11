@@ -11,7 +11,7 @@ from lib.domain.entities.currency import ExchangeRate
 from lib.domain.entities.debt import DebtDirection, DebtStatus
 from lib.domain.entities.transaction import TransactionType
 from tests.conftest import run_async
-from tests.factories import make_account, make_debt
+from tests.factories import make_account, make_debt, make_transaction
 
 
 def test_debt_crud_and_list(container) -> None:
