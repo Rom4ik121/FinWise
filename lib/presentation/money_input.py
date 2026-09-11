@@ -14,9 +14,10 @@ from lib.presentation.utils import safe_update
 def amount_separators(lang: str) -> tuple[str, str]:
     """Return ``(thousands, decimal)`` for the UI language.
 
-    English uses ``1,234.50``; Russian and Uzbek use ``1.234,50``.
+    English and CJK / Hindi use ``1,234.50``; European and CIS languages use
+    ``1.234,50``.
     """
-    if normalize_lang(lang) == "en":
+    if normalize_lang(lang) in {"en", "zh", "ja", "ko", "hi"}:
         return ",", "."
     return ".", ","
 

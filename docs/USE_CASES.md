@@ -201,7 +201,7 @@ UI не пишет PIN напрямую в репозиторий.
 
 Английские `ValueError(...)` / `ExchangeSyncError(...)` в presentation превращаются в ключи i18n через `user_facing_error` / `snack_exception` (`_DOMAIN_ERROR_KEYS` + prefixes).
 
-- Известные тексты → понятные ru/en/uz.
+- Известные тексты → понятные строки на языке UI (18 LTR локалей).
 - Неизвестный technical English / traceback-подобные строки → `error.generic`.
 - Пользователь не видит сырой exception / SQL / пути.
 ---

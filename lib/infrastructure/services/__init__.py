@@ -11,6 +11,8 @@ from lib.infrastructure.services.biometric import (
 from lib.infrastructure.services.encryption_service import EncryptionService, PinCredentials
 from lib.infrastructure.services.export_service import ExportService
 from lib.infrastructure.services.localization import (
+    LANG_LABELS,
+    LANG_PICKER_ORDER,
     STRINGS,
     SUPPORTED_LANGS,
     localize_category_name,
@@ -34,6 +36,8 @@ __all__ = [
     "NotificationMessage",
     "NotificationService",
     "PinCredentials",
+    "LANG_LABELS",
+    "LANG_PICKER_ORDER",
     "STRINGS",
     "SUPPORTED_LANGS",
     "localize_category_name",

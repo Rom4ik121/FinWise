@@ -110,15 +110,28 @@ _REGION_CURRENCY: dict[str, str] = {
     "ZA": "ZAR",
 }
 
-# Language subtag → FinWise UI language (only ru / en / uz are live).
+# Language subtag → FinWise UI language (LTR set; RTL ar/he deferred → en).
 _LANG_MAP: dict[str, str] = {
     "en": "en",
     "ru": "ru",
+    "uk": "uk",
+    "be": "be",
     "uz": "uz",
-    # Close languages → Russian UI until more locales are wired.
-    "be": "ru",
-    "uk": "ru",
-    "kk": "ru",
+    "kk": "kk",
+    "de": "de",
+    "es": "es",
+    "fr": "fr",
+    "pt": "pt",
+    "it": "it",
+    "pl": "pl",
+    "tr": "tr",
+    "id": "id",
+    "in": "id",  # legacy Indonesian
+    "zh": "zh",
+    "ja": "ja",
+    "ko": "ko",
+    "hi": "hi",
+    # Close languages without a dedicated UI → Russian.
     "ky": "ru",
     "tg": "ru",
 }
@@ -150,7 +163,7 @@ def parse_locale_parts(tag: str | None) -> tuple[str, str]:
 
 
 def language_from_locale_tag(tag: str | None) -> str:
-    """Map a locale tag to ``ru`` / ``en`` / ``uz`` (fallback English)."""
+    """Map a locale tag to a live UI language (fallback English)."""
     lang, _region = parse_locale_parts(tag)
     if not lang:
         return FALLBACK_LANGUAGE

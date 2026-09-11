@@ -24,6 +24,13 @@ def test_settings_language_and_theme(container) -> None:
         assert saved.language == "uz"
         assert saved.theme == "light"
         assert saved.default_currency == "UZS"
+        assert saved.language_user_set is False
+
+        settings.language = "de"
+        settings.language_user_set = True
+        saved = await container.update_settings.execute(settings)
+        assert saved.language == "de"
+        assert saved.language_user_set is True
 
         settings.ui_style = "neon"
         saved = await container.update_settings.execute(settings)

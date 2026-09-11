@@ -51,7 +51,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 | API | Смысл |
 |-----|--------|
 | `bump_refresh(*scopes)` | Точечная перерисовка страниц |
-| `ui_style`, язык, валюта | Тема и локаль |
+| `ui_style`, язык, валюта | Тема и локаль (язык с устройства до выбора в Settings) |
 | Lock | Безопасность |
 
 Страницы подписываются на refresh и обновляют данные без полного рестарта приложения.
@@ -93,7 +93,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 | Account detail | `pages/account_detail.py` | История, статистика, графики счёта; быстрый расход/доход; перевод; PDF-отчёт за период; детали tx с фото; `page_frame` |
 | Analytics | `pages/analytics.py` | Поток, капитал во времени (снимки), цели, долги, подписки, бюджеты; `page_frame` |
 | Goals / Debts / Subscriptions / Recurring / Budgets / Currencies / CSV import | соответствующие `pages/` | CRUD и профили; `page_frame` + `card_grid` (1–2 колонки) |
-| Settings | `pages/settings.py` | Тема, скин, язык, валюта, пуши, пороги бюджета, PIN/Face ID, экспорт, бэкап, сброс; `page_frame` |
+| Settings | `pages/settings.py` | Тема, скин, язык (18 LTR, эндонимы), валюта, пуши, пороги бюджета, PIN/Face ID, экспорт, бэкап, сброс; `page_frame` |
 
 ### UX-детали
 

@@ -36,6 +36,7 @@ def _to_entity(model: SettingsModel) -> AppSettings:
         theme=model.theme,
         ui_style=getattr(model, "ui_style", None) or DEFAULT_UI_STYLE,
         language=model.language,
+        language_user_set=bool(getattr(model, "language_user_set", False)),
         exchange_update_interval_minutes=model.exchange_update_interval_minutes,
         notifications_enabled=model.notifications_enabled,
         subscription_reminders=model.subscription_reminders,
@@ -68,6 +69,7 @@ def _apply_entity(model: SettingsModel, entity: AppSettings) -> None:
     model.theme = entity.theme
     model.ui_style = entity.ui_style
     model.language = entity.language
+    model.language_user_set = bool(getattr(entity, "language_user_set", False))
     model.exchange_update_interval_minutes = entity.exchange_update_interval_minutes
     model.notifications_enabled = entity.notifications_enabled
     model.subscription_reminders = entity.subscription_reminders
@@ -139,6 +141,7 @@ class SqlAlchemySettingsRepository(SettingsRepository):
                     id=DEFAULT_SETTINGS_ID,
                     language=lang,
                     default_currency=currency,
+                    language_user_set=False,
                     # Legacy tour flags — feature removed; mark done so old DBs stay quiet.
                     completed_onboarding=True,
                     completed_tour_debts=True,

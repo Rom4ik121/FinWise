@@ -24,7 +24,39 @@ def test_language_from_locale_currency_stays_fallback() -> None:
     assert prefs_from_locale_tag("uz_UZ") == ("uz", FALLBACK_CURRENCY)
     assert prefs_from_locale_tag("ru_RU.UTF-8") == ("ru", FALLBACK_CURRENCY)
     assert prefs_from_locale_tag("en_US") == ("en", FALLBACK_CURRENCY)
-    assert prefs_from_locale_tag("de_DE") == ("en", FALLBACK_CURRENCY)
+    assert prefs_from_locale_tag("de_DE") == ("de", FALLBACK_CURRENCY)
+
+
+def test_language_mapping_table() -> None:
+    cases = {
+        "uk-UA": "uk",
+        "uk": "uk",
+        "be-BY": "be",
+        "kk-KZ": "kk",
+        "de-AT": "de",
+        "es-MX": "es",
+        "fr-CA": "fr",
+        "pt-BR": "pt",
+        "pt-PT": "pt",
+        "it-IT": "it",
+        "pl-PL": "pl",
+        "tr-TR": "tr",
+        "id-ID": "id",
+        "in_ID": "id",
+        "zh-CN": "zh",
+        "zh-Hans": "zh",
+        "zh-TW": "zh",
+        "ja-JP": "ja",
+        "ko-KR": "ko",
+        "hi-IN": "hi",
+        "ky-KG": "ru",
+        "tg-TJ": "ru",
+        "ar-SA": "en",
+        "he-IL": "en",
+        "sv-SE": "en",
+    }
+    for tag, expected in cases.items():
+        assert language_from_locale_tag(tag) == expected, tag
 
 
 def test_suggested_currency_from_device() -> None:

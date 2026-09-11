@@ -28,17 +28,14 @@ async def _maybe_refine_locale_from_page(
     page: ft.Page | None,
     settings: Any,
 ) -> None:
-    """If language is still English fallback, prefer richer device/page locale."""
+    """Apply device/UI locale until the user picks a language in Settings."""
     if page is None or container.update_settings is None:
         return
-    from lib.domain.locale_prefs import FALLBACK_LANGUAGE
-    from lib.infrastructure.services.locale_prefs import detect_language_and_currency
+    if bool(getattr(settings, "language_user_set", False)):
+        return
+    from lib.infrastructure.services.locale_prefs import resolve_device_language
 
-    if normalize_lang(settings.language) != FALLBACK_LANGUAGE:
-        return
-    lang, _currency = detect_language_and_currency(page=page)
-    if normalize_lang(lang) == FALLBACK_LANGUAGE:
-        return
+    lang = resolve_device_language(page=page)
     if normalize_lang(settings.language) == normalize_lang(lang):
         return
     updated = settings.model_copy(update={"language": lang})

@@ -19,8 +19,13 @@ from lib.presentation.money_input import (
 
 def test_separators_by_language() -> None:
     assert amount_separators("en") == (",", ".")
+    assert amount_separators("zh") == (",", ".")
+    assert amount_separators("ja") == (",", ".")
     assert amount_separators("ru") == (".", ",")
     assert amount_separators("uz") == (".", ",")
+    assert amount_separators("de") == (".", ",")
+    assert amount_separators("pt") == (".", ",")
+    assert amount_separators("id") == (".", ",")
 
 
 def test_format_groups_while_typing_ru() -> None:

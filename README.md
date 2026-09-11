@@ -26,7 +26,7 @@
 | **Безопасность** | PIN + Face ID, автоблокировка после свёрнутого приложения |
 | **Резерв** | Ежедневное обновление одной автоматической резервной копии |
 
-Интерфейс: **русский / English / o‘zbek**, светлая и тёмная темы, скины Classic / Neon.
+Интерфейс: **18 языков** (в т.ч. русский, English, українська, Deutsch, Português, 简体中文…), язык с устройства при первом запуске, светлая и тёмная темы, скины Classic / Neon.
 
 ---
 
@@ -86,8 +86,8 @@ FinWise/
 ├── main.py                 # точка входа
 ├── lib/                    # приложение
 ├── extensions/             # Flutter-мосты (Face ID, push)
-├── assets/                 # иконки, splash, currencies.json (+ черновик i18n/)
-├── migrations/             # Alembic 0001…0028
+├── assets/                 # иконки, splash, currencies.json, i18n overlays
+├── migrations/             # Alembic 0001…0029
 ├── scripts/                # migrate, seed, APK/IPA
 ├── tests/                  # unit + integration
 └── docs/                   # подробная документация
@@ -131,7 +131,7 @@ FinWise/
 - деньги только через `quantize_money`
 - переводы через `transfer_id`, комиссии — отдельный расход
 - не суммировать разные валюты в «базу» без курса
-- пользовательские строки — через `tr` / `STRINGS` (ru/en/uz)
+- пользовательские строки — через `tr` / `STRINGS` (18 LTR языков; недостающие ключи → en)
 - ошибки в UI — понятные тексты (`user_facing_error`); технические детали только в логах
 - тяжёлые выборки ledger — через paging (не unbounded `list`)
 

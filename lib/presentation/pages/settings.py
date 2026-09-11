@@ -16,7 +16,11 @@ from lib.infrastructure.services.biometric import BiometricResult, BiometricStat
 from lib.infrastructure.services.data_reset_service import DataResetService
 from lib.infrastructure.services.encryption_service import EncryptionService
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
-from lib.infrastructure.services.localization import normalize_lang
+from lib.infrastructure.services.localization import (
+    LANG_LABELS,
+    LANG_PICKER_ORDER,
+    normalize_lang,
+)
 from lib.infrastructure.services.push_notifier import (
     open_system_notification_settings,
     request_push_permissions,
@@ -358,9 +362,12 @@ class SettingsPage(ft.Column):
             label=tr("settings.language", lang),
             value=normalize_lang(s.language),
             options=[
-                icon_dropdown_option("ru", tr("lang.ru", lang), ft.Icons.LANGUAGE),
-                icon_dropdown_option("en", tr("lang.en", lang), ft.Icons.LANGUAGE),
-                icon_dropdown_option("uz", tr("lang.uz", lang), ft.Icons.LANGUAGE),
+                icon_dropdown_option(
+                    code,
+                    LANG_LABELS.get(code) or tr(f"lang.{code}", lang),
+                    ft.Icons.LANGUAGE,
+                )
+                for code in LANG_PICKER_ORDER
             ],
             expand=True,
             dense=True,
@@ -1010,7 +1017,8 @@ class SettingsPage(ft.Column):
                 default_currency=new_currency,
                 theme=self._theme.value or "system",
                 ui_style=self._ui_style,
-                language=normalize_lang(self._language.value or "ru"),
+                language=normalize_lang(self._language.value or "en"),
+                language_user_set=True,
                 exchange_update_interval_minutes=max(5, interval),
                 notifications_enabled=bool(self._notifications.value),
                 subscription_reminders=bool(self._sub_reminders.value),

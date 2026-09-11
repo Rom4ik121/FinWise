@@ -48,7 +48,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Деньги / ввод | `test_money.py`, `test_money_input.py` |
 | Бюджеты (логика) | `test_budget.py` |
 | Биометрия / PIN | `test_biometric.py`, `test_encryption.py`, `test_secret_box.py` |
-| Локализация | `test_localization.py` (все ключи ru/en/uz) |
+| Локализация | `test_localization.py` (все ключи всех `SUPPORTED_LANGS`), `test_locale_prefs.py`, `test_first_run_language.py` |
 | Бэкап | `test_backup_service.py` (daily rolling, SQLite snapshot, `.fwbackup`, embedded key) |
 | Secret box / Keychain | `test_secret_box.py` |
 | Курсы / RateBook | `test_rate_book.py`, currency helpers |

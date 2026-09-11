@@ -158,6 +158,7 @@
 |------|--------|
 | `default_currency` | Базовая валюта отчётов |
 | `theme`, `ui_style`, `language` | Внешний вид и язык |
+| `language_user_set` | `False` до явного выбора в Settings; авто-язык с устройства только пока флаг сброшен |
 | `exchange_update_interval_minutes` | Как часто тянуть курсы |
 | `notifications_enabled`, флаги reminder’ов | Пуши / in-app |
 | `reminder_time`, `reminder_days` | Когда напоминать о подписках/долгах |

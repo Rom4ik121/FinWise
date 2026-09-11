@@ -128,8 +128,9 @@ Dart/Flutter-мосты, подключаемые только в нативно
 
 ## 7. Локализация и тема
 
-- UI-языки: **ru**, **en**, **uz** (`SUPPORTED_LANGS`, picker в Settings).
-- Строки: словарь `STRINGS` + `tr(key, lang, **kwargs)`. Черновик `assets/i18n/uk_be_kk.json` (uk/be/kk) **не подключён**.
+- UI-языки: **en, ru, uk, be, uz, kk, de, es, fr, pt, it, pl, tr, id, zh, ja, ko, hi** (`SUPPORTED_LANGS`, picker в Settings с эндонимами). RTL **ar/he отложены**.
+- Строки: словарь `STRINGS` + JSON overlays `assets/i18n/overlays/{lang}.json` + `tr(key, lang, **kwargs)`. Недостающий ключ → **en**, никогда пустая строка.
+- Первый запуск: язык с устройства (`page.locale` / OS `LANG`); пока пользователь не выбрал язык в Settings (`language_user_set`). Неподдерживаемая локаль → **en**.
 - Тема: light / dark / system.
 - UI style: **classic** (по умолчанию в рантайме скинов) / **neon** (дефолт в `config` может отличаться — см. `DEFAULT_UI_STYLE` в `config.py`).
 

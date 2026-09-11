@@ -137,11 +137,20 @@ Haptic на успех snack: лёгкая вибрация через notificat
 
 ## 7. Локализация
 
-`localization.py` — словарь `STRINGS` + `tr(key, lang, **kwargs)`.
+`localization.py` — словарь `STRINGS` + `tr(key, lang, **kwargs)` + JSON overlays.
 
-UI-языки: **ru**, **en**, **uz**. Каждый ключ обязан иметь все три перевода (тест `test_every_key_has_all_langs`).
+Live UI (`SUPPORTED_LANGS`): **en, ru, uk, be, uz, kk, de, es, fr, pt, it, pl, tr, id, zh, ja, ko, hi**.
+Каждый ключ обязан иметь непустой текст на всех языках (тест `test_every_key_has_all_langs`); дыры заполняются из English.
 
-Черновик `assets/i18n/uk_be_kk.json` (украинский / белорусский / казахский) **пока не wired** в picker и `normalize_lang`.
+Overlays: `assets/i18n/overlays/{lang}.json` (плоский словарь) и legacy `assets/i18n/uk_be_kk.json`.
+`pt` — бразильский португальский, в picker **Português**. `zh` — упрощённый (в т.ч. zh-TW → zh).
+RTL (**ar**, **he**) не включены — ломают LTR-вёрстку Flet.
+
+Первый запуск: `detect_language_and_currency` / `resolve_device_language` (Flet `page.locale`, иначе OS `LANG`/`locale`).
+Неизвестная локаль → **en**. Пока `settings.language_user_set` ложь, язык можно уточнить с устройства;
+сохранение в Settings ставит флаг и дальше не перезаписывает.
+
+`locale_prefs.py` (domain) мапит теги (`uk-UA`→`uk`, `pt-BR`→`pt`, `zh-CN`/`zh-Hans`→`zh`, `ky`/`tg`→`ru`).
 
 ---
 

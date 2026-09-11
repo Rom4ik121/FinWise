@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from lib.domain.locale_prefs import FALLBACK_CURRENCY, language_from_locale_tag
+from lib.domain.locale_prefs import FALLBACK_CURRENCY, FALLBACK_LANGUAGE, language_from_locale_tag
 
 logger = logging.getLogger("finanse.infrastructure.services.locale_prefs")
 
@@ -82,6 +82,27 @@ def locale_tag_from_page(page: Any | None) -> str | None:
     return None
 
 
+def resolve_device_language(
+    *,
+    page: Any | None = None,
+    locale_tag: str | None = None,
+) -> str:
+    """Pick a live UI language from Flet page locale and/or the OS.
+
+    A concrete device language wins over an English-looking Flet default so a
+    German (etc.) phone is not stuck on ``en`` when ``page.locale`` is missing.
+    """
+    page_tag = locale_tag or locale_tag_from_page(page)
+    os_tag = detect_system_locale_tag()
+    page_lang = language_from_locale_tag(page_tag) if page_tag else FALLBACK_LANGUAGE
+    os_lang = language_from_locale_tag(os_tag) if os_tag else FALLBACK_LANGUAGE
+    if page_lang != FALLBACK_LANGUAGE:
+        return page_lang
+    if os_lang != FALLBACK_LANGUAGE:
+        return os_lang
+    return FALLBACK_LANGUAGE
+
+
 def detect_language_and_currency(
     *,
     page: Any | None = None,
@@ -93,12 +114,14 @@ def detect_language_and_currency(
     Language comes from the device/UI locale. Currency stays USD until the
     user creates their first account (that currency becomes the app default).
     """
-    tag = locale_tag or locale_tag_from_page(page) or detect_system_locale_tag()
     _ = timezone  # currency is not auto-applied at first run
-    lang = language_from_locale_tag(tag)
+    if locale_tag:
+        lang = language_from_locale_tag(locale_tag)
+    else:
+        lang = resolve_device_language(page=page)
     logger.info(
         "Locale prefs: tag=%r → language=%s currency=%s (until first account)",
-        tag,
+        locale_tag or locale_tag_from_page(page) or detect_system_locale_tag(),
         lang,
         FALLBACK_CURRENCY,
     )
