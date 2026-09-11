@@ -42,7 +42,7 @@ from lib.presentation.money_input import (
     attach_grouped_digits,
     format_amount_value,
     make_amount_field,
-    parse_amount,
+    parse_amount_field,
 )
 from lib.presentation.utils import (
     bind_dropdown_select,
@@ -533,7 +533,7 @@ class GoalsPage(ft.Column):
                     (a for a in accounts if a.id == account_picker.value), accounts[0]
                 )
                 try:
-                    amount = parse_amount(amount_tf.value)
+                    amount = parse_amount_field(amount_tf)
                 except (InvalidOperation, ValueError):
                     convert_hint.value = ""
                     safe_update(convert_hint)
@@ -591,7 +591,7 @@ class GoalsPage(ft.Column):
 
             async def _save() -> None:
                 try:
-                    amount = parse_amount(amount_tf.value)
+                    amount = parse_amount_field(amount_tf)
                     if amount <= 0:
                         raise InvalidOperation
                 except (InvalidOperation, ValueError):
@@ -1110,7 +1110,7 @@ class GoalsPage(ft.Column):
 
             async def _save() -> None:
                 try:
-                    amount = parse_amount(amount_tf.value)
+                    amount = parse_amount_field(amount_tf)
                     if amount <= 0:
                         raise InvalidOperation
                 except (InvalidOperation, ValueError):
@@ -1563,7 +1563,7 @@ class GoalsPage(ft.Column):
                     items = items_editor.build_items()
                     target = sum(i.target_amount for i in items) if items else Decimal("0")
                 else:
-                    target = parse_amount(target_tf.value)
+                    target = parse_amount_field(target_tf)
             except (InvalidOperation, ValueError):
                 target = Decimal("0")
             current = goal.current_amount if goal else Decimal("0")
@@ -1584,7 +1584,7 @@ class GoalsPage(ft.Column):
                     )
                 )
             try:
-                planned = parse_amount(planned_tf.value)
+                planned = parse_amount_field(planned_tf)
             except (InvalidOperation, ValueError):
                 planned = Decimal("0")
             if planned > 0:
@@ -1672,7 +1672,7 @@ class GoalsPage(ft.Column):
             deadline = deadline_field.value
             planned_monthly: Decimal | None = None
             try:
-                planned_raw = parse_amount(planned_tf.value)
+                planned_raw = parse_amount_field(planned_tf)
                 if planned_raw > 0:
                     planned_monthly = planned_raw
             except (InvalidOperation, ValueError):

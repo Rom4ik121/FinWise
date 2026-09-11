@@ -11,7 +11,7 @@ from lib.domain.entities.currency import Currency, ExchangeRate
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.presentation.layout import make_v_scroll
 from lib.presentation.components.layout.page_shell import page_column, page_frame
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import make_amount_field, parse_amount_field
 from lib.presentation.styles import card_surface, muted_text
 from lib.presentation.responsive import MIN_TAP, card_padding
 from lib.presentation.utils import (
@@ -353,7 +353,7 @@ class CurrenciesPage(ft.Column):
 
     def _parse_amount(self) -> Optional[Decimal]:
         try:
-            value = parse_amount(self._amount.value)
+            value = parse_amount_field(self._amount)
         except (InvalidOperation, ValueError):
             return None
         if value < 0:

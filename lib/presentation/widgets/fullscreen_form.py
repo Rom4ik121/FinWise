@@ -356,6 +356,8 @@ def open_fullscreen_form(
     except Exception:  # noqa: BLE001
         pass
 
+    busy = {"on": False}
+
     def _close(_e: Any = None) -> None:
         dismiss_fullscreen(page, key=overlay_key)
         if on_close is not None:
@@ -365,8 +367,13 @@ def open_fullscreen_form(
                 pass
 
     async def _save_click(_e: ft.ControlEvent | None = None) -> None:
-        if on_save is not None:
+        if on_save is None or busy["on"]:
+            return
+        busy["on"] = True
+        try:
             await on_save()
+        finally:
+            busy["on"] = False
 
     compact = save_compact or is_narrow(page)
     actions: list[ft.Control] = []

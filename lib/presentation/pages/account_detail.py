@@ -27,7 +27,7 @@ from lib.presentation.analytics_period import (
 )
 from lib.presentation.category_lookup import index_categories, lookup_category
 from lib.presentation.count_up import flush_chart_draws, mark_money_text, play_count_ups
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import make_amount_field, parse_amount_field
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import (
     chart_enter,
@@ -640,7 +640,7 @@ class AccountDetailPage(ft.Column):
                 snack(self._page, tr("budgets.category_required", lang), error=True)
                 return
             try:
-                limit = parse_amount(limit_tf.value)
+                limit = parse_amount_field(limit_tf)
             except (InvalidOperation, ValueError):
                 snack(self._page, tr("budgets.limit_required", lang), error=True)
                 return

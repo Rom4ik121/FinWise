@@ -19,7 +19,17 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Resolve the runtime SQLite URL from application config."""
+    """Prefer the URL Alembic Config already has (tests / ``init_db``).
+
+    ``alembic.ini`` ships a placeholder ``sqlite:///finanse_alembic.db``.
+    ``init_db`` sets ``sqlalchemy.url`` to the live AppConfig database;
+    ignoring that sent upgrades at ``get_default_config()`` instead of
+    the DB that was just opened (wrong file in tests, custom data_dir).
+    """
+    configured = (config.get_main_option("sqlalchemy.url") or "").strip()
+    placeholder = "sqlite:///finanse_alembic.db"
+    if configured and configured not in {placeholder, "driver://user:pass@localhost/dbname"}:
+        return configured
     return get_default_config().database_url
 
 

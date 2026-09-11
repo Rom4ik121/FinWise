@@ -24,6 +24,23 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _safe_export_filename(filename: str) -> str:
+    """Keep only the final path component so callers cannot escape ``export_dir``."""
+    name = Path(str(filename or "").replace("\\", "/")).name
+    if not name or name in {".", ".."}:
+        raise ValueError("Invalid export filename")
+    return name
+
+
+def _confine_export_path(export_dir: Path, filename: str) -> Path:
+    """Resolve ``export_dir / filename`` and reject paths outside ``export_dir``."""
+    export_root = export_dir.resolve()
+    path = (export_root / filename).resolve()
+    if path != export_root and export_root not in path.parents:
+        raise ValueError("Export path escapes export directory")
+    return path
+
+
 def _json_default(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
@@ -100,6 +117,7 @@ class ExportDataUseCase:
                 if password
                 else f"finanse_export_{stamp}.json"
             )
+        filename = _safe_export_filename(filename)
 
         from lib.domain.transaction_paging import list_transactions_paged
 
@@ -152,7 +170,7 @@ class ExportDataUseCase:
             "settings": settings.model_dump(mode="json"),
         }
 
-        path = export_dir / filename
+        path = _confine_export_path(export_dir, filename)
         raw = json.dumps(
             payload, ensure_ascii=False, indent=2, default=_json_default
         ).encode("utf-8")

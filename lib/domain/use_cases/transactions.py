@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -25,6 +26,7 @@ from lib.domain.use_cases.debts import (
     debt_credit_amount,
     is_debt_principal_tx,
     reverse_debt_payment_credit,
+    with_debt_interest_tag,
 )
 from lib.domain.use_cases.goals import (
     allocate_goal_contribution_credit,
@@ -38,6 +40,8 @@ from lib.domain.use_cases.goals import (
     strip_goal_allocation_tags,
 )
 from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
+
+logger = logging.getLogger("finanse.domain.transactions")
 
 FEE_CATEGORY = "Комиссия"
 TRANSFER_FEE_TAG_PREFIX = "xfer_fee:"
@@ -61,7 +65,7 @@ async def _invoke_after_commit(hook: object) -> None:
         if hasattr(result, "__await__"):
             await result  # type: ignore[misc]
     except Exception:  # noqa: BLE001
-        pass
+        logger.warning("Post-commit hook failed", exc_info=True)
 
 
 def _balance_delta(tx_type: TransactionType, amount: Decimal) -> Decimal:
@@ -321,6 +325,8 @@ async def _sync_budget_expense(
         return
     if transaction.goal_id or transaction.goal_credit_amount is not None:
         return
+    if transaction.debt_id or transaction.debt_credit_amount is not None:
+        return
     from lib.domain.use_cases.budgets import apply_expense_delta
 
     settings = None
@@ -448,7 +454,7 @@ class AddTransactionUseCase:
 
             created = await self._apply_goal_contribution(created)
             await self._apply_goal_withdrawal(created)
-            await self._apply_debt_payment(created)
+            created = await self._apply_debt_payment(created)
             await _sync_budget_expense(
                 self._budgets,
                 created,
@@ -493,17 +499,21 @@ class AddTransactionUseCase:
         )
         await self._goals.update(updated)
 
-    async def _apply_debt_payment(self, transaction: Transaction) -> None:
+    async def _apply_debt_payment(self, transaction: Transaction) -> Transaction:
         if self._debts is None or not _is_debt_payment(transaction):
-            return
+            return transaction
         debt = await self._debts.get_by_id(transaction.debt_id or "")
         if debt is None:
-            return
+            return transaction
         credit = debt_credit_amount(transaction)
+        stamped = with_debt_interest_tag(transaction, debt, credit)
+        if stamped.tags != transaction.tags:
+            transaction = await self._transactions.update(stamped)
         updated = apply_debt_payment_credit(
             debt, credit, transaction=transaction, roll_schedule=True
         )
         await self._debts.update(updated)
+        return transaction
 
 
 class UpdateTransactionUseCase:
@@ -606,7 +616,7 @@ class UpdateTransactionUseCase:
                 _balance_delta(saved.type, saved.amount),
             )
             saved = await self._apply_goal_ledger(saved)
-            await self._apply_debt_payment(saved)
+            saved = await self._apply_debt_payment(saved)
             await _sync_budget_expense(
                 self._budgets,
                 existing,
@@ -683,17 +693,21 @@ class UpdateTransactionUseCase:
             )
             await self._goals.update(updated)
 
-    async def _apply_debt_payment(self, transaction: Transaction) -> None:
+    async def _apply_debt_payment(self, transaction: Transaction) -> Transaction:
         if self._debts is None or not _is_debt_payment(transaction):
-            return
+            return transaction
         debt = await self._debts.get_by_id(transaction.debt_id or "")
         if debt is None:
-            return
+            return transaction
         credit = debt_credit_amount(transaction)
+        stamped = with_debt_interest_tag(transaction, debt, credit)
+        if stamped.tags != transaction.tags:
+            transaction = await self._transactions.update(stamped)
         updated = apply_debt_payment_credit(
             debt, credit, transaction=transaction, roll_schedule=True
         )
         await self._debts.update(updated)
+        return transaction
 
     async def _reverse_debt_payment(self, transaction: Transaction) -> None:
         if self._debts is None or not _is_debt_payment(transaction):
@@ -749,21 +763,15 @@ class DeleteTransactionUseCase:
                 peers = await self._transactions.list(transfer_id=existing.transfer_id)
                 peer_ids = [p.id for p in peers if p.id != existing.id]
                 fee_tag = transfer_fee_tag(existing.transfer_id)
-                source = next(
-                    (p for p in peers if p.type == TransactionType.EXPENSE),
-                    existing if existing.type == TransactionType.EXPENSE else None,
+                fees = await self._transactions.list(
+                    category=FEE_CATEGORY,
+                    tags=[fee_tag],
                 )
-                if source is not None:
-                    fees = await self._transactions.list(
-                        account_id=source.account_id,
-                        category=FEE_CATEGORY,
-                        tags=[fee_tag],
-                    )
-                    fee_ids = [
-                        f.id
-                        for f in fees
-                        if f.id != existing.id and f.id not in peer_ids
-                    ]
+                fee_ids = [
+                    f.id
+                    for f in fees
+                    if f.id != existing.id and f.id not in peer_ids
+                ]
             ok = await self._delete_one(existing)
             for peer_id in peer_ids:
                 peer = await self._transactions.get_by_id(peer_id)

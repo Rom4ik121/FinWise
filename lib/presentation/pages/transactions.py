@@ -25,10 +25,11 @@ from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.frequent_account import prepare_tx_account_choices
 from lib.presentation.money_input import (
+    amount_list_filters,
     amount_text,
     make_amount_field,
-    parse_amount,
-    parse_optional_amount,
+    parse_filter_amount,
+    parse_optional_amount_field,
 )
 from lib.presentation.utils import format_date, format_money, run_async, safe_update, snack, snack_exception, tr, bind_dropdown_select
 from lib.presentation.form_validation import require_positive_amount
@@ -606,6 +607,16 @@ class TransactionsPage(ft.Column):
 
         async def _apply() -> None:
             _stamp_fields()
+            if (self._amount_min_value or "").strip() and parse_filter_amount(
+                self._amount_min_value
+            ) is None:
+                snack(self._page, tr("invalid_amount", lang), error=True)
+                return
+            if (self._amount_max_value or "").strip() and parse_filter_amount(
+                self._amount_max_value
+            ) is None:
+                snack(self._page, tr("invalid_amount", lang), error=True)
+                return
             df_text = date_from.date_text.strip()
             dt_text = date_to.date_text.strip()
             if df_text and dt_text:
@@ -621,7 +632,8 @@ class TransactionsPage(ft.Column):
                         self._range_from = self._range_to - timedelta(days=365 * 5)
                     self._range_mode = True
                 except ValueError:
-                    self._range_mode = False
+                    snack(self._page, tr("invalid_date", lang), error=True)
+                    return
             else:
                 self._range_mode = False
                 self._range_from = None
@@ -700,12 +712,9 @@ class TransactionsPage(ft.Column):
         filters: dict = {"category": category}
         if self._account_value not in (None, "all"):
             filters["account_id"] = self._account_value
-        amin = parse_optional_amount(self._amount_min_value)
-        amax = parse_optional_amount(self._amount_max_value)
-        if amin is not None:
-            filters["amount_min"] = amin
-        if amax is not None:
-            filters["amount_max"] = amax
+        filters.update(
+            amount_list_filters(self._amount_min_value, self._amount_max_value)
+        )
         if self._type_value == "transfer":
             filters["has_transfer"] = True
         elif self._type_value not in (None, "all"):
@@ -827,6 +836,7 @@ class TransactionsPage(ft.Column):
             date_from = _parse_date(self._date_from_value)
             date_to = _parse_date(self._date_to_value, end_of_day=True)
         except ValueError:
+            snack(self._page, tr("invalid_date", lang), error=True)
             return
         try:
             rows = await c.list_transactions.execute(
@@ -1302,7 +1312,7 @@ class TransactionsPage(ft.Column):
             ]
             category = category_picker.selected_name
             if not category:
-                snack(self._page, tr("field.category", lang), error=True)
+                snack(self._page, tr("category.name_required", lang), error=True)
                 return
             tx_type = TransactionType(type_dd.value or TransactionType.EXPENSE.value)
             cat_scope = (
@@ -1333,7 +1343,7 @@ class TransactionsPage(ft.Column):
 
             line_items = items_editor.collect(default_category=category)
             try:
-                fee = parse_optional_amount(fee_tf.value)
+                fee = parse_optional_amount_field(fee_tf)
                 if fee < 0:
                     raise InvalidOperation
                 if line_items is None:

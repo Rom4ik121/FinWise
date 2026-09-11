@@ -27,7 +27,7 @@ from lib.presentation.components.layout.page_shell import page_column, page_fram
 from lib.presentation.count_up import play_count_ups
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import overlay_enter_style, replace_controls
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import make_amount_field, parse_optional_amount_field
 from lib.presentation.styles import (
     ICON_CATALOG_GLYPH,
     form_save_button,
@@ -905,7 +905,7 @@ class AccountsPage(ft.Column):
                 _set_busy(False)
 
             try:
-                initial = parse_amount(balance_tf.value or "0")
+                initial = parse_optional_amount_field(balance_tf)
             except (InvalidOperation, ValueError):
                 _fail(tr("invalid_amount", lang))
                 return
@@ -963,8 +963,8 @@ class AccountsPage(ft.Column):
                             _fail(tr("field.api_key", lang))
                             return
                         if account is None:
-                            entity.initial_balance = parse_amount("0")
-                            entity.balance = parse_amount("0")
+                            entity.initial_balance = Decimal("0")
+                            entity.balance = Decimal("0")
                         snack(self._page, tr("account.exchange.connecting", lang))
                         will_sync = sync is not None
                         saved = await connect.execute(

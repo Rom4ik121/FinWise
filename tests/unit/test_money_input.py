@@ -155,6 +155,25 @@ def test_parse_grouped_amounts() -> None:
     assert parse_optional_amount("1,50") == Decimal("1.50")
 
 
+def test_parse_filter_amount_blank_is_unbounded() -> None:
+    from lib.presentation.money_input import amount_list_filters, parse_filter_amount
+
+    assert parse_filter_amount("") is None
+    assert parse_filter_amount("   ") is None
+    assert parse_filter_amount(None) is None
+    assert parse_filter_amount("abc") is None
+    assert parse_filter_amount("10") == Decimal("10")
+    assert parse_filter_amount("0") == Decimal("0")
+    assert amount_list_filters("", "") == {}
+    assert amount_list_filters("  ", None) == {}
+    assert amount_list_filters("1.50", "") == {"amount_min": Decimal("1.50")}
+    assert amount_list_filters("", "20") == {"amount_max": Decimal("20")}
+    assert amount_list_filters("5", "9") == {
+        "amount_min": Decimal("5"),
+        "amount_max": Decimal("9"),
+    }
+
+
 def test_amount_text_prefers_live_then_grouped_cache() -> None:
     class _Field:
         def __init__(self, value: str = "") -> None:

@@ -104,6 +104,24 @@ def test_export_data_use_case(container, tmp_path: Path) -> None:
         assert "budgets" in payload
         assert payload["version"] >= 2
         assert "debt_payments" in payload or payload["version"] == 2
+        settings = payload.get("settings") or {}
+        assert "pin_hash" not in settings
+        assert "pin_salt" not in settings
+
+    run_async(_run())
+
+
+def test_export_data_rejects_path_escape(container, tmp_path: Path) -> None:
+    async def _run() -> None:
+        export_dir = tmp_path / "exports"
+        result = await container.export_data.execute(
+            export_dir, filename="../../escaped.json"
+        )
+        assert result.path.parent.resolve() == export_dir.resolve()
+        assert result.path.name == "escaped.json"
+        assert result.path.is_file()
+        outside = tmp_path / "escaped.json"
+        assert not outside.exists()
 
     run_async(_run())
 

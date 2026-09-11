@@ -49,6 +49,40 @@ def parse_optional_amount(text: str | None) -> Decimal:
     return parse_amount(text)
 
 
+def parse_filter_amount(text: str | None) -> Decimal | None:
+    """Amount bound for list filters: blank means “no bound”, not zero."""
+    if not (text or "").strip():
+        return None
+    try:
+        return parse_amount(text)
+    except InvalidOperation:
+        return None
+
+
+def amount_list_filters(
+    min_text: str | None, max_text: str | None
+) -> dict[str, Decimal]:
+    """``list()`` kwargs for amount bounds; empty/invalid text is omitted."""
+    filters: dict[str, Decimal] = {}
+    amin = parse_filter_amount(min_text)
+    amax = parse_filter_amount(max_text)
+    if amin is not None:
+        filters["amount_min"] = amin
+    if amax is not None:
+        filters["amount_max"] = amax
+    return filters
+
+
+def parse_amount_field(field: Any) -> Decimal:
+    """Parse a grouped amount TextField, including the unflushed cache."""
+    return parse_amount(amount_text(field))
+
+
+def parse_optional_amount_field(field: Any) -> Decimal:
+    """Parse a fee-like TextField; empty (including unflushed empty) is zero."""
+    return parse_optional_amount(amount_text(field))
+
+
 def parse_amount(text: str | None) -> Decimal:
     """Parse a grouped amount into ``Decimal``.
 

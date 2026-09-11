@@ -52,6 +52,28 @@ def debt_interest_from_tags(transaction: Transaction) -> Decimal:
     return Decimal("0.00")
 
 
+def with_debt_interest_tag(
+    transaction: Transaction,
+    debt: Debt,
+    credit: Decimal,
+) -> Transaction:
+    """Stamp the accrued-interest slice so delete/edit can reverse it.
+
+    Untagged repayments used to subtract ``min(accrued, credit)`` and then
+    add the full credit back on reverse, inflating ``accrued_interest``.
+    """
+    if not debt.accrue_interest:
+        return transaction
+    if debt_interest_from_tags(transaction) > 0:
+        return transaction
+    consumed = min(debt.accrued_interest, quantize_money(credit))
+    if consumed <= 0:
+        return transaction
+    tags = list(transaction.tags or [])
+    tags.append(f"{DEBT_INTEREST_TAG_PREFIX}{consumed}")
+    return transaction.model_copy(update={"tags": tags})
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -146,9 +168,9 @@ def reverse_debt_payment_credit(
     if debt.accrue_interest:
         if interest > 0:
             accrued = quantize_money(accrued + interest)
-        else:
-            # Mirror apply's untagged branch: accrued -= min(accrued, credit).
-            accrued = quantize_money(accrued + credit)
+        # Untagged legacy payments: do not invent interest (full-credit restore
+        # overshot when credit > accrued-at-pay). Principal remaining still
+        # comes back below.
     remaining = quantize_money(debt.remaining_amount + credit)
     next_pay = debt.next_payment_date
     if (

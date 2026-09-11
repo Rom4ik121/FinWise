@@ -44,8 +44,8 @@ from lib.presentation.styles import (
 from lib.presentation.money_input import (
     attach_grouped_digits,
     make_amount_field,
-    parse_amount,
-    parse_optional_amount,
+    parse_amount_field,
+    parse_optional_amount_field,
 )
 from lib.presentation.utils import (
     bind_dropdown_select,
@@ -571,12 +571,8 @@ class DebtsPage(ft.Column):
                         (a for a in accounts if a.id == account_picker.value), accounts[0]
                     )
                     try:
-                        principal = parse_amount(principal_tf.value or "0")
-                        interest = (
-                            parse_amount(interest_tf.value)
-                            if (interest_tf.value or "").strip()
-                            else Decimal("0")
-                        )
+                        principal = parse_amount_field(principal_tf)
+                        interest = parse_optional_amount_field(interest_tf)
                     except (InvalidOperation, ValueError):
                         convert_hint.value = ""
                         safe_update(convert_hint)
@@ -641,7 +637,7 @@ class DebtsPage(ft.Column):
                         (a for a in accounts if a.id == account_picker.value), accounts[0]
                     )
                     try:
-                        amount = parse_amount(amount_tf.value)
+                        amount = parse_amount_field(amount_tf)
                     except (InvalidOperation, ValueError):
                         convert_hint.value = ""
                         safe_update(convert_hint)
@@ -682,13 +678,8 @@ class DebtsPage(ft.Column):
                 if has_interest:
                     assert principal_tf is not None and interest_tf is not None
                     try:
-                        principal = parse_amount(principal_tf.value)
-                        interest_raw = (interest_tf.value or "").strip()
-                        interest_amount = (
-                            parse_amount(interest_raw)
-                            if interest_raw
-                            else Decimal("0")
-                        )
+                        principal = parse_amount_field(principal_tf)
+                        interest_amount = parse_optional_amount_field(interest_tf)
                         if principal < 0 or interest_amount < 0:
                             raise InvalidOperation
                         debt_total = principal + interest_amount
@@ -716,7 +707,7 @@ class DebtsPage(ft.Column):
                 else:
                     assert amount_tf is not None
                     try:
-                        pay_amount = parse_amount(amount_tf.value)
+                        pay_amount = parse_amount_field(amount_tf)
                         if pay_amount <= 0:
                             raise InvalidOperation
                     except (InvalidOperation, ValueError):
@@ -1549,7 +1540,7 @@ class DebtsPage(ft.Column):
                     rate = Decimal(str(rate_tf.value).replace(",", "."))
                 next_amt = None
                 try:
-                    next_amt = parse_optional_amount(next_amt_tf.value)
+                    next_amt = parse_optional_amount_field(next_amt_tf)
                     if next_amt is not None and next_amt <= 0:
                         next_amt = None
                 except (InvalidOperation, ValueError):

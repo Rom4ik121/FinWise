@@ -45,7 +45,8 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 
 | Область | Примеры файлов |
 |---------|----------------|
-| Деньги / ввод | `test_money.py`, `test_money_input.py` |
+| Деньги / ввод | `test_money.py`, `test_money_input.py` (filter bounds: blank ≠ 0) |
+| Alembic | `test_alembic_chain.py` (single head **0029**, `upgrade head` on empty SQLite, legacy `0002_reminder_time` rewrite) |
 | Бюджеты (логика) | `test_budget.py` |
 | Биометрия / PIN | `test_biometric.py`, `test_encryption.py`, `test_secret_box.py` |
 | Локализация | `test_localization.py` (все ключи всех `SUPPORTED_LANGS`), `test_locale_prefs.py`, `test_first_run_language.py` |
@@ -80,9 +81,9 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 |---------|------|
 | Счета | `test_accounts.py` |
 | Операции / позиции чека | `test_transactions.py`, `test_transaction_items.py` |
-| Переводы + FX | `test_transfers.py` |
-| Цели / долги / подписки | `test_goals.py`, `test_debts.py`, `test_subscriptions.py` |
-| Бюджеты | `test_budgets.py`, `test_budget_items_parity.py` |
+| Переводы + FX | `test_transfers.py` (fee on destination deleted with the pair) |
+| Цели / долги / подписки | `test_goals.py`, `test_debts.py` (interest tag stamp + reverse), `test_subscriptions.py` |
+| Бюджеты | `test_budgets.py` (debt repayments skipped; category match is case-insensitive), `test_budget_items_parity.py` |
 | Категории / валюты | `test_categories.py`, `test_currencies.py` |
 | Курсы upsert / safe convert | `test_exchange_rate_upsert.py`, `test_safe_convert.py` |
 | Биржевой синк | `test_exchange_sync.py` |
@@ -99,7 +100,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 3. Не включать реальные OS-toast / биометрию устройства в CI.
 4. После изменений domain / money / FX / transfers — прогнать хотя бы  
    `tests/integration/test_transfers.py` и релевантный unit.
-5. Новые ключи i18n — убедиться, что `test_localization` проходит (все три языка).
+5. Новые ключи i18n — убедиться, что `test_localization` проходит (все живые UI-языки).
 6. Не фиксировать в документации «N passed» — число растёт; ориентир — зелёный `pytest -q`.
 
 ---

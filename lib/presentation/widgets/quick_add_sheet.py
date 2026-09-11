@@ -17,8 +17,8 @@ from lib.presentation.frequent_account import prepare_tx_account_choices
 from lib.presentation.money_input import (
     format_amount_value,
     make_amount_field,
-    parse_amount,
-    parse_optional_amount,
+    parse_amount_field,
+    parse_optional_amount_field,
 )
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.styles import form_section
@@ -303,7 +303,7 @@ async def _show_form(
         tx_type = TransactionType(type_dd.value or TransactionType.EXPENSE.value)
         category_name = category_picker.selected_name
         if not category_name:
-            snack(page, tr("field.category", lang), error=True)
+            snack(page, tr("category.name_required", lang), error=True)
             return
         cat_account_id = (
             account.id if bool(getattr(account, "is_corporate", False)) else ""
@@ -324,11 +324,15 @@ async def _show_form(
 
         line_items = items_editor.collect(default_category=category_name)
         try:
-            fee = parse_optional_amount(fee_tf.value) if not editing else Decimal("0")
+            fee = (
+                parse_optional_amount_field(fee_tf)
+                if not editing
+                else Decimal("0")
+            )
             if fee < 0:
                 raise InvalidOperation
             if line_items is None:
-                amount = parse_amount(amount_tf.value)
+                amount = parse_amount_field(amount_tf)
                 if amount <= 0:
                     raise InvalidOperation
                 items = []

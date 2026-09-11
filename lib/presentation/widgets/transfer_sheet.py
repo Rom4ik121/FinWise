@@ -10,10 +10,9 @@ import flet as ft
 
 from lib.domain.entities.account import Account
 from lib.presentation.money_input import (
-    attach_grouped_digits,
     make_amount_field,
-    parse_amount,
-    parse_optional_amount,
+    parse_amount_field,
+    parse_optional_amount_field,
 )
 from lib.presentation.styles import form_section
 from lib.presentation.utils import (
@@ -102,6 +101,8 @@ async def _show_form(
     else:
         to_id = next((a.id for a in accounts if a.id != from_id), accounts[0].id)
 
+    hint_fn: dict = {"fn": lambda _e: None}
+
     from_picker = AccountStripPicker(
         page,
         accounts,
@@ -121,11 +122,13 @@ async def _show_form(
         label=tr("field.amount", lang),
         expand=True,
         autofocus=True,
+        extra_on_change=lambda e: hint_fn["fn"](e),
     )
     fee_tf = make_amount_field(
         lang,
         label=tr("field.fee", lang),
         expand=True,
+        extra_on_change=lambda e: hint_fn["fn"](e),
     )
     fee_picker = AccountStripPicker(
         page,
@@ -169,8 +172,8 @@ async def _show_form(
         dest = _account(to_picker.value)
         fee_acc = _account(fee_picker.value)
         try:
-            amount = parse_amount(amount_tf.value)
-            fee = parse_optional_amount(fee_tf.value)
+            amount = parse_amount_field(amount_tf)
+            fee = parse_optional_amount_field(fee_tf)
         except (InvalidOperation, ValueError):
             convert_hint.value = ""
             safe_update(convert_hint)
@@ -238,8 +241,7 @@ async def _show_form(
             pass
         _refresh_hint()
 
-    attach_grouped_digits(amount_tf, lang, extra_on_change=_refresh_hint)
-    attach_grouped_digits(fee_tf, lang, extra_on_change=_refresh_hint)
+    hint_fn["fn"] = _refresh_hint
     from_picker.bind_changed(_on_accounts_changed)
     to_picker.bind_changed(_on_accounts_changed)
     fee_picker.bind_changed(_on_fee_account_changed)
@@ -248,8 +250,8 @@ async def _show_form(
 
     async def _save() -> None:
         try:
-            amount = parse_amount(amount_tf.value)
-            fee = parse_optional_amount(fee_tf.value)
+            amount = parse_amount_field(amount_tf)
+            fee = parse_optional_amount_field(fee_tf)
             if amount <= 0 or fee < 0:
                 raise InvalidOperation
         except (InvalidOperation, ValueError):

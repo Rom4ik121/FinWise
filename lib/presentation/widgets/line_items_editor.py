@@ -8,7 +8,7 @@ from typing import Callable
 import flet as ft
 
 from lib.domain.entities.transaction import TransactionItem
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import amount_text, make_amount_field, parse_amount
 from lib.presentation.utils import safe_update, tr
 
 
@@ -133,7 +133,7 @@ class LineItemsEditor(ft.Column):
         total = Decimal("0")
         for _name, amount_tf, _rm in self._rows:
             try:
-                total += parse_amount(amount_tf.value)
+                total += parse_amount(amount_text(amount_tf))
             except (InvalidOperation, ValueError):
                 continue
         self._total.value = tr(
@@ -152,12 +152,15 @@ class LineItemsEditor(ft.Column):
         items: list[TransactionItem] = []
         for name_tf, amount_tf, _rm in self._rows:
             raw_name = (name_tf.value or "").strip()
+            raw_amt = amount_text(amount_tf).strip()
+            if not raw_name and not raw_amt:
+                continue
             try:
-                amount = parse_amount(amount_tf.value)
+                amount = parse_amount(raw_amt)
             except (InvalidOperation, ValueError):
-                continue
+                return []
             if amount <= 0:
-                continue
+                return []
             items.append(
                 TransactionItem(
                     name=raw_name or default_category,

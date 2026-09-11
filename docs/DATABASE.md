@@ -23,7 +23,7 @@
 
 1. **`create_all`** + `_apply_sqlite_column_patches` — догоняет старые файлы без полной Alembic-истории.
 2. **`_ensure_sqlite_indexes`** — идемпотентные составные индексы под горячие фильтры.
-3. Best-effort **`alembic upgrade head`** (если цепочка сломана — предупреждение в лог, приложение продолжает работу на патчах).
+3. Best-effort **`alembic upgrade head`** against the opened DB URL (legacy revision `0002_reminder_time` → `0002`; if the chain still fails — warning in the log, the app continues on patches).
 
 `reset_engine()` — после restore и в тестах.
 
@@ -146,7 +146,7 @@ UNIQUE(category_id, month, year, account_id).
 | Rev | Суть |
 |-----|------|
 | 0001 | Initial schema |
-| 0002 | `reminder_time` |
+| 0002 | `reminder_time` (revision id **must** be `0002`; a filename leftover `0002_reminder_time` split the graph — `0003` depends on `0002`) |
 | 0003 | `categories` |
 | 0004 | Goals currency / status / projection |
 | 0005 | Debt credit + indexes |
@@ -175,7 +175,7 @@ UNIQUE(category_id, month, year, account_id).
 | 0028 | `settings.tx_filters_json`, `budget_warn_pct`, `budget_limit_pct`; `recurring_rules`; `net_worth_snapshots`; FTS5 payee/amount |
 | 0029 | `settings.language_user_set` (явный выбор языка vs авто с устройства) |
 
-Head: **0029**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
+Head: **0029**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic `upgrade head` targets the **same** SQLite URL as `AppConfig` (`migrations/env.py` honors `sqlalchemy.url`). Installs stamped with the obsolete id `0002_reminder_time` are rewritten to `0002` before upgrade. If upgrade still fails, a warning is logged and column patches keep the app running.
 
 ---
 

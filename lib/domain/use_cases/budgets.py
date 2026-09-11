@@ -10,7 +10,7 @@ from typing import Optional, Protocol, Sequence
 from pydantic import BaseModel
 
 from lib.domain.entities.budget import Budget, BudgetProgress
-from lib.domain.entities.category import CategoryKind
+from lib.domain.entities.category import CategoryKind, category_names_equal
 from lib.domain.entities.currency_codes import normalize_currency_code
 from lib.domain.entities.money import quantize_money
 from lib.domain.entities.settings import AppSettings
@@ -458,6 +458,14 @@ async def apply_expense_delta(
         name, moment.month, moment.year, account_id=scope
     )
     if budget is None:
+        month_rows = await budgets.list_for_month(
+            moment.month, moment.year, account_id=scope
+        )
+        budget = next(
+            (row for row in month_rows if category_names_equal(row.category_id, name)),
+            None,
+        )
+    if budget is None:
         return None
     base = normalize_currency_code(
         settings.default_currency if settings is not None else currency
@@ -595,6 +603,8 @@ async def _month_category_spent(
             continue
         if tx.goal_id or tx.goal_credit_amount is not None:
             continue
+        if tx.debt_id or tx.debt_credit_amount is not None:
+            continue
         if any(
             str(tag).startswith(_TRANSFER_FEE_TAG_PREFIX)
             for tag in (tx.tags or [])
@@ -607,7 +617,12 @@ async def _month_category_spent(
             if converted is None:
                 src = normalize_currency_code(tx.currency or base)
                 raise ValueError(f"No exchange rate for {src}/{base}")
-            totals[category] = totals.get(category, Decimal("0")) + converted
+            matched = next(
+                (key for key in totals if category_names_equal(key, category)),
+                None,
+            )
+            key = matched or category
+            totals[key] = totals.get(key, Decimal("0")) + converted
     return {k: quantize_money(v) for k, v in totals.items()}
 
 
@@ -635,4 +650,7 @@ async def _sum_expenses(
         account_id=account_id,
         accounts=accounts,
     )
-    return totals.get(want, Decimal("0.00"))
+    for key, value in totals.items():
+        if category_names_equal(key, want):
+            return value
+    return Decimal("0.00")

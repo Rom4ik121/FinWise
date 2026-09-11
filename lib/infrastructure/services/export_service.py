@@ -748,7 +748,7 @@ class ExportService:
                         _ensure(0.5 * cm)
                         c.setFillColor(ink)
                         c.setFont(font_reg, 9)
-                        c.drawString(margin, y, debt.name[:36])
+                        c.drawString(margin, y, (debt.counterparty or "")[:36])
                         c.setFont(font_bold, 9)
                         c.drawRightString(
                             width - margin,
@@ -1222,8 +1222,13 @@ class ExportService:
             return None
 
     def _resolve(self, filename: str) -> Path:
-        path = Path(filename)
-        if not path.is_absolute():
-            path = self.export_dir / path.name
+        raw = Path(str(filename or "").replace("\\", "/"))
+        name = raw.name
+        if not name or name in {".", ".."}:
+            raise ValueError("Invalid export filename")
+        export_root = self.export_dir.resolve()
+        path = (export_root / name).resolve()
+        if path != export_root and export_root not in path.parents:
+            raise ValueError("Export path escapes export directory")
         path.parent.mkdir(parents=True, exist_ok=True)
         return path

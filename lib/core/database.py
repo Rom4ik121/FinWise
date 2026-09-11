@@ -132,6 +132,51 @@ def init_db(config: Optional[AppConfig] = None, *, echo: bool = False) -> Engine
     return engine
 
 
+# Filename leftover used this id; 0003.down_revision is ``0002``.
+_LEGACY_ALEMBIC_REVISIONS = {
+    "0002_reminder_time": "0002",
+}
+
+
+def rewrite_legacy_alembic_revisions(db_path: object) -> bool:
+    """Map obsolete Alembic revision ids so ``upgrade head`` can walk the chain.
+
+    Returns True when a row was rewritten.
+    """
+    from pathlib import Path
+    import sqlite3
+
+    path = Path(str(db_path))
+    if not path.is_file():
+        return False
+    conn = sqlite3.connect(str(path))
+    try:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+        ).fetchone()
+        if row is None:
+            return False
+        current = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        if not current:
+            return False
+        old = str(current[0] or "")
+        mapped = _LEGACY_ALEMBIC_REVISIONS.get(old)
+        if not mapped:
+            return False
+        conn.execute(
+            "UPDATE alembic_version SET version_num = ? WHERE version_num = ?",
+            (mapped, old),
+        )
+        conn.commit()
+        logger.info("Rewrote legacy Alembic revision %s → %s", old, mapped)
+        return True
+    except sqlite3.Error:
+        logger.debug("Alembic revision rewrite skipped", exc_info=True)
+        return False
+    finally:
+        conn.close()
+
+
 def _try_alembic_upgrade(config: Optional[AppConfig] = None) -> None:
     """Best-effort ``alembic upgrade head`` (idempotent; warn on failure)."""
     try:
@@ -144,10 +189,11 @@ def _try_alembic_upgrade(config: Optional[AppConfig] = None) -> None:
         migrations = root / "migrations"
         if not (migrations / "env.py").is_file():
             return
+        cfg = config or get_default_config()
+        rewrite_legacy_alembic_revisions(cfg.db_path)
         alembic_cfg = AlembicConfig()
         alembic_cfg.set_main_option("script_location", str(migrations))
         alembic_cfg.set_main_option("prepend_sys_path", str(root))
-        cfg = config or get_default_config()
         alembic_cfg.set_main_option("sqlalchemy.url", cfg.database_url)
         command.upgrade(alembic_cfg, "head")
     except Exception as exc:  # noqa: BLE001
