@@ -36,6 +36,7 @@ from lib.presentation.responsive import (
     is_compact,
     nav_chrome_metrics,
     nav_overlay_height,
+    page_height,
     page_width,
     should_rebuild_layout,
     wrap_safe_area,
@@ -157,16 +158,18 @@ class FinanseApp:
                 content=self._nav_stack,
             ),
         )
-        # Stack overlay (not a growing Column): Home ListView cannot push the
-        # tab bar off-screen on ~375px web viewports. Positioned fill +
-        # StackFit.EXPAND so LOOSE fit cannot size the stack to list content.
-        # Overlay is height-capped so it does not steal taps on the dashboard.
+        # Narrow Windows (~375px) blanked every tab after 42229a8 made the
+        # body *fill-positioned* (left/top/right/bottom). StackFit.EXPAND
+        # only tightens *non-positioned* children; an all-positioned Stack
+        # can lay out the pane at height 0 while the height-capped nav
+        # still paints (clip=NONE overflow). Keep the body non-positioned
+        # + EXPAND so ListView is bounded (375 web nav stays on-screen)
+        # and the pane actually receives the viewport height.
         self._content_pane = ft.Container(
-            left=0,
-            top=0,
-            right=0,
-            bottom=0,
+            expand=True,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            opacity=1,
+            ignore_interactions=False,
             content=self._content,
         )
         self._nav_overlay = ft.Container(
@@ -178,18 +181,23 @@ class FinanseApp:
             clip_behavior=ft.ClipBehavior.NONE,
             content=self._nav_host,
         )
-        self._shell = wrap_safe_area(
-            ft.Stack(
-                expand=True,
-                fit=ft.StackFit.EXPAND,
-                clip_behavior=ft.ClipBehavior.NONE,
-                controls=[
-                    self._content_pane,
-                    self._nav_overlay,
-                ],
-            ),
+        self._shell_stack = ft.Stack(
+            expand=True,
+            fit=ft.StackFit.EXPAND,
+            clip_behavior=ft.ClipBehavior.NONE,
+            controls=[
+                self._content_pane,
+                self._nav_overlay,
+            ],
         )
-        self._stage = ft.Container(expand=True, content=self._shell)
+        self._shell = wrap_safe_area(self._shell_stack)
+        self._stage = ft.Container(
+            expand=True,
+            width=page_width(page),
+            height=page_height(page),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=self._shell,
+        )
         self._nav_pills: list[ft.Container] = []
         self._nav_icons: list[ft.Icon] = []
         self._nav_labels: list[ft.Text] = []
@@ -331,6 +339,7 @@ class FinanseApp:
                 except Exception:  # noqa: BLE001
                     logger.exception("Previous resize handler failed")
             self._apply_nav_metrics()
+            self._sync_stage_size()
             bp = breakpoint(self.page)
             width = page_width(self.page)
             if not should_rebuild_layout(
@@ -344,6 +353,7 @@ class FinanseApp:
 
                     safe_update(self._nav_host)
                     safe_update(self._nav_overlay)
+                    safe_update(self._stage)
                 except Exception:  # noqa: BLE001
                     pass
                 return
@@ -353,6 +363,11 @@ class FinanseApp:
             self._render(force=True)
 
         self.page.on_resize = _on_resize
+
+    def _sync_stage_size(self) -> None:
+        """Give the shell a finite box so a narrow resize cannot collapse the body."""
+        self._stage.width = page_width(self.page)
+        self._stage.height = page_height(self.page)
 
     def _apply_nav_metrics(self) -> None:
         """Resize the floating tab bar for the current viewport."""

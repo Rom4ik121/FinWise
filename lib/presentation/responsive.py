@@ -534,10 +534,13 @@ def nav_overlay_height(page: ft.Page | None = None) -> int:
     """Height of the bottom-nav overlay so it does not steal taps above the bar.
 
     Includes host padding (4+4) and a few extra pixels so labels are not
-    HARD_EDGE-clipped; keep this well under the dashboard tap zone.
+    HARD_EDGE-clipped; keep this well under the dashboard tap zone. Cap
+    against the window so a short+narrow resize cannot cover the body.
     """
     m = nav_chrome_metrics(page)
-    return int(m["bar_h"] + m["margin_top"] + m["margin_bottom"] + 16)
+    raw = int(m["bar_h"] + m["margin_top"] + m["margin_bottom"] + 16)
+    cap = max(56, int(page_height(page) * 0.18))
+    return min(raw, cap)
 
 
 def should_rebuild_layout(

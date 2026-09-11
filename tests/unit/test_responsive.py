@@ -112,6 +112,15 @@ def test_phone_widths_keep_nav_and_home_in_viewport() -> None:
         assert content_inset(page) <= 10  # type: ignore[arg-type]
 
 
+def test_nav_overlay_capped_on_short_narrow_window() -> None:
+    """Short+narrow must not let the tab overlay cover the body."""
+    page = _FakePage(375, height=320)  # type: ignore[arg-type]
+    overlay = nav_overlay_height(page)  # type: ignore[arg-type]
+    assert overlay <= int(320 * 0.18) or overlay <= 56
+    assert overlay < 320 * 0.5
+    assert overlay >= 56
+
+
 def test_xs_resize_from_fallback_rebuilds_layout() -> None:
     """390 (page_width fallback) → 375 must remount, not keep a 390 chart."""
     from lib.presentation.responsive import BP_XS

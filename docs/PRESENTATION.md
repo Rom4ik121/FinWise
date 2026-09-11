@@ -13,7 +13,7 @@
 ### Навигация
 
 - Четыре **основные вкладки**: Главная, Операции, Счета, Настройки.
-- Кастомный **floating NavigationBar** (не scaffold NavigationBar), overlay в `Stack` (`fit=EXPAND`, positioned fill): контент Home не выталкивает табы за край на **320–390** px. `NARROW_MAX=400` → 375/390 используют compact (`xs`) nav. На compact нет backdrop-blur у таббара.
+- Кастомный **floating NavigationBar** (не scaffold NavigationBar), overlay в `Stack` (`fit=EXPAND`): тело — **непозиционированный** expanding child, таббар — height-capped `left/right/bottom`. Так ListView Home не выталкивает табы за край на **320–390** px, а узкое Windows-окно не обнуляет высоту body (fill-positioned pane + EXPAND давало height 0, nav оставался виден). `NARROW_MAX=400` → 375/390 используют compact (`xs`) nav. На compact нет backdrop-blur у таббара. Stage держит явную `width`/`height` с viewport, overlay height ≤ 18% окна.
 - Контент через `AnimatedSwitcher`, кэш построенных страниц.
 - **Вторичные маршруты** (состояние приложения, не URL):
 
@@ -153,7 +153,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 - Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от **ширины колонки** (`layout_width`), не сырого окна.
 - Все экраны — `page_frame` (динамические gutters). На **lg/xl** gutters центрируют контент: max **840 / 960** px (2–3 колонки карт), не растяжение на 1600 px и не «островок» 400 px. Счета 1–3 колонки; цели/долги/подписки/бюджеты — 1–2.
-- **xs (~320–390):** `NARROW_MAX=400`; `clamp_content_width` никогда не шире viewport; заголовки ellipsis/wrap; nav margin/label уже; tap ≥ **44**; dual-add в списке, не поверх контента; ListView `clip_behavior=HARD_EDGE`; bottom nav в `Stack` с **`fit=EXPAND`** и positioned fill (не `StackFit.LOOSE` — иначе Home ListView растит стек и табы уезжают). Overlay height-capped, без backdrop-blur на compact, `clip=NONE`. Resize 390→375 пересобирает layout (≥8 px на xs).
+- **xs (~320–390):** `NARROW_MAX=400`; `clamp_content_width` никогда не шире viewport; заголовки ellipsis/wrap; nav margin/label уже; tap ≥ **44**; dual-add в списке, не поверх контента; ListView `clip_behavior=HARD_EDGE`; bottom nav в `Stack` с **`fit=EXPAND`**. Тело **не** fill-positioned (иначе Windows-узкое окно даёт body height 0); overlay height-capped (≤18% высоты), без backdrop-blur на compact, `clip=NONE`. Resize 390→375 пересобирает layout (≥8 px на xs) и синхронизирует size stage.
 - **sm (~400–420):** основные поля — gutter 12 px.
 - Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
 - Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads, account/tx chevrons). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.

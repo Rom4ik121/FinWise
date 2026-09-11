@@ -16,6 +16,9 @@ _COALESCE_S = 0.4
 _KEY = "_finanse_ui_feedback"
 TOAST_OVERLAY_TAG = "ui_feedback_toast"
 _TAG = TOAST_OVERLAY_TAG
+# Explicit strip height: a left/right/top overlay with no height can expand
+# to the full page.overlay Stack and paint/absorb over the shell.
+TOAST_OVERLAY_HEIGHT = 96
 
 
 class UiFeedback:
@@ -54,11 +57,12 @@ class UiFeedback:
         )
         pill = self._pill
         # Overlay sits above the shell SafeArea — wrap the pill so it clears
-        # notch / Dynamic Island. No fixed height (64px is shorter than the island).
+        # notch / Dynamic Island. Height is a thin strip, never the full page.
         self._banner = ft.Container(
             left=0,
             right=0,
             top=0,
+            height=TOAST_OVERLAY_HEIGHT,
             data=_TAG,
             visible=False,
             opacity=0,
