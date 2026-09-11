@@ -25,6 +25,7 @@ from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.frequent_account import prepare_tx_account_choices
 from lib.presentation.money_input import (
+    amount_text,
     make_amount_field,
     parse_amount,
     parse_optional_amount,
@@ -47,6 +48,18 @@ if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 _PAGE_SIZE = 60
+
+
+def period_preset_range(
+    days: int | None,
+    *,
+    today: date | None = None,
+) -> tuple[date, date]:
+    """Inclusive calendar range for a period chip (does not apply filters)."""
+    day = today or date.today()
+    if days is None:
+        return day - timedelta(days=365 * 5), day
+    return day - timedelta(days=int(days)), day
 
 
 def _parse_date(value: str, *, end_of_day: bool = False) -> Optional[datetime]:
@@ -534,41 +547,60 @@ class TransactionsPage(ft.Column):
             value=_dt_init,
             allow_clear=True,
         )
-        close_holder: dict = {}
 
         def _stamp_fields() -> None:
             self._type_value = type_dd.value or "all"
             self._category_value = category_dd.value or "all"
             self._account_value = account_dd.value or "all"
-            self._amount_min_value = (amount_min_tf.value or "").strip()
-            self._amount_max_value = (amount_max_tf.value or "").strip()
+            self._amount_min_value = amount_text(amount_min_tf).strip()
+            self._amount_max_value = amount_text(amount_max_tf).strip()
             self._group_by_value = group_dd.value or StatsPeriod.DAY.value
 
-        def _apply_preset(days: int | None) -> None:
-            today = date.today()
-            if days is None:
-                self._range_from = today - timedelta(days=365 * 5)
-                self._range_to = today
-            else:
-                self._range_from = today - timedelta(days=int(days))
-                self._range_to = today
-            self._range_mode = True
-            _stamp_fields()
-            closer = close_holder.get("close")
-            if callable(closer):
-                closer()
-            self._apply_day_filter()
-            run_async(self._page, self._persist_filters)
+        def _fill_period(days: int | None) -> None:
+            """Period chips only fill the date fields — Apply commits."""
+            start, end = period_preset_range(days)
+            date_from.value = datetime.combine(
+                start, datetime.min.time()
+            ).replace(tzinfo=timezone.utc)
+            date_to.value = datetime.combine(
+                end, datetime.min.time()
+            ).replace(tzinfo=timezone.utc)
+            try:
+                safe_update(date_from)
+                safe_update(date_to)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _reset_amount(field: ft.TextField) -> None:
+            field.value = ""
+            cached = getattr(field, "_fw_amount_text", None)
+            if isinstance(cached, dict):
+                cached["text"] = ""
 
         period_row = ft.Row(
             spacing=6,
             wrap=True,
             controls=[
-                ft.TextButton(tr("filter.period.7d", lang), on_click=lambda _e: _apply_preset(7)),
-                ft.TextButton(tr("filter.period.30d", lang), on_click=lambda _e: _apply_preset(30)),
-                ft.TextButton(tr("filter.period.90d", lang), on_click=lambda _e: _apply_preset(90)),
-                ft.TextButton(tr("filter.period.365d", lang), on_click=lambda _e: _apply_preset(365)),
-                ft.TextButton(tr("filter.period.all", lang), on_click=lambda _e: _apply_preset(None)),
+                ft.TextButton(
+                    tr("filter.period.7d", lang),
+                    on_click=lambda _e: _fill_period(7),
+                ),
+                ft.TextButton(
+                    tr("filter.period.30d", lang),
+                    on_click=lambda _e: _fill_period(30),
+                ),
+                ft.TextButton(
+                    tr("filter.period.90d", lang),
+                    on_click=lambda _e: _fill_period(90),
+                ),
+                ft.TextButton(
+                    tr("filter.period.365d", lang),
+                    on_click=lambda _e: _fill_period(365),
+                ),
+                ft.TextButton(
+                    tr("filter.period.all", lang),
+                    on_click=lambda _e: _fill_period(None),
+                ),
             ],
         )
 
@@ -590,27 +622,24 @@ class TransactionsPage(ft.Column):
                     self._range_mode = True
                 except ValueError:
                     self._range_mode = False
-            elif df_text or dt_text:
+            else:
                 self._range_mode = False
+                self._range_from = None
+                self._range_to = None
             close()
             self._apply_day_filter()
             await self._persist_filters()
 
-        def _reset(_e: ft.ControlEvent | None = None) -> None:
-            self._type_value = "all"
-            self._category_value = "all"
-            self._account_value = "all"
-            self._amount_min_value = ""
-            self._amount_max_value = ""
-            self._group_by_value = StatsPeriod.DAY.value
-            self._range_mode = False
-            self._range_from = None
-            self._range_to = None
-            self._selected_date = date.today()
-            self._search.value = ""
-            close()
-            self._apply_day_filter()
-            run_async(self._page, self._persist_filters)
+        async def _clear_and_apply() -> None:
+            type_dd.value = "all"
+            category_dd.value = "all"
+            account_dd.value = "all"
+            _reset_amount(amount_min_tf)
+            _reset_amount(amount_max_tf)
+            group_dd.value = StatsPeriod.DAY.value
+            date_from.value = None
+            date_to.value = None
+            await _apply()
 
         close = open_fullscreen_form(
             self._page,
@@ -619,24 +648,23 @@ class TransactionsPage(ft.Column):
             overlay_key="transaction_filters",
             save_label=tr("action.apply", lang),
             body=[
+                account_dd,
                 type_dd,
                 category_dd,
-                account_dd,
-                amount_min_tf,
-                amount_max_tf,
-                group_dd,
                 period_row,
                 date_from,
                 date_to,
-                ft.OutlinedButton(
+                amount_min_tf,
+                amount_max_tf,
+                group_dd,
+                ft.TextButton(
                     tr("filter.clear_all", lang),
-                    icon=ft.Icons.RESTART_ALT,
-                    on_click=_reset,
+                    icon=ft.Icons.FILTER_ALT_OFF,
+                    on_click=lambda _e: run_async(self._page, _clear_and_apply),
                 ),
             ],
             on_save=_apply,
         )
-        close_holder["close"] = close
 
     async def _debounced_search(self) -> None:
         """Wait briefly so typing does not reload on every keystroke."""

@@ -170,6 +170,7 @@ def make_v_scroll(*, spacing: int = 12, eager: bool = False) -> ft.ListView:
             padding=list_nav_padding(),
             auto_scroll=False,
             build_controls_on_demand=not eager,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             scroll=_hidden_scrollbar(),
         )
     )
@@ -201,6 +202,7 @@ def v_scroll_body(
             spacing=spacing,
             padding=list_nav_padding(),
             auto_scroll=False,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             scroll=_hidden_scrollbar(),
             controls=list(controls),
         ),

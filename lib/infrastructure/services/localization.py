@@ -52,8 +52,15 @@ LANG_LABELS: dict[str, str] = {
     "ko": "한국어",
     "hi": "हिन्दी",
 }
-# Settings dropdown order.
+# Settings picker order (English first so the list never hides it above the fold).
 LANG_PICKER_ORDER = SUPPORTED_LANGS
+
+
+def language_picker_choices() -> tuple[tuple[str, str], ...]:
+    """``(code, endonym)`` rows for Settings. English is always first."""
+    return tuple((code, LANG_LABELS[code]) for code in LANG_PICKER_ORDER)
+
+
 _LANG_ALIASES: dict[str, str] = {
     "zh-hans": "zh",
     "zh-cn": "zh",

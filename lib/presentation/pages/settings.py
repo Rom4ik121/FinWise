@@ -17,8 +17,6 @@ from lib.infrastructure.services.data_reset_service import DataResetService
 from lib.infrastructure.services.encryption_service import EncryptionService
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 from lib.infrastructure.services.localization import (
-    LANG_LABELS,
-    LANG_PICKER_ORDER,
     normalize_lang,
 )
 from lib.infrastructure.services.push_notifier import (
@@ -48,6 +46,7 @@ from lib.presentation.ui_motion import (
 from lib.presentation.utils import dropdown_select_kwargs, run_async, safe_update, snack, snack_exception, tr
 from lib.presentation.widgets.confirm_dialog import confirm_dialog
 from lib.presentation.widgets.currency_ticker_picker import CurrencyTickerPicker
+from lib.presentation.widgets.language_picker import LanguagePicker
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
@@ -358,22 +357,14 @@ class SettingsPage(ft.Column):
             controls=[],
         )
         self._rebuild_style_cards(lang)
-        self._language = ft.Dropdown(
+        self._language = LanguagePicker(
+            page,
+            lang=lang,
             label=tr("settings.language", lang),
             value=normalize_lang(s.language),
-            options=[
-                icon_dropdown_option(
-                    code,
-                    LANG_LABELS.get(code) or tr(f"lang.{code}", lang),
-                    ft.Icons.LANGUAGE,
-                )
-                for code in LANG_PICKER_ORDER
-            ],
             expand=True,
-            dense=True,
-            **dropdown_select_kwargs(lambda _e: self._autosave()),
+            on_changed=lambda _code: self._autosave(),
         )
-        polish_form_control(self._language)
         self._interval = ft.TextField(
             value=str(s.exchange_update_interval_minutes),
             keyboard_type=ft.KeyboardType.NUMBER,

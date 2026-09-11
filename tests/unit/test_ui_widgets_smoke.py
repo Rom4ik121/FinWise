@@ -26,6 +26,23 @@ def test_currency_dropdown_options_localized() -> None:
     assert "—" in (options[0].text or "")
 
 
+def test_language_picker_lists_english_first() -> None:
+    from lib.infrastructure.services.localization import language_picker_choices
+    from lib.presentation.widgets.language_picker import LanguagePicker
+
+    choices = language_picker_choices()
+    assert choices[0] == ("en", "English")
+    picker = LanguagePicker(
+        page=None,  # type: ignore[arg-type]
+        lang="ru",
+        label="Language",
+        value="ru",
+    )
+    assert picker.value == "ru"
+    picker.set_value("en", notify=False)
+    assert picker.value == "en"
+
+
 def test_account_card_builds() -> None:
     acc = Account(
         name="Cash",

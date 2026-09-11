@@ -12,6 +12,7 @@ from lib.presentation.money_input import (
     attach_grouped_digits,
     format_amount_input,
     format_amount_value,
+    is_amount_write_echo,
     parse_amount,
     parse_optional_amount,
     repair_amount_caret_prepend,
@@ -58,6 +59,7 @@ def test_repair_caret_prepend_turns_05_into_50() -> None:
     assert repair_amount_caret_prepend("5", "51") == "51"
     assert repair_amount_caret_prepend("", "5") == "5"
     assert repair_amount_caret_prepend("50", "500") == "500"
+    assert repair_amount_caret_prepend("50", "050") == "50"
     assert repair_amount_caret_prepend("12", "1.234") == "1.234"
 
 
@@ -80,6 +82,54 @@ def test_attach_grouped_digits_keeps_fifty() -> None:
     field.value = "05"
     field.on_change(_Evt())
     assert field.value == "50"
+
+
+def test_is_amount_write_echo_detects_flet_extra_zero() -> None:
+    assert is_amount_write_echo("50", "500")
+    assert is_amount_write_echo("50", "050")
+    assert not is_amount_write_echo("50", "51")
+    assert not is_amount_write_echo("5", "50")
+    assert not is_amount_write_echo("50", "50")
+
+
+def test_attach_grouped_digits_ignores_immediate_echo_500() -> None:
+    import flet as ft
+
+    class _Evt:
+        pass
+
+    field = ft.TextField(value="")
+    attach_grouped_digits(field, "en")
+    field.value = "5"
+    field.on_change(_Evt())
+    field.value = "05"
+    field.on_change(_Evt())
+    assert field.value == "50"
+    field.value = "500"
+    field.on_change(_Evt())
+    assert field.value == "50"
+
+
+def test_attach_grouped_digits_accepts_real_500_after_echo_window(monkeypatch) -> None:
+    import flet as ft
+
+    from lib.presentation import money_input as money_input_mod
+
+    monkeypatch.setattr(money_input_mod, "AMOUNT_WRITE_ECHO_SECONDS", 0)
+
+    class _Evt:
+        pass
+
+    field = ft.TextField(value="")
+    attach_grouped_digits(field, "en")
+    field.value = "5"
+    field.on_change(_Evt())
+    field.value = "50"
+    field.on_change(_Evt())
+    assert field.value == "50"
+    field.value = "500"
+    field.on_change(_Evt())
+    assert field.value == "500"
 
 
 def test_format_groups_while_typing_en() -> None:

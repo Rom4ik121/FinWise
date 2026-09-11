@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Optional
 
@@ -9,6 +10,11 @@ import flet as ft
 
 from lib.infrastructure.services.localization import normalize_lang
 from lib.presentation.utils import safe_update
+
+# After a programmatic ``field.value`` write, Flet web often re-delivers the
+# last keystroke. That turns repaired ``50`` into ``500`` (or ``050``). Ignore
+# that echo briefly; a later real extra digit still lands.
+AMOUNT_WRITE_ECHO_SECONDS = 0.12
 
 
 def amount_separators(lang: str) -> tuple[str, str]:
@@ -109,8 +115,38 @@ def repair_amount_caret_prepend(previous: str, current: str) -> str:
         and len(cur_digits) == len(prev_digits) + 1
         and cur_digits[1:] == prev_digits
     ):
-        return f"{prev_digits}{cur_digits[0]}"
+        prepended = cur_digits[0]
+        # "50" + caret-0 echo of "0" → "050". That is not a new digit.
+        if prepended == "0" and len(prev_digits) >= 2:
+            return previous
+        return f"{prev_digits}{prepended}"
     return current
+
+
+def is_amount_write_echo(committed: str, incoming: str) -> bool:
+    """True when ``incoming`` is the last digit of ``committed`` echoed once.
+
+    ``50`` + echoed ``0`` → ``500`` or ``050``. Fractional edits are never
+    treated as echo so ``50,0`` still types normally.
+    """
+    if committed == incoming:
+        return False
+    prev_int, prev_frac, prev_trail = _split_int_frac(committed)
+    cur_int, cur_frac, cur_trail = _split_int_frac(incoming)
+    if prev_frac is not None or cur_frac is not None or prev_trail or cur_trail:
+        return False
+    prev_digits = prev_int or ""
+    cur_digits = cur_int or ""
+    if not prev_digits or not cur_digits:
+        return False
+    if cur_digits == prev_digits:
+        return True
+    last = prev_digits[-1]
+    if cur_digits == f"{prev_digits}{last}":
+        return True
+    if cur_digits == f"{last}{prev_digits}":
+        return True
+    return False
 
 
 def attach_grouped_digits(
@@ -127,20 +163,49 @@ def attach_grouped_digits(
     """
     last = {"text": field.value or ""}
     field._fw_amount_text = last
+    echo_until = {"t": 0.0}
+    applying = {"on": False}
 
     def _on_change(e: ft.ControlEvent) -> None:
+        if applying["on"]:
+            return
         current = field.value or ""
+        now = time.monotonic()
+        if now < echo_until["t"] and is_amount_write_echo(last["text"], current):
+            applying["on"] = True
+            try:
+                field.value = last["text"]
+                try:
+                    end = len(last["text"])
+                    field.selection = ft.TextSelection(
+                        base_offset=end, extent_offset=end
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                safe_update(field)
+            finally:
+                applying["on"] = False
+            if extra_on_change is not None:
+                extra_on_change(e)
+            return
         repaired = repair_amount_caret_prepend(last["text"], current)
         formatted = format_amount_input(repaired, lang)
         last["text"] = formatted
         if formatted != current:
-            field.value = formatted
+            applying["on"] = True
             try:
-                end = len(formatted)
-                field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
-            except Exception:  # noqa: BLE001
-                pass
-            safe_update(field)
+                field.value = formatted
+                echo_until["t"] = time.monotonic() + AMOUNT_WRITE_ECHO_SECONDS
+                try:
+                    end = len(formatted)
+                    field.selection = ft.TextSelection(
+                        base_offset=end, extent_offset=end
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                safe_update(field)
+            finally:
+                applying["on"] = False
         if extra_on_change is not None:
             extra_on_change(e)
 

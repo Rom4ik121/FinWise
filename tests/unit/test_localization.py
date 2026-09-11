@@ -8,6 +8,7 @@ from lib.infrastructure.services.localization import (
     STRINGS,
     SUPPORTED_LANGS,
     available_keys,
+    language_picker_choices,
     localize_category_name,
     merge_strings,
     normalize_lang,
@@ -39,6 +40,9 @@ _REQUIRED_LANGS = (
 def test_supported_langs() -> None:
     assert SUPPORTED_LANGS == _REQUIRED_LANGS
     assert LANG_PICKER_ORDER == SUPPORTED_LANGS
+    choices = language_picker_choices()
+    assert choices[0] == ("en", "English")
+    assert [code for code, _label in choices] == list(SUPPORTED_LANGS)
     for code in SUPPORTED_LANGS:
         assert code in LANG_LABELS
         assert LANG_LABELS[code].strip()

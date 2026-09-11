@@ -144,6 +144,7 @@ Live UI (`SUPPORTED_LANGS`): **en, ru, uk, be, uz, kk, de, es, fr, pt, it, pl, t
 
 Overlays: `assets/i18n/overlays/{lang}.json` (плоский словарь) и legacy `assets/i18n/uk_be_kk.json`.
 `pt` — бразильский португальский, в picker **Português**. `zh` — упрощённый (в т.ч. zh-TW → zh).
+Settings language — fullscreen список эндонимов (`language_picker_choices`, **English** первым), не Dropdown (меню Flet прячет `en` над выбранным `ru`).
 RTL (**ar**, **he**) не включены — ломают LTR-вёрстку Flet.
 
 Первый запуск: `detect_language_and_currency` / `resolve_device_language` (Flet `page.locale`, иначе OS `LANG`/`locale`).

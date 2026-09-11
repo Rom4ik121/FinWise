@@ -549,6 +549,7 @@ class DashboardPage(ft.Column):
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
             no_wrap=True,
+            expand=True,
         )
         balance_code = ft.Text(
             "" if hidden else base,
@@ -597,6 +598,7 @@ class DashboardPage(ft.Column):
         self._chart_btn = chart_btn
         today_row = ft.Row(
             spacing=8,
+            tight=True,
             controls=[
                 self._today_box(
                     label=tr("dashboard.today_income", lang),
@@ -638,6 +640,8 @@ class DashboardPage(ft.Column):
                         color=ft.Colors.ON_SURFACE_VARIANT,
                         weight=ft.FontWeight.W_500,
                         expand=True,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                     eye_btn,
                 ],
@@ -646,10 +650,10 @@ class DashboardPage(ft.Column):
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 wrap=False,
+                tight=True,
                 controls=[
                     balance_label,
                     balance_code,
-                    ft.Container(expand=True),
                     chart_btn,
                 ],
             ),
@@ -770,6 +774,8 @@ class DashboardPage(ft.Column):
                                         size=15,
                                         weight=ft.FontWeight.W_700,
                                         color=ft.Colors.ON_SURFACE,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
                                     hint,
                                 ],
@@ -793,6 +799,7 @@ class DashboardPage(ft.Column):
             controls=[
                 ft.Row(
                     spacing=8,
+                    tight=True,
                     controls=[
                         shortcut_chip(
                             tr("nav.goals", lang),
@@ -812,6 +819,7 @@ class DashboardPage(ft.Column):
                 ),
                 ft.Row(
                     spacing=8,
+                    tight=True,
                     controls=[
                         shortcut_chip(
                             tr("nav.subscriptions", lang),
@@ -834,6 +842,7 @@ class DashboardPage(ft.Column):
                 ),
                 ft.Row(
                     spacing=8,
+                    tight=True,
                     controls=[
                         shortcut_chip(
                             tr("nav.budgets", lang),
@@ -874,10 +883,12 @@ class DashboardPage(ft.Column):
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
                 controls=[
                     ft.Row(
                         spacing=10,
                         tight=True,
+                        expand=True,
                         controls=[
                             ft.Container(
                                 width=32,
@@ -896,6 +907,9 @@ class DashboardPage(ft.Column):
                                 size=14,
                                 weight=ft.FontWeight.W_700,
                                 color=ft.Colors.ON_SURFACE,
+                                expand=True,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS,
                             ),
                         ],
                     ),
@@ -1194,6 +1208,8 @@ class DashboardPage(ft.Column):
                                 tr("home.budget_alert", lang, category=cat, percent=percent),
                                 weight=ft.FontWeight.W_700,
                                 size=13,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
                             ),
                             muted_text(tr("home.budget_alert_body", lang), size=11),
                         ],

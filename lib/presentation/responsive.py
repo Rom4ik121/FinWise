@@ -18,8 +18,9 @@ _REF_WIDTH = 390.0
 COMPACT_MAX = 420
 # Desktop / tablet: center content, optional side breathing room.
 WIDE_MIN = 720
-# Extra-small phones (SE / compact Android).
-NARROW_MAX = 360
+# Extra-small phones (SE / iPhone 12–14 logical 375 / compact Android).
+# 375–390 must use the compact nav so four tab labels stay on-screen.
+NARROW_MAX = 400
 # Large tablet / desktop split for card grids.
 DESKTOP_MIN = 1024
 # Centered readable measure on large windows (not a skinny phone column,
@@ -90,7 +91,7 @@ def is_narrow(page: ft.Page | None) -> bool:
 
 
 def breakpoint(page: ft.Page | None) -> Breakpoint:
-    """Named viewport band: xs <360, sm <420, md <720, lg <1024, else xl."""
+    """Named viewport band: xs <400, sm <420, md <720, lg <1024, else xl."""
     width = page_width(page)
     if width < NARROW_MAX:
         return BP_XS
@@ -507,13 +508,13 @@ def nav_chrome_metrics(page: ft.Page | None = None) -> dict[str, int]:
             "margin_h": margin_h,
             "margin_bottom": 6,
             "margin_top": 4,
-            "bar_h": 52,
-            "pill_w": 40,
-            "pill_h": 28,
-            "label": 10,
+            "bar_h": 56,
+            "pill_w": 36,
+            "pill_h": 26,
+            "label": 9,
             "icon": 20,
-            "item_pad_h": 2,
-            "item_pad_v": 4,
+            "item_pad_h": 1,
+            "item_pad_v": 2,
         }
     return {
         "margin_h": margin_h,
@@ -527,6 +528,12 @@ def nav_chrome_metrics(page: ft.Page | None = None) -> dict[str, int]:
         "item_pad_h": 4,
         "item_pad_v": 4,
     }
+
+
+def nav_overlay_height(page: ft.Page | None = None) -> int:
+    """Height of the bottom-nav overlay so it does not steal taps above the bar."""
+    m = nav_chrome_metrics(page)
+    return int(m["bar_h"] + m["margin_top"] + m["margin_bottom"] + 8)
 
 
 def list_nav_padding() -> ft.Padding:

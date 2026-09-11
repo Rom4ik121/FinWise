@@ -43,6 +43,7 @@ def page_frame(
         ft.Container(
             expand=True,
             padding=ft.Padding.symmetric(horizontal=inset),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             content=body,
         )
     )

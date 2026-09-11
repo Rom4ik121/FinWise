@@ -55,6 +55,8 @@ def dual_add_button(
                         color=color,
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
+                        expand=True,
+                        text_align=ft.TextAlign.CENTER,
                     ),
                 ],
             ),

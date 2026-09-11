@@ -34,6 +34,7 @@ from lib.presentation.widgets.lock_screen import LockScreen
 from lib.presentation.responsive import (
     breakpoint,
     nav_chrome_metrics,
+    nav_overlay_height,
     page_width,
     wrap_safe_area,
 )
@@ -154,11 +155,29 @@ class FinanseApp:
                 content=self._nav_stack,
             ),
         )
+        # Stack overlay (not a growing Column): Home ListView cannot push the
+        # tab bar off-screen on ~375px web viewports. The overlay is height-
+        # capped so it does not steal taps on the dashboard.
+        self._nav_overlay = ft.Container(
+            left=0,
+            right=0,
+            bottom=0,
+            height=nav_overlay_height(page),
+            alignment=ft.Alignment.BOTTOM_CENTER,
+            content=self._nav_host,
+        )
         self._shell = wrap_safe_area(
-            ft.Column(
+            ft.Stack(
                 expand=True,
-                spacing=0,
-                controls=[self._content, self._nav_host],
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                controls=[
+                    ft.Container(
+                        expand=True,
+                        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                        content=self._content,
+                    ),
+                    self._nav_overlay,
+                ],
             ),
         )
         self._stage = ft.Container(expand=True, content=self._shell)
@@ -333,6 +352,7 @@ class FinanseApp:
             bottom=m["margin_bottom"],
             top=m["margin_top"],
         )
+        self._nav_overlay.height = nav_overlay_height(self.page)
         self._nav_stack.height = m["bar_h"]
         self._nav_indicator.width = m["pill_w"]
         self._nav_indicator.height = m["pill_h"]
@@ -451,8 +471,10 @@ class FinanseApp:
                     vertical=nav_m["item_pad_v"],
                 ),
                 content=ft.Column(
-                    spacing=2,
+                    spacing=1,
                     tight=True,
+                    expand=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[pill, caption],
                 ),

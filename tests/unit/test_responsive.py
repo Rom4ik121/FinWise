@@ -16,6 +16,7 @@ from lib.presentation.responsive import (
     layout_width,
     list_nav_padding,
     nav_chrome_metrics,
+    nav_overlay_height,
     scale_font,
     shell_max_width,
     swipe_action_strip_width,
@@ -86,6 +87,27 @@ def test_shell_centers_on_desktop_without_skinny_island() -> None:
     assert se_nav["label"] <= 11
     pad = list_nav_padding()
     assert pad.bottom == 104
+
+
+def test_phone_widths_keep_nav_and_home_in_viewport() -> None:
+    """320–390 must use compact nav so four tabs stay on-screen (QA ~375)."""
+    from lib.presentation.responsive import BP_XS, breakpoint
+
+    for width in (320, 360, 375, 390):
+        page = _FakePage(width)  # type: ignore[arg-type]
+        assert breakpoint(page) == BP_XS  # type: ignore[arg-type]
+        nav = nav_chrome_metrics(page)  # type: ignore[arg-type]
+        bar = width - 2 * nav["margin_h"]
+        per_tab = nav["pill_w"] + 2 * nav["item_pad_h"]
+        assert 4 * per_tab <= bar
+        assert nav["label"] <= 10
+        overlay = nav_overlay_height(page)  # type: ignore[arg-type]
+        assert overlay < 90
+        assert overlay < 560
+        chart_w, _chart_h = compact_chart_size(page)  # type: ignore[arg-type]
+        assert chart_w <= width
+        assert layout_width(page) <= width  # type: ignore[arg-type]
+        assert content_inset(page) <= 10  # type: ignore[arg-type]
 
 
 def test_breakpoints_and_grid() -> None:
