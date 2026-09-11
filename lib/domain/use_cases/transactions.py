@@ -52,6 +52,18 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+async def _invoke_after_commit(hook: object) -> None:
+    """Best-effort post-commit hook (net-worth snapshot). Never fails the ledger write."""
+    if hook is None:
+        return
+    try:
+        result = hook()  # type: ignore[operator]
+        if hasattr(result, "__await__"):
+            await result  # type: ignore[misc]
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _balance_delta(tx_type: TransactionType, amount: Decimal) -> Decimal:
     """Return signed balance change for an account (income +, expense −)."""
     amount = quantize_money(amount)
@@ -392,6 +404,7 @@ class AddTransactionUseCase:
         self._notifications = notifications
         self._currencies = currencies
         self._session_factory = session_factory
+        self._after_commit: Optional[Callable[[], object]] = None
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Persist ``transaction``, update account balance, sync goal/debt if linked."""
@@ -450,10 +463,14 @@ class AddTransactionUseCase:
         if self._session_factory is not None:
             # TransferAccountsUseCase already owns an outer UoW — reuse it.
             if in_unit_of_work():
-                return await _persist()
-            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
-                return await _persist()
-        return await _persist()
+                created = await _persist()
+            else:
+                with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                    created = await _persist()
+        else:
+            created = await _persist()
+        await _invoke_after_commit(self._after_commit)
+        return created
 
     async def _apply_goal_contribution(self, transaction: Transaction) -> Transaction:
         return await _credit_goal_from_transaction(
@@ -513,6 +530,7 @@ class UpdateTransactionUseCase:
         self._notifications = notifications
         self._currencies = currencies
         self._session_factory = session_factory
+        self._after_commit: Optional[Callable[[], object]] = None
 
     async def execute(self, transaction: Transaction) -> Transaction:
         """Replace an existing transaction and fix derived balances."""
@@ -611,10 +629,14 @@ class UpdateTransactionUseCase:
 
         if self._session_factory is not None:
             if in_unit_of_work():
-                return await _persist()
-            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
-                return await _persist()
-        return await _persist()
+                saved = await _persist()
+            else:
+                with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                    saved = await _persist()
+        else:
+            saved = await _persist()
+        await _invoke_after_commit(self._after_commit)
+        return saved
 
     async def _apply_account_delta(self, account_id: str, delta: Decimal) -> None:
         account = await self._accounts.get_by_id(account_id)
@@ -712,6 +734,7 @@ class DeleteTransactionUseCase:
         self._currencies = currencies
         self._session_factory = session_factory
         self._media_cleanup = media_cleanup
+        self._after_commit: Optional[Callable[[], object]] = None
 
     async def execute(self, transaction_id: str) -> bool:
         """Remove a transaction and undo account / goal / debt side effects."""
@@ -754,10 +777,14 @@ class DeleteTransactionUseCase:
 
         if self._session_factory is not None:
             if in_unit_of_work():
-                return await _run()
-            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
-                return await _run()
-        return await _run()
+                ok = await _run()
+            else:
+                with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                    ok = await _run()
+        else:
+            ok = await _run()
+        await _invoke_after_commit(self._after_commit)
+        return ok
 
     async def _delete_one(self, existing: Transaction) -> bool:
         """Reverse one row without looking up its transfer peer."""
@@ -835,6 +862,8 @@ class ListTransactionsUseCase:
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         query: Optional[str] = None,
+        amount_min: Optional[Decimal] = None,
+        amount_max: Optional[Decimal] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
@@ -854,6 +883,8 @@ class ListTransactionsUseCase:
             transfer_id=transfer_id,
             has_transfer=has_transfer,
             query=query,
+            amount_min=amount_min,
+            amount_max=amount_max,
             limit=limit,
             offset=offset,
         )

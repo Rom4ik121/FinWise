@@ -103,14 +103,24 @@ class DashboardPage(ft.Column):
         self._sections_hint: ft.Text | None = None
         self._sections_slot: ft.Container | None = None
         self._budget_slot: ft.Container | None = None
+        self._alert_slot: ft.Container | None = None
         self._add_slot: ft.Container | None = None
         self._slots_ready = False
+        self._home_search = ft.TextField(
+            hint_text=tr("home.search", state.language),
+            prefix_icon=ft.Icons.SEARCH,
+            dense=True,
+            border_radius=12,
+            filled=True,
+            on_submit=lambda e: self._go_tx_search(getattr(e.control, "value", "")),
+        )
         super().__init__(
             **page_column(
                 page_frame(
                     title=tr("nav.home", state.language),
                     body=self._body,
                     page=page,
+                    extra=[self._home_search],
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
@@ -136,6 +146,11 @@ class DashboardPage(ft.Column):
         """Home empty CTA → Accounts tab + create form."""
         self._state.pending_open_account_create = True
         self._state.set_tab(self._state.TAB_ACCOUNTS)
+
+    def _go_tx_search(self, raw: object) -> None:
+        query = str(raw or "").strip()
+        self._state.pending_tx_query = query
+        self._state.set_tab(self._state.TAB_TRANSACTIONS)
 
     def _on_state(self, state: "AppState") -> None:
         if state.dashboard_token != self._token:
@@ -1015,6 +1030,7 @@ class DashboardPage(ft.Column):
             motion = animate
             with ui_animation(motion):
                 budget_widget = await self._budgets_widget(lang, base)
+                alert_widget = await self._budget_alert_banner(lang)
 
                 def _add_button() -> ft.Control:
                     return dual_add_button(
@@ -1045,6 +1061,7 @@ class DashboardPage(ft.Column):
 
                 def _build() -> list[ft.Control]:
                     return [
+                        _host("_alert_slot", alert_widget),
                         self._balance_panel(
                             lang,
                             total,
@@ -1099,6 +1116,9 @@ class DashboardPage(ft.Column):
                                 budgets_badge=budgets_badge,
                             )
                             safe_update(self._sections_slot)
+                        if self._alert_slot is not None:
+                            self._alert_slot.content = alert_widget
+                            safe_update(self._alert_slot)
                         self._budget_slot.content = budget_widget
                         safe_update(self._budget_slot)
                     except Exception as exc:  # noqa: BLE001
@@ -1134,6 +1154,57 @@ class DashboardPage(ft.Column):
         finally:
             await flush_chart_draws()
             self._animate_charts = False
+
+    async def _budget_alert_banner(self, lang: str) -> ft.Control:
+        settings = self._state.settings
+        if not getattr(settings, "budget_alerts", True):
+            return ft.Container()
+        uc = getattr(self._state.container, "get_budgets_for_month", None)
+        if uc is None:
+            return ft.Container()
+        now = datetime.now(timezone.utc)
+        try:
+            items = await uc.execute(now.month, now.year)
+        except Exception:  # noqa: BLE001
+            return ft.Container()
+        warn = int(getattr(settings, "budget_warn_pct", 80) or 80)
+        hot = [p for p in items if float(p.percent) >= warn]
+        if not hot:
+            return ft.Container()
+        top = hot[0]
+        cat = localize_category_name(top.category_id, lang)
+        percent = f"{float(top.percent):.0f}"
+
+        def _open(_e: ft.ControlEvent | None = None) -> None:
+            self._state.pending_budget_id = top.budget.id
+            self._state.open_secondary("budgets")
+
+        return card_surface(
+            ft.Row(
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.ERROR),
+                    ft.Column(
+                        spacing=2,
+                        tight=True,
+                        expand=True,
+                        controls=[
+                            ft.Text(
+                                tr("home.budget_alert", lang, category=cat, percent=percent),
+                                weight=ft.FontWeight.W_700,
+                                size=13,
+                            ),
+                            muted_text(tr("home.budget_alert_body", lang), size=11),
+                        ],
+                    ),
+                ],
+            ),
+            ink=True,
+            on_click=_open,
+            accent=ft.Colors.ERROR,
+            padding=12,
+        )
 
     async def _budgets_widget(self, lang: str, currency: str) -> ft.Control:
         """Category budgets for the current month."""

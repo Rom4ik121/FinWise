@@ -159,7 +159,7 @@
 
 - Dashboard in-place mutate (balance/chart/sections slots; soft reload);
 - ListView storms: goals/debts/subs entity cache + no spinner on search filter;
-- SQL FTS5 `transactions_fts` (Alembic **0022** + `database.py` ensure); UI `query=`.
+- SQL FTS5 `transactions_fts` (Alembic **0022**/**0028** + `database.py` ensure: category/comment/tags/payee/amount); UI `query=`.
 
 ---
 

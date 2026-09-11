@@ -113,6 +113,7 @@
 `check_balance_before_subscription`, `budget_alerts`,  
 `pin_hash` / `pin_salt`, `biometric_enabled`,  
 **`dashboard_hide_chart`**, **`dashboard_chart_days`** (миграция **0017**),
+**`tx_filters_json`**, **`budget_warn_pct`** (по умолчанию 80), **`budget_limit_pct`** (100) — миграция **0028**,
 иконки/цвета целей·долгов·подписок и goal items (миграции **0018–0021**).
 порог низкого баланса и др.
 
@@ -122,6 +123,15 @@
 `last_alert_level`, `account_id` (пустая строка = личный; UUID = корпоративный счёт), timestamps,  
 UNIQUE(category_id, month, year, account_id).
 
+### `recurring_rules`
+
+Шаблоны дохода/расхода (не подписки): `name`, `amount`, `currency`, `account_id`, `category`, `type`,  
+`interval` / `interval_count`, `next_run`, `paused`, `skip_next`, `auto_create`, timestamps.
+
+### `net_worth_snapshots`
+
+Один снимок include-in-total баланса на UTC-день: `captured_on` UNIQUE, `amount`, `currency`, `captured_at`.
+
 ### `exchange_connections`
 
 `account_id` UNIQUE, `provider`, `credentials_encrypted`, `last_sync_at`, `last_error`, `holdings_json`.
@@ -130,7 +140,7 @@ UNIQUE(category_id, month, year, account_id).
 
 ## 6. Alembic (`migrations/versions/`)
 
-Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0027**:
+Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0028**:
 
 | Rev | Суть |
 |-----|------|
@@ -161,8 +171,9 @@ UNIQUE(category_id, month, year, account_id).
 | 0025 | `budgets.account_id` (corporate-scoped budgets) |
 | 0026 | `transactions.attachments` JSON (receipt photos) |
 | 0027 | `categories.account_id` + UNIQUE(name, account_id) |
+| 0028 | `settings.tx_filters_json`, `budget_warn_pct`, `budget_limit_pct`; `recurring_rules`; `net_worth_snapshots`; FTS5 payee/amount |
 
-Head: **0027**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
+Head: **0028**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic best-effort (сломаная цепочка → warning в лог, патчи всё равно применяются).
 
 ---
 

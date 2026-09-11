@@ -20,6 +20,7 @@ from lib.domain.use_cases.subscription_insights import bucket_charges_by_month
 from lib.domain.use_cases.subscriptions import (
     count_missed_periods,
     monthly_equivalent,
+    preview_occurrence_dates,
 )
 from lib.presentation.account_icons import account_icon_control, entity_icon_groups
 from lib.presentation.dropdown_options import icon_dropdown_option
@@ -142,6 +143,11 @@ class SubscriptionsPage(ft.Column):
                             icon=ft.Icons.TUNE,
                             tooltip=tr("action.filters", state.language),
                             on_click=lambda _e: self._open_filters(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.EVENT_REPEAT,
+                            tooltip=tr("nav.recurring", state.language),
+                            on_click=lambda _e: state.open_secondary("recurring"),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.ADD,
@@ -349,6 +355,13 @@ class SubscriptionsPage(ft.Column):
                 self._list, [EmptyState(tr("error.generic", lang))], self._page
             )
             return
+
+        pending = getattr(self._state, "pending_edit_subscription_id", None)
+        if pending:
+            self._state.pending_edit_subscription_id = None
+            match = next((s for s in items_all if s.id == pending), None)
+            if match is not None:
+                self._open_editor(match)
 
         if not items:
             if self._search_query.strip():
@@ -1209,6 +1222,31 @@ class SubscriptionsPage(ft.Column):
             label=tr("field.date", lang),
             value=(sub.next_billing_date if sub else datetime.now(timezone.utc)),
         )
+        preview_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+
+        def _refresh_preview(_e: object = None) -> None:
+            try:
+                start = next_field.value or datetime.now(timezone.utc)
+                period = Periodicity(period_dd.value or Periodicity.MONTHLY.value)
+                custom = None
+                if period == Periodicity.CUSTOM:
+                    custom = int(custom_tf.value or "1")
+                dates = preview_occurrence_dates(
+                    start, period, custom_interval_days=custom, count=3
+                )
+                preview_text.value = tr(
+                    "subscription.next_preview",
+                    lang,
+                    dates=", ".join(format_date(d) for d in dates),
+                )
+            except Exception:  # noqa: BLE001
+                preview_text.value = ""
+            try:
+                preview_text.update()
+            except Exception:  # noqa: BLE001
+                pass
+
+        _refresh_preview()
         locked_status = sub is not None and sub.status in (
             SubscriptionStatus.EXPIRED,
             SubscriptionStatus.CANCELLED,
@@ -1363,6 +1401,7 @@ class SubscriptionsPage(ft.Column):
                 safe_update(custom_tf)
             except Exception:  # noqa: BLE001
                 pass
+            _refresh_preview()
 
         bind_dropdown_select(period_dd, _on_period)
         close_holder: dict[str, object] = {}
@@ -1495,6 +1534,7 @@ class SubscriptionsPage(ft.Column):
                     max_payments_tf,
                     form_hint(tr("subscription.max_payments_hint", lang), size=11),
                     next_field,
+                    preview_text,
                 ],
                 icon=ft.Icons.EVENT,
             ),

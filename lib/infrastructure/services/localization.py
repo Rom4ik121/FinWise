@@ -4653,6 +4653,321 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Both sides of the transfer will be deleted",
         "uz": "O‘tkazmaning ikkala tomoni o‘chiriladi",
     },
+    "empty.transactions_filtered": {
+        "ru": "Нет операций по выбранным фильтрам",
+        "en": "No transactions match the filters",
+        "uz": "Filtrga mos amaliyot yo‘q",
+    },
+    "empty.networth": {
+        "ru": "Недостаточно истории. Снимки появляются при изменении баланса.",
+        "en": "Not enough history yet. Snapshots appear when balances change.",
+        "uz": "Tarix yetarli emas. Balans o‘zgaganda sur’atlar paydo bo‘ladi.",
+    },
+    "filter.account": {
+        "ru": "Счёт",
+        "en": "Account",
+        "uz": "Hisob",
+    },
+    "filter.amount_min": {
+        "ru": "Сумма от",
+        "en": "Amount from",
+        "uz": "Summa dan",
+    },
+    "filter.amount_max": {
+        "ru": "Сумма до",
+        "en": "Amount to",
+        "uz": "Summa gacha",
+    },
+    "filter.clear_all": {
+        "ru": "Сбросить всё",
+        "en": "Clear all",
+        "uz": "Hammasini tozalash",
+    },
+    "filter.period.7d": {
+        "ru": "7 дней",
+        "en": "7 days",
+        "uz": "7 kun",
+    },
+    "filter.period.30d": {
+        "ru": "30 дней",
+        "en": "30 days",
+        "uz": "30 kun",
+    },
+    "filter.period.90d": {
+        "ru": "3 месяца",
+        "en": "3 months",
+        "uz": "3 oy",
+    },
+    "filter.period.365d": {
+        "ru": "Год",
+        "en": "Year",
+        "uz": "Yil",
+    },
+    "filter.period.all": {
+        "ru": "Все даты",
+        "en": "All dates",
+        "uz": "Barcha sanalar",
+    },
+    "action.import_csv": {
+        "ru": "Импорт CSV",
+        "en": "Import CSV",
+        "uz": "CSV import",
+    },
+    "csv.import.title": {
+        "ru": "Импорт выписки",
+        "en": "Import statement",
+        "uz": "Ko‘chirma importi",
+    },
+    "csv.import.hint": {
+        "ru": "CSV: дата, сумма, описание. Первая строка — заголовки. Кодировка и разделитель определяются автоматически.",
+        "en": "CSV: date, amount, description. First row is headers. Encoding and delimiter are detected automatically.",
+        "uz": "CSV: sana, summa, izoh. Birinchi qator — sarlavhalar. Kodlash va ajratuvchi avtomatik aniqlanadi.",
+    },
+    "csv.import.pick": {
+        "ru": "Выбрать CSV",
+        "en": "Choose CSV",
+        "uz": "CSV tanlash",
+    },
+    "csv.import.preset": {
+        "ru": "Шаблон колонок",
+        "en": "Column preset",
+        "uz": "Ustun shabloni",
+    },
+    "csv.import.preset.finwise": {
+        "ru": "Экспорт FinWise",
+        "en": "FinWise export",
+        "uz": "FinWise eksporti",
+    },
+    "csv.import.preset.simple": {
+        "ru": "Дата / сумма / описание",
+        "en": "Date / amount / description",
+        "uz": "Sana / summa / izoh",
+    },
+    "csv.import.preset.ru_bank": {
+        "ru": "Банк (Дата, Сумма, Назначение)",
+        "en": "Bank (Date, Amount, Details)",
+        "uz": "Bank (Sana, Summa, Izoh)",
+    },
+    "csv.import.preset.en_bank": {
+        "ru": "Bank (Date, Amount, Description)",
+        "en": "Bank (Date, Amount, Description)",
+        "uz": "Bank (Date, Amount, Description)",
+    },
+    "csv.import.preset.custom": {
+        "ru": "Свои колонки",
+        "en": "Custom columns",
+        "uz": "Maxsus ustunlar",
+    },
+    "csv.import.col.date": {
+        "ru": "Дата",
+        "en": "Date",
+        "uz": "Sana",
+    },
+    "csv.import.col.amount": {
+        "ru": "Сумма",
+        "en": "Amount",
+        "uz": "Summa",
+    },
+    "csv.import.col.currency": {
+        "ru": "Валюта",
+        "en": "Currency",
+        "uz": "Valyuta",
+    },
+    "csv.import.col.description": {
+        "ru": "Описание",
+        "en": "Description",
+        "uz": "Izoh",
+    },
+    "csv.import.col.account": {
+        "ru": "Счёт (колонка)",
+        "en": "Account column",
+        "uz": "Hisob ustuni",
+    },
+    "csv.import.col.type": {
+        "ru": "Тип (колонка)",
+        "en": "Type column",
+        "uz": "Tur ustuni",
+    },
+    "csv.import.col.none": {
+        "ru": "— нет —",
+        "en": "— none —",
+        "uz": "— yo‘q —",
+    },
+    "csv.import.preview": {
+        "ru": "Предпросмотр",
+        "en": "Preview",
+        "uz": "Ko‘rib chiqish",
+    },
+    "csv.import.commit": {
+        "ru": "Импортировать {count}",
+        "en": "Import {count}",
+        "uz": "{count} ta import",
+    },
+    "csv.import.done": {
+        "ru": "Импортировано: {count}",
+        "en": "Imported: {count}",
+        "uz": "Import qilindi: {count}",
+    },
+    "csv.import.none_valid": {
+        "ru": "Нет корректных строк для импорта",
+        "en": "No valid rows to import",
+        "uz": "Import uchun yaroqli qator yo‘q",
+    },
+    "csv.import.invalid_row": {
+        "ru": "Ошибка в строке {n}",
+        "en": "Error on row {n}",
+        "uz": "{n}-qatorda xato",
+    },
+    "csv.import.account": {
+        "ru": "Счёт по умолчанию",
+        "en": "Default account",
+        "uz": "Standart hisob",
+    },
+    "nav.recurring": {
+        "ru": "Шаблоны",
+        "en": "Templates",
+        "uz": "Shablonlar",
+    },
+    "recurring.empty": {
+        "ru": "Нет повторяющихся шаблонов",
+        "en": "No recurring templates yet",
+        "uz": "Takroriy shablon yo‘q",
+    },
+    "recurring.next": {
+        "ru": "Следующая: {date}",
+        "en": "Next: {date}",
+        "uz": "Keyingi: {date}",
+    },
+    "recurring.skip": {
+        "ru": "Пропустить раз",
+        "en": "Skip once",
+        "uz": "Bir marta o‘tkazib yuborish",
+    },
+    "recurring.pause": {
+        "ru": "Пауза",
+        "en": "Pause",
+        "uz": "Pauza",
+    },
+    "recurring.resume": {
+        "ru": "Возобновить",
+        "en": "Resume",
+        "uz": "Davom ettirish",
+    },
+    "recurring.interval": {
+        "ru": "Интервал",
+        "en": "Interval",
+        "uz": "Interval",
+    },
+    "recurring.interval.daily": {
+        "ru": "Каждый день",
+        "en": "Daily",
+        "uz": "Har kuni",
+    },
+    "recurring.interval.weekly": {
+        "ru": "Каждую неделю",
+        "en": "Weekly",
+        "uz": "Har hafta",
+    },
+    "recurring.interval.monthly": {
+        "ru": "Каждый месяц",
+        "en": "Monthly",
+        "uz": "Har oy",
+    },
+    "recurring.interval.yearly": {
+        "ru": "Каждый год",
+        "en": "Yearly",
+        "uz": "Har yil",
+    },
+    "recurring.preview": {
+        "ru": "Ближайшие даты: {dates}",
+        "en": "Upcoming: {dates}",
+        "uz": "Yaqin sanalar: {dates}",
+    },
+    "recurring.auto_create": {
+        "ru": "Создавать операции автоматически",
+        "en": "Create transactions automatically",
+        "uz": "Amaliyotlarni avtomatik yaratish",
+    },
+    "recurring.interval_count": {
+        "ru": "Каждые N периодов",
+        "en": "Every N periods",
+        "uz": "Har N davr",
+    },
+    "subscription.series_hint": {
+        "ru": "Это одно списание серии. Саму серию меняйте в Подписках.",
+        "en": "This is one occurrence. Edit the series from Subscriptions.",
+        "uz": "Bu seriyaning bitta yozuvi. Seriyani Obunalar bo‘limida o‘zgartiring.",
+    },
+    "subscription.edit_series": {
+        "ru": "Открыть серию",
+        "en": "Open series",
+        "uz": "Seriyani ochish",
+    },
+    "subscription.next_preview": {
+        "ru": "Далее: {dates}",
+        "en": "Next: {dates}",
+        "uz": "Keyingi: {dates}",
+    },
+    "analytics.tab.networth": {
+        "ru": "Капитал",
+        "en": "Net worth",
+        "uz": "Kapital",
+    },
+    "analytics.networth.title": {
+        "ru": "Капитал во времени",
+        "en": "Net worth over time",
+        "uz": "Kapital dinamikasi",
+    },
+    "analytics.networth.1m": {
+        "ru": "1М",
+        "en": "1M",
+        "uz": "1O",
+    },
+    "analytics.networth.3m": {
+        "ru": "3М",
+        "en": "3M",
+        "uz": "3O",
+    },
+    "analytics.networth.1y": {
+        "ru": "1Г",
+        "en": "1Y",
+        "uz": "1Y",
+    },
+    "analytics.networth.all": {
+        "ru": "Всё",
+        "en": "All",
+        "uz": "Hammasi",
+    },
+    "settings.budget_thresholds": {
+        "ru": "Пороги уведомлений о бюджете",
+        "en": "Budget alert thresholds",
+        "uz": "Byudjet ogohlantirish chegaralari",
+    },
+    "settings.budget_warn_pct": {
+        "ru": "Предупреждение, %",
+        "en": "Warning, %",
+        "uz": "Ogohlantirish, %",
+    },
+    "settings.budget_limit_pct": {
+        "ru": "Лимит, %",
+        "en": "Limit, %",
+        "uz": "Limit, %",
+    },
+    "home.search": {
+        "ru": "Поиск операций",
+        "en": "Search transactions",
+        "uz": "Amaliyotlarni qidirish",
+    },
+    "home.budget_alert": {
+        "ru": "Бюджет: {category} {percent}%",
+        "en": "Budget: {category} {percent}%",
+        "uz": "Byudjet: {category} {percent}%",
+    },
+    "home.budget_alert_body": {
+        "ru": "Открыть бюджеты",
+        "en": "Open budgets",
+        "uz": "Byudjetlarni ochish",
+    },
 }
 
 

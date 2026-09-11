@@ -47,6 +47,15 @@ def test_secondary_route_and_notifications() -> None:
     assert state.pop_notifications() == []
 
 
+def test_budget_threshold_clamps() -> None:
+    settings = AppSettings(budget_warn_pct=0, budget_limit_pct=999)
+    assert settings.budget_warn_pct == 1
+    assert settings.budget_limit_pct == 200
+    settings = AppSettings(budget_warn_pct=80, budget_limit_pct=100)
+    assert settings.budget_warn_pct == 80
+    assert settings.budget_limit_pct == 100
+
+
 def test_tabs_and_rebuild() -> None:
     state = AppState(_FakeContainer())
     state.set_tab(AppState.TAB_SETTINGS)

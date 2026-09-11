@@ -205,6 +205,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         transfer_id: Optional[str] = None,
         has_transfer: Optional[bool] = None,
         query: Optional[str] = None,
+        amount_min: Optional[Decimal] = None,
+        amount_max: Optional[Decimal] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
@@ -223,6 +225,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
             transfer_id,
             has_transfer,
             (query or "").strip() or None,
+            amount_min,
+            amount_max,
             limit,
             offset,
         )
@@ -255,6 +259,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 category=model.category,
                 comment=model.comment or "",
                 tags=list(model.tags or []),
+                amount=model.amount,
+                items=getattr(model, "items", None),
             )
             logger.debug("Created transaction %s", model.id)
             return _to_entity(model)
@@ -273,6 +279,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 category=model.category,
                 comment=model.comment or "",
                 tags=list(model.tags or []),
+                amount=model.amount,
+                items=getattr(model, "items", None),
             )
             logger.debug("Updated transaction %s", model.id)
             return _to_entity(model)
@@ -347,6 +355,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                     category=model.category,
                     comment=model.comment or "",
                     tags=list(model.tags or []),
+                    amount=model.amount,
+                    items=getattr(model, "items", None),
                 )
                 count += 1
             logger.debug(
@@ -379,6 +389,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         transfer_id: Optional[str],
         has_transfer: Optional[bool],
         query: Optional[str],
+        amount_min: Optional[Decimal],
+        amount_max: Optional[Decimal],
         limit: Optional[int],
         offset: int,
     ) -> list[Transaction]:
@@ -419,6 +431,10 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                 stmt = stmt.where(TransactionModel.transfer_id.is_not(None))
             elif has_transfer is False:
                 stmt = stmt.where(TransactionModel.transfer_id.is_(None))
+            if amount_min is not None:
+                stmt = stmt.where(TransactionModel.amount >= amount_min)
+            if amount_max is not None:
+                stmt = stmt.where(TransactionModel.amount <= amount_max)
 
             q = (query or "").strip()
             if q:
@@ -448,6 +464,8 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                             TransactionModel.category.ilike(pattern),
                             TransactionModel.comment.ilike(pattern),
                             cast(TransactionModel.tags, String).ilike(pattern),
+                            cast(TransactionModel.amount, String).ilike(pattern),
+                            cast(TransactionModel.items, String).ilike(pattern),
                         )
                     )
 

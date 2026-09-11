@@ -48,6 +48,10 @@ class AppState:
         self.pin_gate_failed: bool = False
         self.pending_open_account_create: bool = False
         self.pending_edit_transaction_id: Optional[str] = None
+        self.pending_tx_query: Optional[str] = None
+        self.pending_budget_id: Optional[str] = None
+        self.pending_edit_subscription_id: Optional[str] = None
+        self.tx_filter_state: Optional[dict] = None
         self.pending_notifications: list[str] = []
         self.view_rebuild_token: int = 0
         self._listeners: list[Listener] = []

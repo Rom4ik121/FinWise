@@ -55,6 +55,9 @@ def _to_entity(model: SettingsModel) -> AppSettings:
         completed_tour_debts=bool(getattr(model, "completed_tour_debts", False)),
         completed_tour_analytics=bool(getattr(model, "completed_tour_analytics", False)),
         completed_tour_goals=bool(getattr(model, "completed_tour_goals", False)),
+        tx_filters_json=getattr(model, "tx_filters_json", None) or None,
+        budget_warn_pct=int(getattr(model, "budget_warn_pct", None) or 80),
+        budget_limit_pct=int(getattr(model, "budget_limit_pct", None) or 100),
         updated_at=ensure_utc(model.updated_at) or datetime.now(timezone.utc),
     )
 
@@ -84,6 +87,9 @@ def _apply_entity(model: SettingsModel, entity: AppSettings) -> None:
     model.completed_tour_debts = bool(getattr(entity, "completed_tour_debts", False))
     model.completed_tour_analytics = bool(getattr(entity, "completed_tour_analytics", False))
     model.completed_tour_goals = bool(getattr(entity, "completed_tour_goals", False))
+    model.tx_filters_json = (entity.tx_filters_json or None)
+    model.budget_warn_pct = int(getattr(entity, "budget_warn_pct", 80) or 80)
+    model.budget_limit_pct = int(getattr(entity, "budget_limit_pct", 100) or 100)
     model.updated_at = ensure_utc(entity.updated_at) or datetime.now(timezone.utc)
 
 

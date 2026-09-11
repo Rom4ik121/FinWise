@@ -282,22 +282,14 @@ class NotificationService:
         language: str,
         currency: str,
     ) -> None:
-        """In-app + push when spend crosses 50 / 80 / 100% of the limit."""
-        if level == 100:
+        """In-app + push when spend crosses the configured warn / limit percents."""
+        if level >= 100:
             kind = NotificationKind.BUDGET_OVER
             title = t("notify.budget_100_title", language)
             body = t("notifications.budget_100", language).format(
                 category=budget.category_id,
                 spent=budget.spent,
                 limit=budget.amount_limit,
-                currency=currency,
-            )
-        elif level == 80:
-            kind = NotificationKind.BUDGET_WARNING
-            title = t("notify.budget_80_title", language)
-            body = t("notifications.budget_80", language).format(
-                category=budget.category_id,
-                remaining=budget.remaining,
                 currency=currency,
             )
         elif level == 50:
@@ -309,7 +301,13 @@ class NotificationService:
                 currency=currency,
             )
         else:
-            return
+            kind = NotificationKind.BUDGET_WARNING
+            title = t("notify.budget_80_title", language)
+            body = t("notifications.budget_80", language).format(
+                category=budget.category_id,
+                remaining=budget.remaining,
+                currency=currency,
+            )
         if self._has_related(budget.id, kind):
             return
         self.push(title, body, kind=kind, related_id=budget.id)

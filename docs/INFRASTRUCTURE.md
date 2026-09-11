@@ -23,7 +23,7 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | Класс | Таблица / таблицы | Заметки |
 |-------|------------------|---------|
 | `SqlAlchemyAccountRepository` | `accounts` | CRUD, `active_only`, `corporate`, `include_in_total` |
-| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`; **теги** дофильтровываются в Python **до** LIMIT/OFFSET; `reassign_category` — массовое переименование (личный ledger vs `account_id`) + FTS |
+| `SqlAlchemyTransactionRepository` | `transactions` | Фильтры по счёту/дате/типу/связям/`has_debt`/сумме; **теги** дофильтровываются в Python **до** LIMIT/OFFSET; FTS5 (category/comment/tags/payee/amount); `reassign_category` — массовое переименование (личный ledger vs `account_id`) + FTS |
 | `SqlAlchemyGoalRepository` | `goals` | status / priority / сортировки |
 | `SqlAlchemyDebtRepository` | `debts` | status / direction |
 | `SqlAlchemySubscriptionRepository` | `subscriptions` | `list_due(as_of)` |
@@ -31,6 +31,8 @@ SQLAlchemy 2.0 declarative-модели таблиц (см. [DATABASE.md](DATABA
 | `SqlAlchemyCategoryRepository` | `categories` | `find_or_create`, имя без учёта регистра |
 | `SqlAlchemySettingsRepository` | `settings` | get/update; PIN hash/salt; biometric flag |
 | `SqlAlchemyBudgetRepository` | `budgets` | spent, delete/reassign категории |
+| `SqlAlchemyRecurringRuleRepository` | `recurring_rules` | `list_due(as_of)`, pause/skip |
+| `SqlAlchemyNetWorthRepository` | `net_worth_snapshots` | upsert по `captured_on` |
 | `SqlAlchemyExchangeConnectionRepository` | `exchange_connections` | credentials blob, holdings, last_error |
 
 Базовый хелпер сессий: `lib/infrastructure/repositories/_base.py` (re-export UoW из `lib/domain/unit_of_work.py`).

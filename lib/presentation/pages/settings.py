@@ -403,6 +403,30 @@ class SettingsPage(ft.Column):
             on_blur=lambda _e: self._autosave(),
             on_submit=lambda _e: self._autosave(),
         )
+        self._budget_warn = ft.TextField(
+            value=str(getattr(s, "budget_warn_pct", 80) or 80),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            expand=True,
+            dense=True,
+            border_radius=12,
+            filled=True,
+            bgcolor=ft.Colors.SURFACE,
+            on_change=lambda _e: self._autosave_debounced(),
+            on_blur=lambda _e: self._autosave(),
+            on_submit=lambda _e: self._autosave(),
+        )
+        self._budget_limit = ft.TextField(
+            value=str(getattr(s, "budget_limit_pct", 100) or 100),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            expand=True,
+            dense=True,
+            border_radius=12,
+            filled=True,
+            bgcolor=ft.Colors.SURFACE,
+            on_change=lambda _e: self._autosave_debounced(),
+            on_blur=lambda _e: self._autosave(),
+            on_submit=lambda _e: self._autosave(),
+        )
         from lib.presentation.form_keyboard import (
             configure_field,
             configure_pin_field,
@@ -412,8 +436,17 @@ class SettingsPage(ft.Column):
         configure_field(self._interval, "number")
         configure_field(self._reminder_time, "text")
         configure_field(self._reminder_days, "number")
+        configure_field(self._budget_warn, "number")
+        configure_field(self._budget_limit, "number")
         wire_field_chain(
-            page, [self._interval, self._reminder_time, self._reminder_days]
+            page,
+            [
+                self._interval,
+                self._reminder_time,
+                self._reminder_days,
+                self._budget_warn,
+                self._budget_limit,
+            ],
         )
         self._notifications = ft.Switch(
             value=s.notifications_enabled,
@@ -536,6 +569,13 @@ class SettingsPage(ft.Column):
                         labeled_switch(
                             tr("settings.budget_alerts", lang), self._budget_alerts
                         ),
+                        labeled_field(
+                            tr("settings.budget_warn_pct", lang), self._budget_warn
+                        ),
+                        labeled_field(
+                            tr("settings.budget_limit_pct", lang), self._budget_limit
+                        ),
+                        form_hint(tr("settings.budget_thresholds", lang)),
                         labeled_switch(
                             tr("settings.check_balance_before_subscription", lang),
                             self._check_balance_sub,
@@ -612,6 +652,16 @@ class SettingsPage(ft.Column):
                                     tr("nav.budgets", lang),
                                     ft.Icons.PIE_CHART,
                                     _open_secondary("budgets"),
+                                ),
+                                (
+                                    tr("nav.recurring", lang),
+                                    ft.Icons.REPEAT,
+                                    _open_secondary("recurring"),
+                                ),
+                                (
+                                    tr("action.import_csv", lang),
+                                    ft.Icons.UPLOAD_FILE,
+                                    _open_secondary("import_csv"),
                                 ),
                             ]
                         ),
@@ -791,6 +841,8 @@ class SettingsPage(ft.Column):
             self._check_balance_sub,
             self._goal_milestones,
             self._budget_alerts,
+            self._budget_warn,
+            self._budget_limit,
             self._reminder_time,
             self._reminder_days,
         ]
@@ -945,6 +997,14 @@ class SettingsPage(ft.Column):
         except ValueError:
             reminder_days = 3
         try:
+            warn_pct = int(self._budget_warn.value or 80)
+        except ValueError:
+            warn_pct = 80
+        try:
+            limit_pct = int(self._budget_limit.value or 100)
+        except ValueError:
+            limit_pct = 100
+        try:
             settings = AppSettings(
                 id=self._state.settings.id,
                 default_currency=new_currency,
@@ -967,6 +1027,21 @@ class SettingsPage(ft.Column):
                 ),
                 dashboard_chart_days=int(
                     getattr(self._state.settings, "dashboard_chart_days", 30) or 30
+                ),
+                tx_filters_json=getattr(self._state.settings, "tx_filters_json", None),
+                budget_warn_pct=warn_pct,
+                budget_limit_pct=limit_pct,
+                completed_onboarding=bool(
+                    getattr(self._state.settings, "completed_onboarding", True)
+                ),
+                completed_tour_debts=bool(
+                    getattr(self._state.settings, "completed_tour_debts", True)
+                ),
+                completed_tour_analytics=bool(
+                    getattr(self._state.settings, "completed_tour_analytics", True)
+                ),
+                completed_tour_goals=bool(
+                    getattr(self._state.settings, "completed_tour_goals", True)
                 ),
             )
         except Exception as exc:  # noqa: BLE001

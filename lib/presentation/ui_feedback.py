@@ -11,7 +11,7 @@ import flet as ft
 from lib.presentation.responsive import wrap_safe_area
 from lib.presentation.utils import run_async, safe_update
 
-_BANNER_MS = 1700
+_BANNER_MS = 2300
 _COALESCE_S = 0.4
 _KEY = "_finanse_ui_feedback"
 TOAST_OVERLAY_TAG = "ui_feedback_toast"

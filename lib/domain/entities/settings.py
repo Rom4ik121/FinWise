@@ -50,6 +50,11 @@ class AppSettings(BaseModel):
     completed_tour_debts: bool = True
     completed_tour_analytics: bool = True
     completed_tour_goals: bool = True
+    # Last Transactions search/filter sheet (JSON). Cheap session restore.
+    tx_filters_json: Optional[str] = None
+    # Budget alert thresholds (percent of the monthly limit).
+    budget_warn_pct: int = 80
+    budget_limit_pct: int = 100
     updated_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("reminder_days")
@@ -92,6 +97,24 @@ class AppSettings(BaseModel):
         if days not in (7, 30, 90, 365):
             return 30
         return days
+
+    @field_validator("budget_warn_pct", mode="before")
+    @classmethod
+    def _validate_budget_warn(cls, value: object) -> int:
+        try:
+            pct = int(value if value is not None else 80)
+        except (TypeError, ValueError):
+            return 80
+        return max(1, min(99, pct))
+
+    @field_validator("budget_limit_pct", mode="before")
+    @classmethod
+    def _validate_budget_limit(cls, value: object) -> int:
+        try:
+            pct = int(value if value is not None else 100)
+        except (TypeError, ValueError):
+            return 100
+        return max(1, min(200, pct))
 
     @field_validator("updated_at", mode="before")
     @classmethod

@@ -83,6 +83,24 @@ def advance_billing_date(
     return _add_months(current, 1)
 
 
+def preview_occurrence_dates(
+    start: datetime,
+    periodicity: Periodicity,
+    *,
+    custom_interval_days: Optional[int] = None,
+    count: int = 3,
+) -> list[datetime]:
+    """Next ``count`` billing dates including ``start``."""
+    cursor = _as_utc(start)
+    out: list[datetime] = []
+    for _ in range(max(1, count)):
+        out.append(cursor)
+        cursor = advance_billing_date(
+            cursor, periodicity, custom_interval_days=custom_interval_days
+        )
+    return out
+
+
 def retreat_billing_date(
     current: datetime,
     periodicity: Periodicity,

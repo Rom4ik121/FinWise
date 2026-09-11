@@ -275,9 +275,20 @@ async def _flet_main(page: ft.Page) -> None:
                 await container.process_due_subscriptions.execute(
                     language=normalize_lang(settings.language),
                     notifier=container.notification_service,
+                    max_charges=31,
                 )
         except Exception:  # noqa: BLE001
             logger.exception("process_due_subscriptions failed")
+        try:
+            if container.process_due_recurring is not None:
+                await container.process_due_recurring.execute(max_creates=31)
+        except Exception:  # noqa: BLE001
+            logger.exception("process_due_recurring failed")
+        try:
+            if container.record_net_worth_snapshot is not None:
+                await container.record_net_worth_snapshot.execute()
+        except Exception:  # noqa: BLE001
+            logger.exception("record_net_worth_snapshot failed")
         try:
             settings = await container.get_settings.execute()
             await schedule_reminders(

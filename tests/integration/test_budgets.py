@@ -330,6 +330,10 @@ def test_budget_half_alert(container) -> None:
         acc = await container.create_account.execute(make_account(balance="5000"))
         now = datetime.now(timezone.utc)
         await container.set_budget.execute("Food", now.month, now.year, Decimal("100"))
+        settings = await container.get_settings.execute()
+        await container.update_settings.execute(
+            settings.model_copy(update={"budget_warn_pct": 50})
+        )
         await container.add_transaction.execute(
             make_transaction(acc.id, amount="50", category="Food")
         )

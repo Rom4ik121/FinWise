@@ -165,6 +165,20 @@
 | `dashboard_hide_chart`, `dashboard_chart_days` | График на главной |
 | `low_balance_threshold` | Опциональный порог |
 | `check_balance_before_subscription` | Проверка баланса перед списанием |
+| `tx_filters_json` | Последние фильтры списка операций |
+| `budget_warn_pct`, `budget_limit_pct` | Пороги баннера/пуша бюджета (80 / 100) |
+
+---
+
+## RecurringRule (`recurring_rule.py`)
+
+Шаблон автосоздания дохода или расхода: интервал, `next_run`, pause / skip, `auto_create`. Не путать с `Subscription` (счета за услуги).
+
+---
+
+## NetWorthSnapshot (`net_worth.py`)
+
+Дневной снимок суммы счетов с `include_in_total` (без корпоративных) в базовой валюте.
 
 ---
 

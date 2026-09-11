@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -146,6 +147,9 @@ class TransactionsPage(ft.Column):
         # Filter values (controls are created fresh inside the dialog).
         self._type_value = "all"
         self._category_value = "all"
+        self._account_value = "all"
+        self._amount_min_value = ""
+        self._amount_max_value = ""
         _init_fr, _init_to = self._day_date_range()
         self._date_from_value = _init_fr
         self._date_to_value = _init_to
@@ -184,6 +188,12 @@ class TransactionsPage(ft.Column):
                             on_click=lambda _e: self._open_filters(),
                         ),
                         ft.IconButton(
+                            icon=ft.Icons.UPLOAD_FILE,
+                            icon_color=ft.Colors.PRIMARY,
+                            tooltip=tr("action.import_csv", lang),
+                            on_click=lambda _e: self._state.open_secondary("import_csv"),
+                        ),
+                        ft.IconButton(
                             icon=ft.Icons.REFRESH,
                             icon_color=ft.Colors.PRIMARY,
                             tooltip=tr("action.refresh", lang),
@@ -202,6 +212,11 @@ class TransactionsPage(ft.Column):
         )
         state.subscribe(self._on_state)
         self._reload_gate = ReloadGate(page, self, self.reload)
+        self._restore_filters()
+        pending_q = getattr(state, "pending_tx_query", None)
+        if pending_q:
+            self._search.value = pending_q
+            state.pending_tx_query = None
         self._reload_gate.request()
 
     def did_mount(self) -> None:
@@ -281,6 +296,97 @@ class TransactionsPage(ft.Column):
         safe_update(self._day_label)
         self._reload_gate.request()
 
+    def _dump_filters(self) -> dict:
+        return {
+            "type": self._type_value,
+            "category": self._category_value,
+            "account": self._account_value,
+            "amount_min": self._amount_min_value,
+            "amount_max": self._amount_max_value,
+            "group_by": self._group_by_value,
+            "range_mode": bool(self._range_mode),
+            "range_from": self._range_from.isoformat() if self._range_from else None,
+            "range_to": self._range_to.isoformat() if self._range_to else None,
+            "selected_date": self._selected_date.isoformat(),
+        }
+
+    def _restore_filters(self) -> None:
+        data = getattr(self._state, "tx_filter_state", None)
+        if not data:
+            raw = getattr(self._state.settings, "tx_filters_json", None)
+            if raw:
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    data = None
+        if not isinstance(data, dict):
+            return
+        self._type_value = str(data.get("type") or "all")
+        self._category_value = str(data.get("category") or "all")
+        self._account_value = str(data.get("account") or "all")
+        self._amount_min_value = str(data.get("amount_min") or "")
+        self._amount_max_value = str(data.get("amount_max") or "")
+        self._group_by_value = str(data.get("group_by") or StatsPeriod.DAY.value)
+        self._range_mode = bool(data.get("range_mode"))
+        try:
+            fr = data.get("range_from")
+            to = data.get("range_to")
+            self._range_from = date.fromisoformat(fr) if fr else None
+            self._range_to = date.fromisoformat(to) if to else None
+            sel = data.get("selected_date")
+            if sel:
+                self._selected_date = date.fromisoformat(str(sel))
+        except ValueError:
+            self._range_mode = False
+        fr, to = self._day_date_range()
+        self._date_from_value = fr
+        self._date_to_value = to
+
+    def _filters_active(self) -> bool:
+        if (self._search.value or "").strip():
+            return True
+        if self._type_value not in (None, "all"):
+            return True
+        if self._category_value not in (None, "all"):
+            return True
+        if self._account_value not in (None, "all"):
+            return True
+        if (self._amount_min_value or "").strip() or (self._amount_max_value or "").strip():
+            return True
+        if self._range_mode:
+            return True
+        return False
+
+    def _clear_all_filters(self) -> None:
+        self._type_value = "all"
+        self._category_value = "all"
+        self._account_value = "all"
+        self._amount_min_value = ""
+        self._amount_max_value = ""
+        self._group_by_value = StatsPeriod.DAY.value
+        self._range_mode = False
+        self._range_from = None
+        self._range_to = None
+        self._selected_date = date.today()
+        self._search.value = ""
+        self._apply_day_filter()
+        run_async(self._page, self._persist_filters)
+
+    async def _persist_filters(self) -> None:
+        payload = self._dump_filters()
+        self._state.tx_filter_state = payload
+        uc = getattr(self._state.container, "update_settings", None)
+        if uc is None:
+            return
+        try:
+            current = self._state.settings
+            saved = await uc.execute(
+                current.model_copy(update={"tx_filters_json": json.dumps(payload)})
+            )
+            self._state.set_settings(saved, notify=False)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _filter_summary_text(self) -> str:
         lang = self._state.language
         parts: list[str] = []
@@ -296,6 +402,13 @@ class TransactionsPage(ft.Column):
             parts.append(tr(key, lang))
         if self._category_value not in (None, "all"):
             parts.append(str(self._category_value))
+        if self._account_value not in (None, "all"):
+            acc = next((a for a in self._accounts if a.id == self._account_value), None)
+            parts.append(acc.name if acc is not None else self._account_value)
+        if (self._amount_min_value or "").strip() or (self._amount_max_value or "").strip():
+            parts.append(
+                f"{self._amount_min_value.strip() or '…'}–{self._amount_max_value.strip() or '…'}"
+            )
         if self._date_from_value.strip() or self._date_to_value.strip():
             parts.append(
                 f"{self._date_from_value.strip() or '…'} – "
@@ -354,6 +467,26 @@ class TransactionsPage(ft.Column):
             dense=True,
             expand=True,
         )
+        await self._ensure_meta()
+        account_dd = ft.Dropdown(
+            label=tr("filter.account", lang),
+            value=self._account_value if self._account_value else "all",
+            options=[ft.DropdownOption(key="all", text=tr("filter.all", lang))]
+            + [ft.DropdownOption(key=a.id, text=a.name) for a in self._accounts],
+            dense=True,
+            expand=True,
+        )
+        amount_min_tf = make_amount_field(
+            lang,
+            label=tr("filter.amount_min", lang),
+            value=self._amount_min_value,
+        )
+        amount_max_tf = make_amount_field(
+            lang,
+            label=tr("filter.amount_max", lang),
+            value=self._amount_max_value,
+        )
+
         group_dd = ft.Dropdown(
             label=tr("filter.group_by", lang),
             value=self._group_by_value,
@@ -377,7 +510,6 @@ class TransactionsPage(ft.Column):
             dense=True,
             expand=True,
         )
-        # Pre-fill date fields with range if in range mode, else empty.
         _df_init = (
             datetime.combine(self._range_from, datetime.min.time()).replace(tzinfo=timezone.utc)
             if self._range_mode and self._range_from
@@ -402,12 +534,46 @@ class TransactionsPage(ft.Column):
             value=_dt_init,
             allow_clear=True,
         )
+        close_holder: dict = {}
 
-        async def _apply() -> None:
+        def _stamp_fields() -> None:
             self._type_value = type_dd.value or "all"
             self._category_value = category_dd.value or "all"
+            self._account_value = account_dd.value or "all"
+            self._amount_min_value = (amount_min_tf.value or "").strip()
+            self._amount_max_value = (amount_max_tf.value or "").strip()
             self._group_by_value = group_dd.value or StatsPeriod.DAY.value
-            # If user set date range in filters → switch to range mode.
+
+        def _apply_preset(days: int | None) -> None:
+            today = date.today()
+            if days is None:
+                self._range_from = today - timedelta(days=365 * 5)
+                self._range_to = today
+            else:
+                self._range_from = today - timedelta(days=int(days))
+                self._range_to = today
+            self._range_mode = True
+            _stamp_fields()
+            closer = close_holder.get("close")
+            if callable(closer):
+                closer()
+            self._apply_day_filter()
+            run_async(self._page, self._persist_filters)
+
+        period_row = ft.Row(
+            spacing=6,
+            wrap=True,
+            controls=[
+                ft.TextButton(tr("filter.period.7d", lang), on_click=lambda _e: _apply_preset(7)),
+                ft.TextButton(tr("filter.period.30d", lang), on_click=lambda _e: _apply_preset(30)),
+                ft.TextButton(tr("filter.period.90d", lang), on_click=lambda _e: _apply_preset(90)),
+                ft.TextButton(tr("filter.period.365d", lang), on_click=lambda _e: _apply_preset(365)),
+                ft.TextButton(tr("filter.period.all", lang), on_click=lambda _e: _apply_preset(None)),
+            ],
+        )
+
+        async def _apply() -> None:
+            _stamp_fields()
             df_text = date_from.date_text.strip()
             dt_text = date_to.date_text.strip()
             if df_text and dt_text:
@@ -419,30 +585,32 @@ class TransactionsPage(ft.Column):
                             self._range_to,
                             self._range_from,
                         )
-                    # Cap unbounded history scans (perf: default window ≤ 1 year).
-                    if (self._range_to - self._range_from).days > 365:
-                        self._range_from = self._range_to - timedelta(days=365)
+                    if (self._range_to - self._range_from).days > 365 * 5:
+                        self._range_from = self._range_to - timedelta(days=365 * 5)
                     self._range_mode = True
                 except ValueError:
                     self._range_mode = False
             elif df_text or dt_text:
-                # Partial range — use as single bound, stay in day mode.
-                self._range_mode = False
-            else:
                 self._range_mode = False
             close()
             self._apply_day_filter()
+            await self._persist_filters()
 
         def _reset(_e: ft.ControlEvent | None = None) -> None:
             self._type_value = "all"
             self._category_value = "all"
+            self._account_value = "all"
+            self._amount_min_value = ""
+            self._amount_max_value = ""
             self._group_by_value = StatsPeriod.DAY.value
             self._range_mode = False
             self._range_from = None
             self._range_to = None
             self._selected_date = date.today()
+            self._search.value = ""
             close()
             self._apply_day_filter()
+            run_async(self._page, self._persist_filters)
 
         close = open_fullscreen_form(
             self._page,
@@ -453,17 +621,22 @@ class TransactionsPage(ft.Column):
             body=[
                 type_dd,
                 category_dd,
+                account_dd,
+                amount_min_tf,
+                amount_max_tf,
                 group_dd,
+                period_row,
                 date_from,
                 date_to,
                 ft.OutlinedButton(
-                    tr("action.reset", lang),
+                    tr("filter.clear_all", lang),
                     icon=ft.Icons.RESTART_ALT,
                     on_click=_reset,
                 ),
             ],
             on_save=_apply,
         )
+        close_holder["close"] = close
 
     async def _debounced_search(self) -> None:
         """Wait briefly so typing does not reload on every keystroke."""
@@ -492,11 +665,19 @@ class TransactionsPage(ft.Column):
         self._meta_token = token
 
     def _list_filters(self) -> dict:
-        """Shared list() kwargs for type / category filters."""
+        """Shared list() kwargs for type / category / account / amount filters."""
         category = None
         if self._category_value not in (None, "all"):
             category = self._category_value
         filters: dict = {"category": category}
+        if self._account_value not in (None, "all"):
+            filters["account_id"] = self._account_value
+        amin = parse_optional_amount(self._amount_min_value)
+        amax = parse_optional_amount(self._amount_max_value)
+        if amin is not None:
+            filters["amount_min"] = amin
+        if amax is not None:
+            filters["amount_max"] = amax
         if self._type_value == "transfer":
             filters["has_transfer"] = True
         elif self._type_value not in (None, "all"):
@@ -523,19 +704,35 @@ class TransactionsPage(ft.Column):
         incremental: bool = False,
     ) -> None:
         if not items and not incremental:
-            replace_controls(
-                self._list,
-                [
-                    EmptyState(
-                        tr("empty.transactions", lang),
-                        action_label=tr("action.add", lang),
-                        on_action=lambda _e: run_async(
-                            self._page, self._open_editor_async
-                        ),
-                    )
-                ],
-                self._page,
-            )
+            if self._filters_active():
+                replace_controls(
+                    self._list,
+                    [
+                        EmptyState(
+                            tr("empty.transactions_filtered", lang),
+                            icon=ft.Icons.FILTER_ALT_OFF,
+                            action_label=tr("filter.clear_all", lang),
+                            on_action=lambda _e: self._clear_all_filters(),
+                            page=self._page,
+                        )
+                    ],
+                    self._page,
+                )
+            else:
+                replace_controls(
+                    self._list,
+                    [
+                        EmptyState(
+                            tr("empty.transactions", lang),
+                            action_label=tr("action.add", lang),
+                            on_action=lambda _e: run_async(
+                                self._page, self._open_editor_async
+                            ),
+                            page=self._page,
+                        )
+                    ],
+                    self._page,
+                )
             self._last_group = None
             return
 
@@ -630,6 +827,10 @@ class TransactionsPage(ft.Column):
         """Reload the first page of filtered transactions."""
         self._token = self._state.transactions_token
         lang = self._state.language
+        pending_q = getattr(self._state, "pending_tx_query", None)
+        if pending_q:
+            self._search.value = pending_q
+            self._state.pending_tx_query = None
         self._filter_summary.value = self._filter_summary_text()
         had_list = bool(self._list.controls)
         # Avoid spinner flash when the list already has tiles (search storms).
@@ -880,6 +1081,12 @@ class TransactionsPage(ft.Column):
             cancel_text=tr("action.cancel", lang),
             on_confirm=_do,
         )
+
+    def _open_series(self, tx: Transaction) -> None:
+        if not tx.subscription_id:
+            return
+        self._state.pending_edit_subscription_id = tx.subscription_id
+        self._state.open_secondary("subscriptions")
 
     async def _open_editor_async(self, tx: Optional[Transaction] = None) -> None:
         """Always refresh accounts/goals, then open the editor."""
@@ -1192,6 +1399,14 @@ class TransactionsPage(ft.Column):
             lang=lang,
             overlay_key="transaction_editor",
             body=[
+                *([
+                    ft.Text(tr("subscription.series_hint", lang), size=12),
+                    ft.TextButton(
+                        tr("subscription.edit_series", lang),
+                        icon=ft.Icons.EVENT_REPEAT,
+                        on_click=lambda _e: self._open_series(tx),
+                    ),
+                ] if tx is not None and tx.subscription_id else []),
                 type_dd,
                 amount_tf,
                 items_editor,

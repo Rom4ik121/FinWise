@@ -80,8 +80,10 @@ class Budget(BaseModel):
     @classmethod
     def _valid_alert_level(cls, value: int) -> int:
         level = int(value or 0)
-        if level not in (0, 50, 80, 100):
+        if level < 0:
             return 0
+        if level > 200:
+            return 200
         return level
 
     @field_validator("created_at", "updated_at", mode="before")

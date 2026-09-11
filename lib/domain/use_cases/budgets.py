@@ -501,13 +501,24 @@ async def _maybe_notify(
         if not getattr(settings, "budget_alerts", True):
             return
     percent = budget.percent_used
+    warn_pct = 80
+    limit_pct = 100
+    if settings is not None:
+        try:
+            warn_pct = int(getattr(settings, "budget_warn_pct", 80) or 80)
+        except (TypeError, ValueError):
+            warn_pct = 80
+        try:
+            limit_pct = int(getattr(settings, "budget_limit_pct", 100) or 100)
+        except (TypeError, ValueError):
+            limit_pct = 100
+        if limit_pct < warn_pct:
+            limit_pct = warn_pct
     level = 0
-    if percent >= 100:
-        level = 100
-    elif percent >= 80:
-        level = 80
-    elif percent >= 50:
-        level = 50
+    if percent >= limit_pct:
+        level = limit_pct
+    elif percent >= warn_pct:
+        level = warn_pct
     if level == 0:
         if budget.last_alert_level != 0:
             await budgets.save(

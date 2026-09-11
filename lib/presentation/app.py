@@ -16,9 +16,11 @@ from lib.presentation.views import (
     AnalyticsPage,
     BudgetsPage,
     CurrenciesPage,
+    CsvImportPage,
     DashboardPage,
     DebtsPage,
     GoalsPage,
+    RecurringPage,
     SettingsPage,
     SubscriptionsPage,
     TransactionsPage,
@@ -646,6 +648,10 @@ class FinanseApp:
             view = CurrenciesPage(self.page, self.state)
         elif route == "budgets":
             view = BudgetsPage(self.page, self.state)
+        elif route == "import_csv":
+            view = CsvImportPage(self.page, self.state)
+        elif route == "recurring":
+            view = RecurringPage(self.page, self.state)
         else:
             return self._primary_page(self.state.selected_tab)
         self._secondary_cache[route] = view
