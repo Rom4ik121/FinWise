@@ -117,8 +117,8 @@ def test_apply_overlay_enter_stamps_opacity() -> None:
 
     box = ft.Container()
     apply_overlay_enter(box)
-    assert box.opacity == 0
-    assert box.ignore_interactions is True
+    assert box.opacity == 1
+    assert box.ignore_interactions is False
 
 
 def test_overlay_enter_style_web_stays_opaque() -> None:
@@ -130,6 +130,30 @@ def test_overlay_enter_style_web_stays_opaque() -> None:
     style = overlay_enter_style(_Page())  # type: ignore[arg-type]
     assert style["opacity"] == 1
     assert style["ignore_interactions"] is False
+
+
+def test_overlay_enter_style_desktop_stays_opaque() -> None:
+    from lib.presentation.ui_motion import overlay_enter_style
+
+    class _Page:
+        web = False
+        platform = "windows"
+
+    style = overlay_enter_style(_Page())  # type: ignore[arg-type]
+    assert style["opacity"] == 1
+    assert style["ignore_interactions"] is False
+
+
+def test_overlay_enter_style_ios_still_fades() -> None:
+    from lib.presentation.ui_motion import overlay_enter_style
+
+    class _Page:
+        web = False
+        platform = "ios"
+
+    style = overlay_enter_style(_Page())  # type: ignore[arg-type]
+    assert style["opacity"] == 0
+    assert style["ignore_interactions"] is True
 
 
 def test_bind_press_skips_tap_down_on_icon_button() -> None:

@@ -151,9 +151,9 @@ def _safe_run_async(page: ft.Page, handler, *args) -> bool:
 
 def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
     """Ease opacity/offset to the resting pose after the first paint."""
-    # Native fades from opacity=0; keep hit-testing off until the sheet is visible.
-    # Web stays opaque from the first frame, so enable taps immediately.
-    instant = prefers_reduced_motion(page) or is_web_page(page)
+    # Native mobile fades from opacity=0; keep hit-testing off until visible.
+    # Web and Windows desktop stay opaque from the first frame.
+    instant = prefers_reduced_motion(page) or _overlay_skips_fade(page)
     if instant:
         try:
             overlay.opacity = 1

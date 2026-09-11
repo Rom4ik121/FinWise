@@ -145,6 +145,15 @@ def is_web_page(page: ft.Page | None) -> bool:
     return name == "web"
 
 
+def _overlay_skips_fade(page: ft.Page | None) -> bool:
+    """True when starting at opacity=0 would blank the sheet."""
+    if is_web_page(page):
+        return True
+    from lib.infrastructure.services.biometric import is_mobile_platform
+
+    return not is_mobile_platform(page)
+
+
 def bind_press(
     control: ft.Control,
     *,
@@ -251,12 +260,13 @@ def play_enter_motion(control: ft.Control) -> None:
 def overlay_enter_style(page: ft.Page | None = None) -> dict[str, Any]:
     """Kwargs for a fullscreen overlay that fades/slides in.
 
-    Flet web hit-tests ``opacity=0`` overlays. Keep them fully opaque in
-    the browser and only slide; native still fades.
+    Flet web hit-tests ``opacity=0`` overlays. Windows desktop Flet can
+    leave a white sheet if the fade never completes. Keep web **and**
+    native desktop fully opaque; only iOS/Android still fade from 0.
     """
     if prefers_reduced_motion(page):
         return {"opacity": 1, "offset": ft.Offset(0, 0), "ignore_interactions": False}
-    if is_web_page(page):
+    if _overlay_skips_fade(page):
         return {
             "opacity": 1,
             "offset": ft.Offset(0, 0.03),
