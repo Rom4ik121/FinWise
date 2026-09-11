@@ -1070,6 +1070,11 @@ def build_container(
         "add_transaction",
         "account_repository",
     )
+    if container.commit_csv_import is not None:
+        try:
+            container.commit_csv_import._session_factory = session_factory  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     _wire(
         "record_net_worth_snapshot",
         RecordNetWorthSnapshotUseCase,

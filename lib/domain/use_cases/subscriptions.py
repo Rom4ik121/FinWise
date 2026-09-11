@@ -953,6 +953,15 @@ class ProcessDueSubscriptionsUseCase:
 
             account = accounts_by_id.get(sub.account_id)
             if account is None:
+                await self._subscriptions.update(
+                    sub.model_copy(
+                        update={
+                            "status": SubscriptionStatus.PAUSED,
+                            "auto_charge": False,
+                            "updated_at": _utc_now(),
+                        }
+                    )
+                )
                 continue
 
             async def _process_one(

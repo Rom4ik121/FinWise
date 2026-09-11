@@ -56,7 +56,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Курсы / RateBook | `test_rate_book.py`, currency helpers |
 | Проекции | `test_goal_projection.py`, `test_debt_projection.py` |
 | Подписки (биллинг) | `test_subscription_billing.py` |
-| Reminders / push | `test_reminder_scheduler.py` (OS `effective_debt_due`, `reminder_days`, prefix cancel), `test_notification_service.py`, `test_push_notifier.py` |
+| Reminders / push | `test_reminder_scheduler.py` (OS `effective_debt_due`, `reminder_days`, prefix cancel, `_reminder_loop` import), `test_notification_service.py`, `test_push_notifier.py` (sticky-deny guide) |
 | AppState / скины | `test_app_state.py`, `test_skins.py` |
 | Иконки / каталог | `test_account_icons.py`, `test_icon_catalog.py`, `test_exchanges.py` (в т.ч. auth → user_facing) |
 | Аналитика периодов | `test_analytics_period.py` |
@@ -70,7 +70,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | PIN / lock | `test_encryption.py`, `test_app_state.py` (`reload_pin_gate`) |
 | Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key, fwbackup) |
 | Формы | `test_form_validation.py`, `test_money_input.py` (live grouping + caret-prepend `50` + orphan `05` + write-echo `500`) |
-| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py`, `test_tx_filters_panel.py`, `test_responsive.py` (320/360/375 nav + xs resize rebuild) |
+| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py` (web skip fade, overlay `ignore_interactions`), `test_tx_filters_panel.py` (`visible_list_rows`), `test_responsive.py` (320/360/375 nav + xs resize rebuild) |
 
 ---
 
@@ -83,13 +83,14 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Счета | `test_accounts.py` |
 | Операции / позиции чека | `test_transactions.py`, `test_transaction_items.py` |
 | Переводы + FX | `test_transfers.py` (fee on destination deleted with the pair) |
-| Цели / долги / подписки | `test_goals.py`, `test_debts.py` (interest tag stamp + reverse), `test_subscriptions.py` |
-| Шаблоны | `test_recurring.py` (create today does not post; catch-up after update) |
-| Бюджеты | `test_budgets.py` (debt repayments skipped; category match is case-insensitive), `test_budget_items_parity.py` |
+| Цели / долги / подписки | `test_goals.py`, `test_debts.py` (interest tag stamp + reverse), `test_subscriptions.py` (orphan account pauses auto-charge) |
+| Шаблоны | `test_recurring.py` (create today does not post; catch-up after update; missing account pauses) |
+| Бюджеты | `test_budgets.py` (debt repayments skipped; category match is case-insensitive; raising limit resets `last_alert_level`), `test_budget_items_parity.py` |
 | Категории / валюты | `test_categories.py`, `test_currencies.py` |
 | Курсы upsert / safe convert | `test_exchange_rate_upsert.py`, `test_safe_convert.py` |
 | Биржевой синк | `test_exchange_sync.py` |
-| Настройки / экспорт / align | `test_settings_export_align.py` |
+| Настройки / экспорт / align | `test_settings_export_align.py` (PIN hash not in JSON) |
+| CSV / капитал | `test_csv_import.py` (atomic commit rollback), `test_net_worth.py` (skip persist when FX missing) |
 
 Также есть корневые smoke-тесты вроде `tests/test_money_and_transactions.py`.
 

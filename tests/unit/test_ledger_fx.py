@@ -140,3 +140,43 @@ def test_aggregate_skips_transfers_and_sums() -> None:
     assert by_e[0][0] == "Food"
     assert by_i[0][0] == "Salary"
     assert len(by_p) == 1
+
+
+def test_aggregate_splits_expense_line_items() -> None:
+    now = datetime.now(timezone.utc)
+    acc = Account(
+        id=str(uuid4()),
+        name="Cash",
+        balance=Decimal("100.00"),
+        currency="RUB",
+        include_in_total=True,
+    )
+    from lib.domain.entities.transaction import TransactionItem
+
+    basket = Transaction(
+        account_id=acc.id,
+        amount=Decimal("150.00"),
+        category="Header",
+        date=now,
+        type=TransactionType.EXPENSE,
+        currency="RUB",
+        items=[
+            TransactionItem(name="Bread", amount=Decimal("100.00"), category="Food"),
+            TransactionItem(name="Bus", amount=Decimal("50.00"), category="Transport"),
+        ],
+    )
+    book = RateBook.from_pairs({})
+    _total, _inc, exp, by_e, _by_i, _by_p, ok = aggregate_cashflow_period(
+        [acc],
+        [basket],
+        base="RUB",
+        book=book,
+        period_key=lambda d, _g: "x",
+        group_by=StatsPeriod.DAY,
+    )
+    assert ok is True
+    assert exp == Decimal("150.00")
+    cats = dict(by_e)
+    assert cats["Food"] == Decimal("100.00")
+    assert cats["Transport"] == Decimal("50.00")
+    assert "Header" not in cats

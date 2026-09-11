@@ -22,6 +22,7 @@ from lib.infrastructure.services.localization import (
 from lib.infrastructure.services.push_notifier import (
     open_system_notification_settings,
     request_push_permissions,
+    should_guide_to_notification_settings,
 )
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.styles import (
@@ -39,6 +40,7 @@ from lib.presentation.layout import list_nav_padding
 from lib.presentation.ui_motion import (
     DUR_MED,
     bind_press,
+    is_web_page,
     motion_animation,
     motion_ms,
     prefers_reduced_motion,
@@ -75,6 +77,7 @@ def _settings_section(
         visible=bool(expanded),
         opacity=1 if expanded else 0,
         scale=1,
+        ignore_interactions=not bool(expanded),
         animate_opacity=motion_animation(DUR_MED, page),
         animate_scale=motion_animation(DUR_MED, page),
     )
@@ -107,10 +110,15 @@ def _settings_section(
         gen = token["n"]
         _sync_chrome(open_)
         reduced = prefers_reduced_motion(page) or page is None
-        if reduced or motion_ms(DUR_MED, page) == 0:
+        web = is_web_page(page)
+        if reduced or motion_ms(DUR_MED, page) == 0 or web:
             body.visible = open_
             body.opacity = 1 if open_ else 0
             body.scale = 1
+            try:
+                body.ignore_interactions = not open_
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 safe_update(body)
             except Exception:  # noqa: BLE001
@@ -120,6 +128,10 @@ def _settings_section(
             body.visible = True
             body.opacity = 0
             body.scale = 0.97
+            try:
+                body.ignore_interactions = True
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 safe_update(body)
             except Exception:  # noqa: BLE001
@@ -132,6 +144,10 @@ def _settings_section(
                 body.opacity = 1
                 body.scale = 1
                 try:
+                    body.ignore_interactions = False
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
                     safe_update(body)
                 except Exception:  # noqa: BLE001
                     pass
@@ -141,6 +157,10 @@ def _settings_section(
 
         body.opacity = 0
         body.scale = 0.97
+        try:
+            body.ignore_interactions = True
+        except Exception:  # noqa: BLE001
+            pass
         try:
             safe_update(body)
         except Exception:  # noqa: BLE001
@@ -1101,7 +1121,11 @@ class SettingsPage(ft.Column):
                     from lib.infrastructure.services.push_notifier import notify_push_ready
 
                     await notify_push_ready(normalize_lang(saved.language))
-                elif not granted:
+                elif should_guide_to_notification_settings(
+                    enabled=True,
+                    was_enabled=previous_notifications,
+                    granted=granted,
+                ):
                     snack(
                         self._page,
                         tr("settings.notifications_denied", lang),

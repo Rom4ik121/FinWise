@@ -39,6 +39,7 @@ from lib.presentation.styles import (
     section_title,
 )
 from lib.presentation.money_input import (
+    amount_text,
     attach_grouped_digits,
     format_amount_value,
     make_amount_field,
@@ -1511,7 +1512,7 @@ class GoalsPage(ft.Column):
                 )
             else:
                 items_editor.load_items([])
-                if template.default_amount:
+                if template.default_amount and not amount_text(target_tf).strip():
                     target_tf.value = format_amount_value(template.default_amount, lang)
             _sync_target_visibility()
             _refresh_monthly_hint()

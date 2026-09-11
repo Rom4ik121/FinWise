@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 
@@ -13,6 +14,8 @@ from lib.domain.repositories.net_worth_repository import NetWorthRepository
 from lib.domain.repositories.settings_repository import SettingsRepository
 from lib.domain.services.ledger_fx import sum_balances_in_base
 from lib.domain.services.rate_cache import get_cached_rate_book
+
+logger = logging.getLogger("finanse.domain.net_worth")
 
 
 def _utc_now() -> datetime:
@@ -43,8 +46,23 @@ class RecordNetWorthSnapshotUseCase:
         base = normalize_currency_code(cfg.default_currency)
         accounts = await self._accounts.list(active_only=False)
         book = await get_cached_rate_book(self._currencies)
-        total, _fx_ok = sum_balances_in_base(accounts, base=base, book=book)
+        total, fx_ok = sum_balances_in_base(accounts, base=base, book=book)
         existing = await self._snapshots.get_for_date(day)
+        if not fx_ok:
+            logger.warning(
+                "Skipping net-worth snapshot for %s: missing FX (partial total would be %s %s)",
+                day,
+                total,
+                base,
+            )
+            if existing is not None:
+                return existing
+            return NetWorthSnapshot(
+                captured_on=day,
+                amount=total,
+                currency=base,
+                captured_at=moment,
+            )
         if existing is not None:
             if existing.amount == total and existing.currency == base:
                 return existing

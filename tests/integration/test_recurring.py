@@ -132,3 +132,41 @@ def test_create_template_today_does_not_post(container) -> None:
         assert cash.balance == before
 
     run_async(_run())
+
+
+def test_process_due_pauses_rule_when_account_missing(container) -> None:
+    async def _run() -> None:
+        import sqlite3
+
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        today = date.today()
+        past = today - timedelta(days=2)
+        rule = await container.create_recurring_rule.execute(
+            RecurringRule(
+                name="Orphan",
+                amount=Decimal("10"),
+                account_id=acc.id,
+                type=TransactionType.EXPENSE,
+                interval=RecurringInterval.DAILY,
+                next_run=past,
+            )
+        )
+        conn = sqlite3.connect(str(container.config.db_path))
+        try:
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute(
+                "UPDATE recurring_rules SET account_id=?, next_run=? "
+                "WHERE id=?",
+                ("missing-account", past.isoformat(), rule.id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        posted = await container.process_due_recurring.execute(max_creates=31)
+        assert posted == []
+        saved = await container.list_recurring_rules.execute()
+        orphan = next(r for r in saved if r.id == rule.id)
+        assert orphan.paused is True
+        assert orphan.auto_create is False
+
+    run_async(_run())

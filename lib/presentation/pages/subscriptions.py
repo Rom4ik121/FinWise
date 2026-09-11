@@ -34,7 +34,7 @@ from lib.presentation.components.layout.grid import card_grid
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import amount_text, make_amount_field, parse_amount
 from lib.presentation.notification_badges import (
     SUBSCRIPTION_ALERT_KINDS,
     pending_related_ids,
@@ -1373,7 +1373,8 @@ class SubscriptionsPage(ft.Column):
 
         def _apply_template(template: SubscriptionTemplate) -> None:
             name_tf.value = tr(template.name_key, lang)
-            amount_tf.value = template.default_amount
+            if template.default_amount and not amount_text(amount_tf).strip():
+                amount_tf.value = template.default_amount
             period_dd.value = template.periodicity.value
             custom_tf.visible = template.periodicity == Periodicity.CUSTOM
             selected_icon["value"] = template.icon

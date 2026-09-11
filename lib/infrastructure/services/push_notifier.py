@@ -225,6 +225,20 @@ def _show_linux_notification(title: str, body: str) -> bool:
         return False
 
 
+def should_guide_to_notification_settings(
+    *,
+    enabled: bool,
+    was_enabled: bool,
+    granted: bool,
+) -> bool:
+    """True only when the user just turned reminders on and the OS still denies.
+
+    Saving unrelated settings while notifications stay on must not reopen
+    system Settings after a sticky deny.
+    """
+    return bool(enabled) and not granted and not was_enabled
+
+
 async def request_push_permissions() -> bool:
     """Request OS notification permission when supported."""
     if push_disabled_by_env():

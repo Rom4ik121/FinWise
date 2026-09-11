@@ -30,7 +30,7 @@ from lib.presentation.components.layout.grid import card_grid
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.ui_motion import replace_controls
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import amount_text, make_amount_field, parse_amount
 from lib.presentation.notification_badges import (
     BUDGET_ALERT_KINDS,
     mark_related_read,
@@ -621,7 +621,7 @@ class BudgetsPage(ft.Column):
                 except Exception:  # noqa: BLE001
                     pass
             picker.select_name(template.category)
-            if not (limit_tf.value or "").strip():
+            if not amount_text(limit_tf).strip():
                 limit_tf.value = template.default_amount
                 safe_update(limit_tf)
             await _refresh_suggest()

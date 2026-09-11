@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -612,5 +613,32 @@ def test_delete_charge_restores_active_when_never_paused(container) -> None:
         assert restored.status == SubscriptionStatus.ACTIVE
         assert restored.is_active is True
         assert restored.payments_made == 0
+
+    run_async(_run())
+
+
+def test_process_due_pauses_subscription_when_account_missing(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="500"))
+        due = datetime.now(timezone.utc) - timedelta(days=1)
+        sub = await container.create_subscription.execute(
+            make_subscription(acc.id, name="Orphan", amount="10", next_billing=due)
+        )
+        conn = sqlite3.connect(str(container.config.db_path))
+        try:
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute(
+                "UPDATE subscriptions SET account_id=? WHERE id=?",
+                ("missing-account", sub.id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        posted = await container.process_due_subscriptions.execute(max_charges=31)
+        assert posted == []
+        saved = await container.subscription_repository.get_by_id(sub.id)
+        assert saved is not None
+        assert saved.status == SubscriptionStatus.PAUSED
+        assert saved.auto_charge is False
 
     run_async(_run())

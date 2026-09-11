@@ -38,3 +38,19 @@ def test_net_worth_snapshot_upsert_and_window(container) -> None:
         assert any(s.captured_on == first.captured_on for s in listed_all)
 
     run_async(_run())
+
+
+def test_net_worth_does_not_persist_partial_fx(container) -> None:
+    async def _run() -> None:
+        await container.create_account.execute(
+            make_account(name="RUB Cash", currency="RUB", balance="1000")
+        )
+        await container.create_account.execute(
+            make_account(name="USD Wallet", currency="USD", balance="100")
+        )
+        snap = await container.record_net_worth_snapshot.execute()
+        listed = await container.list_net_worth_snapshots.execute()
+        assert listed == []
+        assert snap.amount == Decimal("1000.00")
+
+    run_async(_run())

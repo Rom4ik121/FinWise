@@ -49,6 +49,22 @@ if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
 
 _PAGE_SIZE = 60
+# Cap SQL rows scanned while filling one UI page after local day/corporate filters.
+_LIST_FETCH_MAX_SQL = 2000
+
+
+def visible_list_rows(
+    rows: list[Transaction],
+    *,
+    corporate_ids: set[str],
+    in_range,
+) -> list[Transaction]:
+    """Keep personal txs that fall on the selected local day/range."""
+    return [
+        tx
+        for tx in rows
+        if in_range(tx) and getattr(tx, "account_id", None) not in corporate_ids
+    ]
 
 
 def period_preset_range(
@@ -108,6 +124,7 @@ class TransactionsPage(ft.Column):
         self._category_map: dict[str, object] = {}
         self._list = make_v_scroll(spacing=6)
         self._offset = 0
+        self._list_prefetch: list[Transaction] = []
         self._has_more = False
         self._shown: list[Transaction] = []
         self._search_gen = 0
@@ -825,13 +842,61 @@ class TransactionsPage(ft.Column):
                 )
         return extra
 
+    async def _fetch_visible_page(
+        self,
+        *,
+        sql_offset: int,
+        query: str | None,
+        date_from,
+        date_to,
+        filters: dict,
+        want: int = _PAGE_SIZE,
+    ) -> tuple[list[Transaction], bool, int]:
+        """SQL LIMIT then local day/corporate filters — fetch until a full page."""
+        collected = list(self._list_prefetch)
+        self._list_prefetch = []
+        offset = sql_offset
+        sql_exhausted = False
+        sql_seen = 0
+        c = self._state.container
+        while len(collected) < want and sql_seen < _LIST_FETCH_MAX_SQL:
+            batch = await c.list_transactions.execute(
+                date_from=date_from,
+                date_to=date_to,
+                query=query or None,
+                limit=want + 1,
+                offset=offset,
+                **filters,
+            )
+            if not batch:
+                sql_exhausted = True
+                break
+            offset += len(batch)
+            sql_seen += len(batch)
+            collected.extend(
+                visible_list_rows(
+                    batch,
+                    corporate_ids=self._corporate_ids,
+                    in_range=self._tx_in_selected_range,
+                )
+            )
+            if len(batch) < want + 1:
+                sql_exhausted = True
+                break
+        if len(collected) > want:
+            self._list_prefetch = collected[want:]
+            collected = collected[:want]
+            has_more = True
+        else:
+            has_more = not sql_exhausted
+        return collected, has_more, offset
+
     async def _load_more(self) -> None:
         """Append the next page of transactions."""
         if not self._has_more:
             return
         lang = self._state.language
         query = (self._search.value or "").strip()
-        c = self._state.container
         try:
             date_from = _parse_date(self._date_from_value)
             date_to = _parse_date(self._date_to_value, end_of_day=True)
@@ -839,26 +904,17 @@ class TransactionsPage(ft.Column):
             snack(self._page, tr("invalid_date", lang), error=True)
             return
         try:
-            rows = await c.list_transactions.execute(
+            chunk, self._has_more, self._offset = await self._fetch_visible_page(
+                sql_offset=self._offset,
+                query=query or None,
                 date_from=date_from,
                 date_to=date_to,
-                query=query or None,
-                limit=_PAGE_SIZE + 1,
-                offset=self._offset,
-                **self._list_filters(),
+                filters=self._list_filters(),
             )
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             return
-        rows = [
-            tx
-            for tx in rows
-            if getattr(tx, "account_id", None) not in self._corporate_ids
-        ]
-        self._has_more = len(rows) > _PAGE_SIZE
-        chunk = rows[:_PAGE_SIZE]
         self._shown.extend(chunk)
-        self._offset += len(chunk)
         self._render_list(chunk, lang=lang, incremental=True)
 
     async def reload(self, animate: bool = False) -> None:
@@ -890,24 +946,14 @@ class TransactionsPage(ft.Column):
         try:
             await self._ensure_meta()
             query = (self._search.value or "").strip()
-            filters = self._list_filters()
-            rows = await c.list_transactions.execute(
+            self._list_prefetch = []
+            self._shown, self._has_more, self._offset = await self._fetch_visible_page(
+                sql_offset=0,
+                query=query or None,
                 date_from=date_from,
                 date_to=date_to,
-                query=query or None,
-                limit=_PAGE_SIZE + 1,
-                offset=0,
-                **filters,
+                filters=self._list_filters(),
             )
-            rows = [tx for tx in rows if self._tx_in_selected_range(tx)]
-            rows = [
-                tx
-                for tx in rows
-                if getattr(tx, "account_id", None) not in self._corporate_ids
-            ]
-            self._has_more = len(rows) > _PAGE_SIZE
-            self._shown = rows[:_PAGE_SIZE]
-            self._offset = len(self._shown)
         except Exception as exc:  # noqa: BLE001
             snack_exception(self._page, exc, lang=self._state.language)
             replace_controls(

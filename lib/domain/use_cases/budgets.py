@@ -168,14 +168,18 @@ class SetBudgetUseCase:
                 updated_at=now,
             )
         else:
-            budget = existing.model_copy(
-                update={
-                    "amount_limit": limit,
-                    "spent": spent,
-                    "account_id": scope,
-                    "updated_at": now,
-                }
-            )
+            limit_changed = quantize_money(existing.amount_limit) != limit
+            patch = {
+                "amount_limit": limit,
+                "spent": spent,
+                "account_id": scope,
+                "updated_at": now,
+            }
+            # Limit change invalidates prior 80/100 watermarks so a raise can
+            # alert again, and a cut can re-fire if already over.
+            if limit_changed:
+                patch["last_alert_level"] = 0
+            budget = existing.model_copy(update=patch)
         return await self._budgets.save(budget)
 
 

@@ -150,6 +150,8 @@ async def _daily_backup_loop(container: Container) -> None:
 
 async def _reminder_loop(container: Container) -> None:
     """Daily in-app reminder sweep for debts and subscriptions."""
+    from lib.infrastructure.services.reminder_scheduler import schedule_reminders
+
     last_run_date: Optional[str] = None
     while True:
         sleep_for = 60.0

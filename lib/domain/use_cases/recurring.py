@@ -224,6 +224,15 @@ class ProcessDueRecurringRulesUseCase:
             nonlocal created
             account = by_id.get(rule.account_id)
             if account is None:
+                await self._rules.update(
+                    rule.model_copy(
+                        update={
+                            "paused": True,
+                            "auto_create": False,
+                            "updated_at": _utc_now(),
+                        }
+                    )
+                )
                 return
             cursor = rule.next_run
             made = 0

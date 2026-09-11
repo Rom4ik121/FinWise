@@ -348,6 +348,31 @@ def test_budget_half_alert(container) -> None:
     run_async(_run())
 
 
+def test_raising_budget_limit_resets_alert_watermark(container) -> None:
+    async def _run() -> None:
+        await container.create_category.execute(
+            make_category(name="Food", kind=CategoryKind.EXPENSE)
+        )
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        now = datetime.now(timezone.utc)
+        await container.set_budget.execute("Food", now.month, now.year, Decimal("100"))
+        await container.add_transaction.execute(
+            make_transaction(acc.id, amount="100", category="Food")
+        )
+        progress = await container.get_budget_progress.execute(
+            category_id="Food", month=now.month, year=now.year
+        )
+        assert progress.budget.last_alert_level == 100
+        await container.set_budget.execute("Food", now.month, now.year, Decimal("500"))
+        progress = await container.get_budget_progress.execute(
+            category_id="Food", month=now.month, year=now.year
+        )
+        assert progress.budget.last_alert_level == 0
+        assert progress.budget.amount_limit == Decimal("500.00")
+
+    run_async(_run())
+
+
 def test_suggest_budget_limit_averages_previous_months(container) -> None:
     async def _run() -> None:
         await container.create_category.execute(

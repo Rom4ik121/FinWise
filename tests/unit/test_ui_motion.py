@@ -118,6 +118,7 @@ def test_apply_overlay_enter_stamps_opacity() -> None:
     box = ft.Container()
     apply_overlay_enter(box)
     assert box.opacity == 0
+    assert box.ignore_interactions is True
 
 
 def test_overlay_enter_style_web_stays_opaque() -> None:
@@ -128,6 +129,7 @@ def test_overlay_enter_style_web_stays_opaque() -> None:
 
     style = overlay_enter_style(_Page())  # type: ignore[arg-type]
     assert style["opacity"] == 1
+    assert style["ignore_interactions"] is False
 
 
 def test_bind_press_skips_tap_down_on_icon_button() -> None:
@@ -165,3 +167,17 @@ def test_settings_accordion_toggles_without_page() -> None:
     assert body.opacity == 1
     apply(False)
     assert body.visible is False
+    assert body.ignore_interactions is True
+
+
+def test_wrap_enter_skips_fade_on_web() -> None:
+    import flet as ft
+
+    from lib.presentation.ui_motion import wrap_enter
+
+    class _Page:
+        web = True
+
+    inner = ft.Text("chart")
+    wrapped = wrap_enter(inner, _Page())  # type: ignore[arg-type]
+    assert wrapped is inner

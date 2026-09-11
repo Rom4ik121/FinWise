@@ -318,6 +318,7 @@ class RecurringPage(ft.Column):
 
         interval_dd.on_change = _refresh_preview
         count_tf.on_change = _refresh_preview
+        next_field._on_changed = lambda _dt: _refresh_preview()
         _refresh_preview()
 
         async def _save() -> None:

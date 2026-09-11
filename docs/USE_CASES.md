@@ -90,7 +90,7 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 | Create/Update/Delete | Карточка подписки |
 | Pause / Resume | Статус |
 | `ChargeSubscriptionNow` | Ручное списание |
-| `ProcessDueSubscriptions` | Фоновый проход due + auto_charge |
+| `ProcessDueSubscriptions` | Фоновый проход due + auto_charge. Нет счёта (dangling id) → `PAUSED` + `auto_charge=False`. |
 | Analytics | Сводка для UI |
 
 При `check_balance_before_subscription` и нехватке средств — код/`insufficient_funds` → локализованное сообщение.
@@ -108,7 +108,7 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 | Create / Update / Delete / List | Шаблоны income/expense. **Create** сдвигает `next_run` на следующий период, если дата ≤ сегодня — сохранение не проводит операцию сразу. Catch-up работает для уже существующих правил. |
 | `PauseRecurringRuleUseCase` | Пауза без удаления |
 | `SkipRecurringOccurrenceUseCase` | Пропустить ближайшую дату |
-| `ProcessDueRecurringRulesUseCase` | Автосоздание в ledger + catch-up (старт приложения, до 31) |
+| `ProcessDueRecurringRulesUseCase` | Автосоздание в ledger + catch-up (старт приложения, до 31). Нет счёта → `paused` + `auto_create=False`. |
 
 Интервалы: daily / weekly / monthly / yearly, `interval_count`. Тег созданных операций: `recurring`.
 
@@ -119,7 +119,7 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 | Класс | Назначение |
 |-------|------------|
 | `PreviewCsvImportUseCase` | Кодировка, разделитель, пресеты колонок, dry-run строк |
-| `CommitCsvImportUseCase` | Создание операций через `AddTransactionUseCase` (тег `csv-import`) |
+`CommitCsvImportUseCase` — создание операций через `AddTransactionUseCase` (тег `csv-import`) в одном `unit_of_work`: ошибка на середине батча откатывает уже записанные строки.
 
 Парсер: `lib/domain/services/csv_statement.py`.
 
@@ -129,7 +129,7 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 
 | Класс | Назначение |
 |-------|------------|
-| `RecordNetWorthSnapshotUseCase` | Upsert снимка include-in-total за UTC-день (FX через `sum_balances_in_base`) |
+| `RecordNetWorthSnapshotUseCase` | Upsert снимка include-in-total за UTC-день (FX через `sum_balances_in_base`). Нет курса → снимок **не** пишется (частичная сумма не попадает в историю). |
 | `ListNetWorthSnapshotsUseCase` | Окно для графика аналитики |
 
 Снимок пишется после commit операции и при старте приложения.
@@ -147,7 +147,7 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 
 Категория бюджета — expense или both; нужен положительный лимит.
 
-Пороги уведомлений (`budget_warn_pct` / `budget_limit_pct`, по умолчанию 80 / 100) задаются в настройках. Пересечение порога → in-app + локальное уведомление; повтор той же ступени не шлётся (`last_alert_level`).
+Пороги уведомлений (`budget_warn_pct` / `budget_limit_pct`, по умолчанию 80 / 100) задаются в настройках. Пересечение порога → in-app + локальное уведомление; повтор той же ступени не шлётся (`last_alert_level`). Смена лимита сбрасывает watermark, чтобы новый порог мог сработать снова.
 
 ---
 

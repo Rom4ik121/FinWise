@@ -15,6 +15,7 @@ from lib.domain.services.csv_statement import (
     iter_valid,
     map_rows,
 )
+from lib.domain.unit_of_work import in_unit_of_work, unit_of_work
 from lib.domain.use_cases.transactions import AddTransactionUseCase
 
 
@@ -46,9 +47,11 @@ class CommitCsvImportUseCase:
         self,
         add_transaction: AddTransactionUseCase,
         accounts: AccountRepository,
+        session_factory: object = None,
     ) -> None:
         self._add = add_transaction
         self._accounts = accounts
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -67,29 +70,36 @@ class CommitCsvImportUseCase:
         fallback = by_id.get(account_id)
         if fallback is None:
             raise ValueError("Account not found")
-        created: list[Transaction] = []
-        for row in iter_valid(rows):
-            target = fallback
-            hint = (row.account_hint or "").strip()
-            if hint:
-                if hint in by_id:
-                    target = by_id[hint]
-                else:
-                    named = by_name.get(hint.lower())
-                    if named is not None:
-                        target = named
-            amount = row.amount or Decimal("0")
-            saved = await self._add.execute(
-                Transaction(
-                    account_id=target.id,
-                    amount=amount,
-                    category=default_category,
-                    date=row.date,
-                    comment=row.description,
-                    type=row.tx_type,
-                    currency=row.currency or target.currency or default_currency,
-                    tags=["csv-import"],
+
+        async def _commit() -> list[Transaction]:
+            created: list[Transaction] = []
+            for row in iter_valid(rows):
+                target = fallback
+                hint = (row.account_hint or "").strip()
+                if hint:
+                    if hint in by_id:
+                        target = by_id[hint]
+                    else:
+                        named = by_name.get(hint.lower())
+                        if named is not None:
+                            target = named
+                amount = row.amount or Decimal("0")
+                saved = await self._add.execute(
+                    Transaction(
+                        account_id=target.id,
+                        amount=amount,
+                        category=default_category,
+                        date=row.date,
+                        comment=row.description,
+                        type=row.tx_type,
+                        currency=row.currency or target.currency or default_currency,
+                        tags=["csv-import"],
+                    )
                 )
-            )
-            created.append(saved)
-        return created
+                created.append(saved)
+            return created
+
+        if self._session_factory is not None and not in_unit_of_work():
+            with unit_of_work(self._session_factory):  # type: ignore[arg-type]
+                return await _commit()
+        return await _commit()

@@ -81,6 +81,31 @@ def test_request_push_permissions_false_without_service_on_ios(monkeypatch) -> N
     asyncio.run(_run())
 
 
+def test_should_guide_to_notification_settings_only_on_fresh_enable() -> None:
+    from lib.infrastructure.services.push_notifier import (
+        should_guide_to_notification_settings,
+    )
+
+    assert (
+        should_guide_to_notification_settings(
+            enabled=True, was_enabled=False, granted=False
+        )
+        is True
+    )
+    assert (
+        should_guide_to_notification_settings(
+            enabled=True, was_enabled=True, granted=False
+        )
+        is False
+    )
+    assert (
+        should_guide_to_notification_settings(
+            enabled=True, was_enabled=False, granted=True
+        )
+        is False
+    )
+
+
 def test_future_os_fire_at_keeps_twenty_second_arm() -> None:
     now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
     when = now + timedelta(seconds=20)

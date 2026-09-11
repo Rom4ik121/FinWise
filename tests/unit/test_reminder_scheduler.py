@@ -16,6 +16,15 @@ from lib.infrastructure.services.notification_service import (
 from lib.infrastructure.services.reminder_scheduler import schedule_reminders
 
 
+def test_reminder_loop_imports_schedule_reminders() -> None:
+    import inspect
+
+    from lib.main import _reminder_loop
+
+    src = inspect.getsource(_reminder_loop)
+    assert "from lib.infrastructure.services.reminder_scheduler import schedule_reminders" in src
+
+
 def test_schedule_reminders_respects_master_switch() -> None:
     svc = NotificationService(default_lead_days=3)
     svc.push("stale", "body", kind=NotificationKind.DEBT_REMINDER)

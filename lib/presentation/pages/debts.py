@@ -42,6 +42,7 @@ from lib.presentation.styles import (
     muted_text,
 )
 from lib.presentation.money_input import (
+    amount_text,
     attach_grouped_digits,
     make_amount_field,
     parse_amount_field,
@@ -1395,7 +1396,7 @@ class DebtsPage(ft.Column):
                 direction_dd.value = template.direction.value
                 accrue_sw.value = template.accrue_interest
                 interval_tf.value = str(template.payment_interval_months)
-                if template.default_amount:
+                if template.default_amount and not amount_text(amount_tf).strip():
                     amount_tf.value = template.default_amount
                 if template.interest_rate:
                     rate_tf.value = template.interest_rate

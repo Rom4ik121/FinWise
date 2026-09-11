@@ -216,10 +216,14 @@ def apply_enter_motion(
     anim = motion_animation(duration, page)
     try:
         control.animate_opacity = anim
-        if prefers_reduced_motion(page):
+        if prefers_reduced_motion(page) or is_web_page(page):
             control.opacity = 1
         else:
             control.opacity = 0
+            try:
+                control.ignore_interactions = True
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001
         return control
     return control
@@ -229,8 +233,16 @@ def play_enter_motion(control: ft.Control) -> None:
     """Flip opacity to 1 so :func:`apply_enter_motion` can ease in."""
     try:
         if getattr(control, "opacity", 1) == 1:
+            try:
+                control.ignore_interactions = False
+            except Exception:  # noqa: BLE001
+                pass
             return
         control.opacity = 1
+        try:
+            control.ignore_interactions = False
+        except Exception:  # noqa: BLE001
+            pass
         safe_update(control)
     except Exception:  # noqa: BLE001
         pass
@@ -243,18 +255,20 @@ def overlay_enter_style(page: ft.Page | None = None) -> dict[str, Any]:
     the browser and only slide; native still fades.
     """
     if prefers_reduced_motion(page):
-        return {"opacity": 1, "offset": ft.Offset(0, 0)}
+        return {"opacity": 1, "offset": ft.Offset(0, 0), "ignore_interactions": False}
     if is_web_page(page):
         return {
             "opacity": 1,
             "offset": ft.Offset(0, 0.03),
             "animate_offset": motion_animation(DUR_MED, page),
+            "ignore_interactions": False,
         }
     return {
         "opacity": 0,
         "offset": ft.Offset(0, 0.03),
         "animate_opacity": motion_animation(DUR_MED, page),
         "animate_offset": motion_animation(DUR_MED, page),
+        "ignore_interactions": True,
     }
 
 
@@ -287,6 +301,7 @@ class EnterHost(ft.Container):
             offset=ft.Offset(0, dy),
             animate_opacity=motion_animation(DUR_MED, page),
             animate_offset=motion_animation(DUR_MED, page),
+            ignore_interactions=True,
         )
         self._play = True
 
@@ -300,6 +315,7 @@ class EnterHost(ft.Container):
         try:
             self.opacity = 1
             self.offset = ft.Offset(0, 0)
+            self.ignore_interactions = False
             safe_update(self)
         except Exception:  # noqa: BLE001
             pass
@@ -314,6 +330,9 @@ def wrap_enter(
 ) -> ft.Control:
     """Light fade/slide around images or canvas. No-op when motion is off."""
     if not play or prefers_reduced_motion(page) or content is None:
+        return content
+    # Flet web hit-tests opacity=0; skip the fade wrapper in the browser.
+    if is_web_page(page):
         return content
     return EnterHost(content, page, dy=dy)
 

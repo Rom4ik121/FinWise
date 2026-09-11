@@ -151,14 +151,14 @@ def _safe_run_async(page: ft.Page, handler, *args) -> bool:
 
 def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
     """Ease opacity/offset to the resting pose after the first paint."""
-    try:
-        overlay.ignore_interactions = False
-    except Exception:  # noqa: BLE001
-        pass
-    if prefers_reduced_motion(page):
+    # Native fades from opacity=0; keep hit-testing off until the sheet is visible.
+    # Web stays opaque from the first frame, so enable taps immediately.
+    instant = prefers_reduced_motion(page) or is_web_page(page)
+    if instant:
         try:
             overlay.opacity = 1
             overlay.offset = ft.Offset(0, 0)
+            overlay.ignore_interactions = False
             safe_update(overlay)
         except Exception:  # noqa: BLE001
             pass
@@ -193,10 +193,6 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
         _reveal_overlay(page, overlay)
         return
     overlay.visible = True
-    try:
-        overlay.ignore_interactions = False
-    except Exception:  # noqa: BLE001
-        pass
     slot = _find_overlay(page, str(key))
     if slot is None:
         _append_overlay(page, overlay)
@@ -207,10 +203,6 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
     bump_overlay_gen(slot)
     slot.content = overlay.content
     slot.visible = True
-    try:
-        slot.ignore_interactions = False
-    except Exception:  # noqa: BLE001
-        pass
     for attr in (
         "left",
         "top",
@@ -225,6 +217,7 @@ def push_overlay(page: ft.Page, overlay: ft.Control) -> None:
         "offset",
         "animate_opacity",
         "animate_offset",
+        "ignore_interactions",
     ):
         if hasattr(overlay, attr):
             try:
