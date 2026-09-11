@@ -14,4 +14,4 @@ Do not break unrelated features. Prefer version-safe Flet APIs. Update CHANGELOG
 
 **Post-change rule:** After EVERY code change, run `finwise-verify` skill — tests, architecture audit, invariant checks, UI↔logic integration, regression suite, and docs update (`docs/*`, README when user-facing). Never report "done" without verification.
 
-Keep public docs in sync with Alembic head (**0029**), paging/UoW modules, and live UI languages (**en/ru/uk/be/uz/kk/de/es/fr/pt/it/pl/tr/id/zh/ja/ko/hi**; RTL ar/he deferred).
+Keep public docs in sync with Alembic head (**0030**), paging/UoW modules, and live UI languages (**en/ru/uk/be/uz/kk/de/es/fr/pt/it/pl/tr/id/zh/ja/ko/hi**; RTL ar/he deferred).

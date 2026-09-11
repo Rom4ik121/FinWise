@@ -109,12 +109,14 @@
 ### `settings` (строка `id=default`)
 
 `default_currency`, `theme`, `ui_style`, `language`, `language_user_set`,
+`currency_user_set`,
 интервал курсов, флаги уведомлений, `reminder_time` / `reminder_days`,
 `check_balance_before_subscription`, `budget_alerts`,
 `pin_hash` / `pin_salt`, `biometric_enabled`,
 **`dashboard_hide_chart`**, **`dashboard_chart_days`** (миграция **0017**),
 **`tx_filters_json`**, **`budget_warn_pct`** (по умолчанию 80), **`budget_limit_pct`** (100) — миграция **0028**,
 **`language_user_set`** (миграция **0029**: существующие установки DEFAULT 1, новые — 0 до выбора в Settings),
+**`currency_user_set`** (миграция **0030**: существующие установки DEFAULT 1, новые — 0 до выбора валюты в Settings или первого счёта),
 иконки/цвета целей·долгов·подписок и goal items (миграции **0018–0021**).
 порог низкого баланса и др.
 
@@ -141,7 +143,7 @@ UNIQUE(category_id, month, year, account_id).
 
 ## 6. Alembic (`migrations/versions/`)
 
-Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0029**:
+Идемпотентные ревизии (`render_as_batch=True`), цепочка **0001 → 0030**:
 
 | Rev | Суть |
 |-----|------|
@@ -174,8 +176,9 @@ UNIQUE(category_id, month, year, account_id).
 | 0027 | `categories.account_id` + UNIQUE(name, account_id) |
 | 0028 | `settings.tx_filters_json`, `budget_warn_pct`, `budget_limit_pct`; `recurring_rules`; `net_worth_snapshots`; FTS5 payee/amount |
 | 0029 | `settings.language_user_set` (явный выбор языка vs авто с устройства) |
+| 0030 | `settings.currency_user_set` (явный выбор валюты vs авто с региона устройства) |
 
-Head: **0029**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic `upgrade head` targets the **same** SQLite URL as `AppConfig` (`migrations/env.py` honors `sqlalchemy.url`). Installs stamped with the obsolete id `0002_reminder_time` are rewritten to `0002` before upgrade. If upgrade still fails, a warning is logged and column patches keep the app running.
+Head: **0030**. Fresh install: `init_db()` + column patches + FTS ensure; Alembic `upgrade head` targets the **same** SQLite URL as `AppConfig` (`migrations/env.py` honors `sqlalchemy.url`). Installs stamped with the obsolete id `0002_reminder_time` are rewritten to `0002` before upgrade. If upgrade still fails, a warning is logged and column patches keep the app running.
 
 ---
 

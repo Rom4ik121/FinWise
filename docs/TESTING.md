@@ -32,6 +32,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Фикстура / поведение | Смысл |
 |----------------------|--------|
 | Autouse `FINANCE_DISABLE_PUSH=1` | Не слать OS-toast в CI |
+| Autouse locale | `detect_language_and_currency` → `ru`/`RUB` (хост TZ не протекает) |
 | `container(tmp_path)` | Отдельный SQLite на тест + собранный DI |
 | `tests/factories.py` | Account, Transaction, Goal, Debt, Subscription, Category |
 
@@ -46,10 +47,10 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Область | Примеры файлов |
 |---------|----------------|
 | Деньги / ввод | `test_money.py`, `test_money_input.py` (filter bounds: blank ≠ 0) |
-| Alembic | `test_alembic_chain.py` (single head **0029**, `upgrade head` on empty SQLite, legacy `0002_reminder_time` rewrite) |
+| Alembic | `test_alembic_chain.py` (single head **0030**, `upgrade head` on empty SQLite, legacy `0002_reminder_time` rewrite) |
 | Бюджеты (логика) | `test_budget.py` |
 | Биометрия / PIN | `test_biometric.py`, `test_encryption.py`, `test_secret_box.py` |
-| Локализация | `test_localization.py` (все ключи всех `SUPPORTED_LANGS`), `test_locale_prefs.py`, `test_first_run_language.py` |
+| Локализация | `test_localization.py` (все ключи всех `SUPPORTED_LANGS`), `test_locale_prefs.py`, `test_first_run_language.py`, `test_first_run_currency.py` |
 | Бэкап | `test_backup_service.py` (daily rolling, SQLite snapshot, `.fwbackup`, embedded key) |
 | Secret box / Keychain | `test_secret_box.py` |
 | Курсы / RateBook | `test_rate_book.py`, currency helpers |

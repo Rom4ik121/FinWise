@@ -147,11 +147,12 @@ Overlays: `assets/i18n/overlays/{lang}.json` (плоский словарь) и 
 Settings language — fullscreen список эндонимов (`language_picker_choices`, **English** первым), не Dropdown (меню Flet прячет `en` над выбранным `ru`).
 RTL (**ar**, **he**) не включены — ломают LTR-вёрстку Flet.
 
-Первый запуск: `detect_language_and_currency` / `resolve_device_language` (Flet `page.locale`, иначе OS `LANG`/`locale`).
-Неизвестная локаль → **en**. Пока `settings.language_user_set` ложь, язык можно уточнить с устройства;
-сохранение в Settings ставит флаг и дальше не перезаписывает.
+Первый запуск: `detect_language_and_currency` / `resolve_device_language` / `resolve_device_currency` (Flet `page.locale`, иначе OS `LANG`/`locale`; регион важнее языка: `en-UA` → UAH).
+Неизвестная локаль → **en**. Неизвестная страна / валюта вне фиат-каталога → **USD**.
+Пока `settings.language_user_set` ложь, язык можно уточнить с устройства;
+пока `settings.currency_user_set` ложь — базовую валюту. Сохранение в Settings (или первый счёт) ставит флаги и дальше не перезаписывает.
 
-`locale_prefs.py` (domain) мапит теги (`uk-UA`→`uk`, `pt-BR`→`pt`, `zh-CN`/`zh-Hans`→`zh`, `ky`/`tg`→`ru`).
+`locale_prefs.py` (domain) мапит теги (`uk-UA`→`uk`/`UAH`, `pt-BR`→`pt`/`BRL`, `zh-CN`/`zh-Hans`→`zh`/`CNY`, `ky`/`tg`→`ru`).
 
 ---
 

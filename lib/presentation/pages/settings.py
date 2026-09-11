@@ -1010,6 +1010,7 @@ class SettingsPage(ft.Column):
                 ui_style=self._ui_style,
                 language=normalize_lang(self._language.value or "en"),
                 language_user_set=True,
+                currency_user_set=True,
                 exchange_update_interval_minutes=max(5, interval),
                 notifications_enabled=bool(self._notifications.value),
                 subscription_reminders=bool(self._sub_reminders.value),

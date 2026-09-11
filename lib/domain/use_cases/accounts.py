@@ -37,8 +37,9 @@ class CreateAccountUseCase:
 
         Corporate accounts are excluded from home totals by default.
 
-        The first account's currency becomes ``settings.default_currency`` once;
-        later accounts do not change the display currency (Settings only).
+        The first account's currency becomes ``settings.default_currency`` once
+        and marks ``currency_user_set`` so device-region auto-detect stops.
+        Later accounts do not change the display currency (Settings only).
         """
         prior = await self._accounts.list(active_only=False)
         is_first = len(prior) == 0
@@ -56,15 +57,13 @@ class CreateAccountUseCase:
         created = await self._accounts.create(account.model_copy(update=patch))
         if is_first:
             current = await self._settings.get()
+            settings_patch: dict = {
+                "currency_user_set": True,
+                "updated_at": _utc_now(),
+            }
             if normalize_currency_code(current.default_currency) != currency:
-                await self._settings.update(
-                    current.model_copy(
-                        update={
-                            "default_currency": currency,
-                            "updated_at": _utc_now(),
-                        }
-                    )
-                )
+                settings_patch["default_currency"] = currency
+            await self._settings.update(current.model_copy(update=settings_patch))
         return created
 
 

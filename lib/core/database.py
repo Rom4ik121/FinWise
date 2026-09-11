@@ -240,6 +240,8 @@ def _apply_sqlite_column_patches(engine: Engine) -> None:
             ("budget_limit_pct", "INTEGER NOT NULL DEFAULT 100"),
             # Existing installs already chose (or lived with) a language.
             ("language_user_set", "BOOLEAN NOT NULL DEFAULT 1"),
+            # Existing installs already have a default currency (do not auto-flip).
+            ("currency_user_set", "BOOLEAN NOT NULL DEFAULT 1"),
         ],
         "budgets": [
             ("last_alert_level", "INTEGER NOT NULL DEFAULT 0"),

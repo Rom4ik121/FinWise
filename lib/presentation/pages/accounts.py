@@ -297,19 +297,8 @@ class AccountsPage(ft.Column):
         )
 
     def _default_new_account_currency(self) -> str:
-        """Device-suggested ticker when creating the very first account."""
-        if self._account_count > 0:
-            return normalize_currency_code(self._state.base_currency)
-        try:
-            from lib.infrastructure.services.locale_prefs import (
-                suggested_currency_for_device,
-            )
-
-            return normalize_currency_code(
-                suggested_currency_for_device(page=self._page)
-            )
-        except Exception:  # noqa: BLE001
-            return normalize_currency_code(self._state.base_currency)
+        """First account uses ``settings.default_currency`` (device region until user_set)."""
+        return normalize_currency_code(self._state.base_currency)
 
     def _open_editor(self, account: Optional[Account] = None) -> None:
         lang = self._state.language

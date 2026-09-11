@@ -1,4 +1,4 @@
-"""Alembic revision graph is a single chain ending at 0029."""
+"""Alembic revision graph is a single chain ending at 0030."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from lib.core.config import AppConfig
 from lib.core.database import rewrite_legacy_alembic_revisions
 
 _ROOT = Path(__file__).resolve().parents[2]
-_HEAD = "0029"
+_HEAD = "0030"
 
 
 def _alembic_config(*, sqlalchemy_url: str | None = None) -> Config:
@@ -24,7 +24,7 @@ def _alembic_config(*, sqlalchemy_url: str | None = None) -> Config:
     return cfg
 
 
-def test_alembic_single_head_0029() -> None:
+def test_alembic_single_head_0030() -> None:
     script = ScriptDirectory.from_config(_alembic_config())
     heads = script.get_heads()
     assert heads == [_HEAD]
@@ -52,11 +52,16 @@ def test_alembic_upgrade_head_empty_sqlite(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
+        settings_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(settings)")
+        }
     finally:
         conn.close()
     assert "accounts" in tables
     assert "settings" in tables
     assert "transactions" in tables
+    assert "language_user_set" in settings_cols
+    assert "currency_user_set" in settings_cols
 
 
 def test_rewrite_legacy_0002_reminder_time_stamp(tmp_path: Path) -> None:

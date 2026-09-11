@@ -25,6 +25,7 @@ def test_settings_language_and_theme(container) -> None:
         assert saved.theme == "light"
         assert saved.default_currency == "UZS"
         assert saved.language_user_set is False
+        assert saved.currency_user_set is False
 
         settings.language = "de"
         settings.language_user_set = True

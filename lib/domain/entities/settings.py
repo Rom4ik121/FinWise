@@ -32,6 +32,7 @@ class AppSettings(BaseModel):
     ui_style: str = DEFAULT_UI_STYLE
     language: str = DEFAULT_LANGUAGE
     language_user_set: bool = False
+    currency_user_set: bool = False
     exchange_update_interval_minutes: int = DEFAULT_EXCHANGE_UPDATE_INTERVAL_MINUTES
     notifications_enabled: bool = True
     subscription_reminders: bool = True

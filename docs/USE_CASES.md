@@ -40,7 +40,7 @@ UI **не** пишет в ledger напрямую через репозитор�
 
 | Класс | Назначение |
 |-------|------------|
-| `CreateAccountUseCase` | Новый счёт |
+| `CreateAccountUseCase` | Новый счёт. Первый счёт задаёт `settings.default_currency` и `currency_user_set`. |
 | `UpdateAccountUseCase` | Обновление; смена валюты требует курсов и пересчёта |
 | `DeleteAccountUseCase` | Удаление (с проверками) |
 | `ListAccountsUseCase` | Список (active_only и т.д.) |

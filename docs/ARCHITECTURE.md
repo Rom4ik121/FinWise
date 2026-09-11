@@ -131,6 +131,7 @@ Dart/Flutter-мосты, подключаемые только в нативно
 - UI-языки: **en, ru, uk, be, uz, kk, de, es, fr, pt, it, pl, tr, id, zh, ja, ko, hi** (`SUPPORTED_LANGS`, Settings — fullscreen список эндонимов, **English** первым). RTL **ar/he отложены**.
 - Строки: словарь `STRINGS` + JSON overlays `assets/i18n/overlays/{lang}.json` + `tr(key, lang, **kwargs)`. Недостающий ключ → **en**, никогда пустая строка.
 - Первый запуск: язык с устройства (`page.locale` / OS `LANG`); пока пользователь не выбрал язык в Settings (`language_user_set`). Неподдерживаемая локаль → **en**.
+- Первый запуск: **валюта по умолчанию с региона устройства** (`uk-UA` → UAH, `en-US` → USD); пока пользователь не выбрал валюту в Settings и не создал первый счёт (`currency_user_set`). Неизвестная страна / валюта вне каталога → **USD**.
 - Тема: light / dark / system.
 - UI style: **classic** (по умолчанию в рантайме скинов) / **neon** (дефолт в `config` может отличаться — см. `DEFAULT_UI_STYLE` в `config.py`).
 

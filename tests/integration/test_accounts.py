@@ -14,6 +14,7 @@ def test_first_account_sets_default_currency_once(container) -> None:
     async def _run() -> None:
         settings = await container.get_settings.execute()
         assert settings.default_currency.upper() == "RUB"  # test fixture locale
+        assert settings.currency_user_set is False
 
         first = await container.create_account.execute(
             make_account(name="USD Wallet", currency="USD")
@@ -21,6 +22,7 @@ def test_first_account_sets_default_currency_once(container) -> None:
         assert first.currency == "USD"
         settings = await container.get_settings.execute()
         assert settings.default_currency.upper() == "USD"
+        assert settings.currency_user_set is True
 
         await container.create_account.execute(
             make_account(name="EUR Wallet", currency="EUR")
@@ -43,6 +45,37 @@ def test_first_account_sets_default_currency_once(container) -> None:
         assert await container.delete_account.execute(created.id) is True
         remaining = await container.list_accounts.execute()
         assert all(a.id != created.id for a in remaining)
+
+    run_async(_run())
+
+
+def test_first_run_seed_respects_region(container, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "lib.infrastructure.services.locale_prefs.detect_language_and_currency",
+        lambda **_kwargs: ("uk", "UAH"),
+    )
+
+    async def _run() -> None:
+        settings = await container.get_settings.execute()
+        assert settings.language == "uk"
+        assert settings.default_currency.upper() == "UAH"
+        assert settings.currency_user_set is False
+        assert settings.language_user_set is False
+
+    run_async(_run())
+
+
+def test_first_account_matching_default_sets_currency_user_flag(container) -> None:
+    async def _run() -> None:
+        settings = await container.get_settings.execute()
+        assert settings.default_currency.upper() == "RUB"
+        assert settings.currency_user_set is False
+        await container.create_account.execute(
+            make_account(name="Cash", currency="RUB")
+        )
+        settings = await container.get_settings.execute()
+        assert settings.default_currency.upper() == "RUB"
+        assert settings.currency_user_set is True
 
     run_async(_run())
 

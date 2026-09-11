@@ -28,19 +28,31 @@ async def _maybe_refine_locale_from_page(
     page: ft.Page | None,
     settings: Any,
 ) -> None:
-    """Apply device/UI locale until the user picks a language in Settings."""
+    """Apply device language/region until the user picks them in Settings."""
     if page is None or container.update_settings is None:
         return
-    if bool(getattr(settings, "language_user_set", False)):
-        return
-    from lib.infrastructure.services.locale_prefs import resolve_device_language
+    from lib.domain.entities.currency_codes import normalize_currency_code
+    from lib.infrastructure.services.locale_prefs import (
+        resolve_device_currency,
+        resolve_device_language,
+    )
 
-    lang = resolve_device_language(page=page)
-    if normalize_lang(settings.language) == normalize_lang(lang):
+    patch: dict[str, Any] = {}
+    if not bool(getattr(settings, "language_user_set", False)):
+        lang = resolve_device_language(page=page)
+        if normalize_lang(settings.language) != normalize_lang(lang):
+            patch["language"] = lang
+    if not bool(getattr(settings, "currency_user_set", False)):
+        currency = resolve_device_currency(page=page)
+        if normalize_currency_code(settings.default_currency) != normalize_currency_code(
+            currency
+        ):
+            patch["default_currency"] = currency
+    if not patch:
         return
-    updated = settings.model_copy(update={"language": lang})
+    updated = settings.model_copy(update=patch)
     await container.update_settings.execute(updated)
-    logger.info("Refined first-run language → %s", lang)
+    logger.info("Refined first-run locale → %s", patch)
 
 
 async def _seed_if_needed(container: Container, page: ft.Page | None = None) -> None:
@@ -66,7 +78,7 @@ async def _seed_if_needed(container: Container, page: ft.Page | None = None) -> 
 
     try:
         if container.get_settings is not None:
-            # Warm settings (language from device UI; currency until first account).
+            # Warm settings (language + default currency from device until user_set).
             settings = await container.get_settings.execute()
             await _maybe_refine_locale_from_page(container, page, settings)
     except Exception:  # noqa: BLE001

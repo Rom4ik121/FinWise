@@ -379,6 +379,7 @@ class SettingsModel(Base):
     ui_style: Mapped[str] = mapped_column(String(32), nullable=False, default="neon")
     language: Mapped[str] = mapped_column(String(8), nullable=False, default="en")
     language_user_set: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    currency_user_set: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     exchange_update_interval_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=60
     )

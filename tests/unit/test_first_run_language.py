@@ -56,7 +56,11 @@ def test_refine_skips_when_user_chose_language(monkeypatch) -> None:
     async def _run() -> None:
         container = SimpleNamespace(update_settings=MagicMock())
         container.update_settings.execute = AsyncMock()
-        settings = AppSettings(language="en", language_user_set=True)
+        settings = AppSettings(
+            language="en",
+            language_user_set=True,
+            currency_user_set=True,
+        )
         await _maybe_refine_locale_from_page(container, object(), settings)
         container.update_settings.execute.assert_not_called()
 
@@ -73,7 +77,11 @@ def test_refine_applies_device_lang_until_user_sets(monkeypatch) -> None:
         execute = AsyncMock()
         container = SimpleNamespace(update_settings=MagicMock())
         container.update_settings.execute = execute
-        settings = AppSettings(language="en", language_user_set=False)
+        settings = AppSettings(
+            language="en",
+            language_user_set=False,
+            currency_user_set=True,
+        )
         await _maybe_refine_locale_from_page(container, object(), settings)
         execute.assert_awaited_once()
         updated = execute.await_args.args[0]

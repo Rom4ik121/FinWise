@@ -8,7 +8,15 @@ import os
 from pathlib import Path
 from typing import Any
 
-from lib.domain.locale_prefs import FALLBACK_CURRENCY, FALLBACK_LANGUAGE, language_from_locale_tag
+from lib.domain.locale_prefs import (
+    FALLBACK_CURRENCY,
+    FALLBACK_LANGUAGE,
+    currency_from_locale_and_timezone,
+    currency_from_region,
+    language_from_locale_tag,
+    parse_locale_parts,
+    region_from_timezone,
+)
 
 logger = logging.getLogger("finanse.infrastructure.services.locale_prefs")
 
@@ -103,35 +111,66 @@ def resolve_device_language(
     return FALLBACK_LANGUAGE
 
 
+def resolve_device_currency(
+    *,
+    page: Any | None = None,
+    locale_tag: str | None = None,
+    timezone: str | None = None,
+) -> str:
+    """Pick a catalog fiat currency from device region (not language).
+
+    Same English-Flet-default caveat as language: ``en_US`` from Flet must not
+    stamp USD over a concrete OS region (``uk_UA`` → UAH). Locale region wins
+    over timezone; timezone fills in only when no country is present.
+    """
+    page_tag = locale_tag or locale_tag_from_page(page)
+    os_tag = detect_system_locale_tag()
+    tz = timezone or detect_system_timezone_name()
+    page_lang, page_region = parse_locale_parts(page_tag)
+    _os_lang, os_region = parse_locale_parts(os_tag)
+
+    region = ""
+    if page_region and page_lang != FALLBACK_LANGUAGE:
+        region = page_region
+    elif os_region:
+        region = os_region
+    elif page_region:
+        region = page_region
+
+    mapped = currency_from_region(region)
+    if mapped:
+        return mapped
+    tz_mapped = currency_from_region(region_from_timezone(tz))
+    if tz_mapped:
+        return tz_mapped
+    return FALLBACK_CURRENCY
+
+
 def detect_language_and_currency(
     *,
     page: Any | None = None,
     locale_tag: str | None = None,
     timezone: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve ``(language, currency)`` for first settings row.
+    """Resolve ``(language, currency)`` for the first settings row.
 
-    Language comes from the device/UI locale. Currency stays USD until the
-    user creates their first account (that currency becomes the app default).
+    Currency is the device **region** (catalog fiat only). Unknown → USD.
     """
-    _ = timezone  # currency is not auto-applied at first run
     if locale_tag:
         lang = language_from_locale_tag(locale_tag)
+        currency = currency_from_locale_and_timezone(locale_tag, timezone=timezone)
     else:
         lang = resolve_device_language(page=page)
+        currency = resolve_device_currency(page=page, timezone=timezone)
     logger.info(
-        "Locale prefs: tag=%r → language=%s currency=%s (until first account)",
+        "Locale prefs: tag=%r → language=%s currency=%s",
         locale_tag or locale_tag_from_page(page) or detect_system_locale_tag(),
         lang,
-        FALLBACK_CURRENCY,
+        currency,
     )
-    return lang, FALLBACK_CURRENCY
+    return lang, currency
 
 
 def suggested_currency_for_device(*, page: Any | None = None) -> str:
-    """Currency to pre-select on the first-account form (not persisted)."""
-    from lib.domain.locale_prefs import suggested_currency_from_device
-
-    tag = locale_tag_from_page(page) or detect_system_locale_tag()
-    tz = detect_system_timezone_name()
-    return suggested_currency_from_device(tag, timezone=tz)
+    """Currency to pre-select on the first-account form (same as first-run seed)."""
+    return resolve_device_currency(page=page)
