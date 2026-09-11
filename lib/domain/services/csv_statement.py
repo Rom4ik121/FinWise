@@ -166,7 +166,7 @@ def guess_preset(headers: Sequence[str]) -> str:
     if "дата" in lower and "сумма" in lower:
         return PRESET_RU_BANK
     if "date" in lower and "amount" in lower and (
-        "description" in lower or "currency" in lower
+        "currency" in lower or "account" in lower
     ):
         return PRESET_EN_BANK
     if "date" in lower and "amount" in lower:
