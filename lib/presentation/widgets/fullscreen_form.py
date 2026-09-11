@@ -31,6 +31,7 @@ from lib.presentation.ui_motion import (
     motion_ms,
     overlay_enter_style,
     overlay_generation,
+    overlay_skips_fade,
     prefers_reduced_motion,
 )
 from lib.presentation.utils import run_async, safe_update, tr
@@ -153,7 +154,7 @@ def _reveal_overlay(page: ft.Page, overlay: ft.Control) -> None:
     """Ease opacity/offset to the resting pose after the first paint."""
     # Native mobile fades from opacity=0; keep hit-testing off until visible.
     # Web and Windows desktop stay opaque from the first frame.
-    instant = prefers_reduced_motion(page) or _overlay_skips_fade(page)
+    instant = prefers_reduced_motion(page) or overlay_skips_fade(page)
     if instant:
         try:
             overlay.opacity = 1

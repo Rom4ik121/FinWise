@@ -145,7 +145,7 @@ def is_web_page(page: ft.Page | None) -> bool:
     return name == "web"
 
 
-def _overlay_skips_fade(page: ft.Page | None) -> bool:
+def overlay_skips_fade(page: ft.Page | None) -> bool:
     """True when starting at opacity=0 would blank the sheet."""
     if is_web_page(page):
         return True
@@ -266,7 +266,7 @@ def overlay_enter_style(page: ft.Page | None = None) -> dict[str, Any]:
     """
     if prefers_reduced_motion(page):
         return {"opacity": 1, "offset": ft.Offset(0, 0), "ignore_interactions": False}
-    if _overlay_skips_fade(page):
+    if overlay_skips_fade(page):
         return {
             "opacity": 1,
             "offset": ft.Offset(0, 0.03),
