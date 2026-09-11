@@ -80,6 +80,15 @@ def is_compact(page: ft.Page | None) -> bool:
     return page_width(page) < COMPACT_MAX
 
 
+def uses_column_nav_shell(page: ft.Page | None = None) -> bool:
+    """True when the tab bar is a Column sibling, not a Stack overlay.
+
+    Flet Windows desktop blanks every tab body when the shell is a Stack
+    (nav still paints). At ≤420px use ``Column([content expand, nav])``.
+    """
+    return page_width(page) <= COMPACT_MAX
+
+
 def is_wide(page: ft.Page | None) -> bool:
     """True on tablet / desktop-wide windows."""
     return page_width(page) >= WIDE_MIN

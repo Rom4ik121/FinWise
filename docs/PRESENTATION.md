@@ -13,8 +13,8 @@
 ### Навигация
 
 - Четыре **основные вкладки**: Главная, Операции, Счета, Настройки.
-- Кастомный **floating NavigationBar** (не scaffold NavigationBar), overlay в `Stack` (`fit=EXPAND`): тело — **непозиционированный** expanding child, таббар — height-capped `left/right/bottom`. Так ListView Home не выталкивает табы за край на **320–390** px, а узкое Windows-окно не обнуляет высоту body (fill-positioned pane + EXPAND давало height 0, nav оставался виден). `NARROW_MAX=400` → 375/390 используют compact (`xs`) nav. На compact нет backdrop-blur у таббара. Stage держит явную `width`/`height` с viewport, overlay height ≤ 18% окна.
-- Контент через `AnimatedSwitcher`, кэш построенных страниц.
+- Кастомный **floating NavigationBar**. На **≤420 px** оболочка — `Column([content expand, nav])` (Flet Windows `Stack` оставляет body серым, nav при этом жив). Шире 420 — `Stack` overlay с height-capped таббаром. Контент — обычный expanding `Container` (**не** `AnimatedSwitcher` FADE). `NARROW_MAX=400` → compact `xs` nav, без backdrop-blur. Stage держит явную `width`/`height`, overlay height ≤ 18% окна.
+- Кэш построенных страниц.
 - **Вторичные маршруты** (состояние приложения, не URL):
 
 | Маршрут | Экран |
@@ -153,11 +153,11 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 - Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от **ширины колонки** (`layout_width`), не сырого окна.
 - Все экраны — `page_frame` (динамические gutters). На **lg/xl** gutters центрируют контент: max **840 / 960** px (2–3 колонки карт), не растяжение на 1600 px и не «островок» 400 px. Счета 1–3 колонки; цели/долги/подписки/бюджеты — 1–2.
-- **xs (~320–390):** `NARROW_MAX=400`; `clamp_content_width` никогда не шире viewport; заголовки ellipsis/wrap; nav margin/label уже; tap ≥ **44**; dual-add в списке, не поверх контента; ListView `clip_behavior=HARD_EDGE`; bottom nav в `Stack` с **`fit=EXPAND`**. Тело **не** fill-positioned (иначе Windows-узкое окно даёт body height 0); overlay height-capped (≤18% высоты), без backdrop-blur на compact, `clip=NONE`. Resize 390→375 пересобирает layout (≥8 px на xs) и синхронизирует size stage.
+- **xs (~320–390):** `NARROW_MAX=400`; оболочка **`Column([body expand, nav])`**, не Stack (Windows desktop Stack blanked every tab). `clamp_content_width` никогда не шире viewport; заголовки ellipsis/wrap; nav margin/label уже; tap ≥ **44**; dual-add в списке; ListView `HARD_EDGE`. Resize 390→375 пересобирает layout (≥8 px на xs).
 - **sm (~400–420):** основные поля — gutter 12 px.
 - Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
 - Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads, account/tx chevrons). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.
-- Motion: tab fade ~220ms ease-out (not bounce); overlays fade/slide; cards scale to 0.98 on press; toasts ease in from the top. iOS Reduce Motion / `FINANCE_REDUCE_MOTION=1` skips animation. Neon glass blur is capped (~8–10) so it does not strain the eyes.
+- Motion: overlays fade/slide; cards scale to 0.98 on press; toasts ease in from the top. Tab bodies do **not** fade (`AnimatedSwitcher` stuck at opacity 0 / height 0 on Windows). iOS Reduce Motion / `FINANCE_REDUCE_MOTION=1` skips animation. Neon glass blur is capped (~8–10) so it does not strain the eyes.
 - Charts (analytics / account / dashboard) fade+slide in on first paint and manual refresh only — silent `ReloadGate` reloads skip to avoid jank. PDF export chips/actions and icon/color pickers use the same press + selection haptic language. Settings accordion eases expand/collapse (opacity + scale, delayed hide). Lock screen stays static.
 - Amount fields: live grouping must not `update()` on every keystroke (Flet web caret-at-0 turns `50` into `05`→`5`). `repair_amount_caret_prepend` treats a one-digit prepend as an append, including a missed first `on_change` (`""` → `"05"` → `"50"`). After a programmatic write, ignore the echoed extra digit for ~120ms so `50` does not flash as `500`.
 - Settings language: fullscreen endonym list (`LanguagePicker`, English first) — not a Dropdown (Flet menus clip/scroll away `en`).

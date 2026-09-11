@@ -39,6 +39,7 @@ from lib.presentation.responsive import (
     page_height,
     page_width,
     should_rebuild_layout,
+    uses_column_nav_shell,
     wrap_safe_area,
 )
 
@@ -75,14 +76,17 @@ class FinanseApp:
     def __init__(self, page: ft.Page, container: Any) -> None:
         self.page = page
         self.state = AppState(container)
-        self._content = ft.AnimatedSwitcher(
-            content=ft.Container(expand=True),
-            transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=220,
-            reverse_duration=160,
-            switch_in_curve=ft.AnimationCurve.EASE_OUT,
-            switch_out_curve=ft.AnimationCurve.EASE_OUT,
+        # Do NOT use AnimatedSwitcher FADE for tab bodies. On Flet Windows
+        # desktop the incoming child can stick at opacity 0, or the switcher
+        # + nested expand Column lays out at height 0. Nav is a sibling
+        # overlay, so that matches "tabs work, body is light-gray".
+        self._content = ft.Container(
             expand=True,
+            alignment=ft.Alignment.TOP_CENTER,
+            opacity=1,
+            ignore_interactions=False,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=ft.Container(expand=True, alignment=ft.Alignment.TOP_CENTER),
         )
         nav_m = nav_chrome_metrics(page)
         self._nav = ft.Row(
@@ -158,39 +162,36 @@ class FinanseApp:
                 content=self._nav_stack,
             ),
         )
-        # Narrow Windows (~375px) blanked every tab after 42229a8 made the
-        # body *fill-positioned* (left/top/right/bottom). StackFit.EXPAND
-        # only tightens *non-positioned* children; an all-positioned Stack
-        # can lay out the pane at height 0 while the height-capped nav
-        # still paints (clip=NONE overflow). Keep the body non-positioned
-        # + EXPAND so ListView is bounded (375 web nav stays on-screen)
-        # and the pane actually receives the viewport height.
+        # Windows Flet blanks Stack-hosted tab bodies (nav overlay still
+        # paints). ≤420px uses a Column sibling nav so expand=True is a
+        # real Flex child. Wider windows keep the floating Stack overlay.
         self._content_pane = ft.Container(
             expand=True,
+            alignment=ft.Alignment.TOP_CENTER,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             opacity=1,
             ignore_interactions=False,
             content=self._content,
         )
         self._nav_overlay = ft.Container(
-            left=0,
-            right=0,
-            bottom=0,
-            height=nav_overlay_height(page),
             alignment=ft.Alignment.BOTTOM_CENTER,
             clip_behavior=ft.ClipBehavior.NONE,
             content=self._nav_host,
+        )
+        self._shell_column = ft.Column(
+            expand=True,
+            spacing=0,
+            controls=[],
         )
         self._shell_stack = ft.Stack(
             expand=True,
             fit=ft.StackFit.EXPAND,
             clip_behavior=ft.ClipBehavior.NONE,
-            controls=[
-                self._content_pane,
-                self._nav_overlay,
-            ],
+            controls=[],
         )
-        self._shell = wrap_safe_area(self._shell_stack)
+        self._column_shell_active: bool | None = None
+        self._shell = wrap_safe_area(self._shell_column)
+        self._apply_shell_mode()
         self._stage = ft.Container(
             expand=True,
             width=page_width(page),
@@ -278,11 +279,6 @@ class FinanseApp:
             reduced = await probe_reduced_motion(self.page)
             if not reduced:
                 return
-            try:
-                self._content.duration = 0
-                self._content.reverse_duration = 0
-            except Exception:  # noqa: BLE001
-                pass
             for pill in self._nav_pills:
                 try:
                     pill.animate_scale = None
@@ -339,6 +335,7 @@ class FinanseApp:
                 except Exception:  # noqa: BLE001
                     logger.exception("Previous resize handler failed")
             self._apply_nav_metrics()
+            self._apply_shell_mode()
             self._sync_stage_size()
             bp = breakpoint(self.page)
             width = page_width(self.page)
@@ -363,6 +360,51 @@ class FinanseApp:
             self._render(force=True)
 
         self.page.on_resize = _on_resize
+
+    def _set_nav_chrome_visible(self, visible: bool) -> None:
+        self._nav_host.visible = visible
+        self._nav_overlay.visible = visible
+
+    def _clear_nav_position(self) -> None:
+        """Column sibling: no Stack offsets, finite height, no flex steal."""
+        self._nav_overlay.left = None
+        self._nav_overlay.top = None
+        self._nav_overlay.right = None
+        self._nav_overlay.bottom = None
+        self._nav_overlay.expand = False
+        self._nav_overlay.height = nav_overlay_height(self.page)
+
+    def _position_nav_overlay(self) -> None:
+        """Wide floating tab bar: height-capped strip at the bottom of the Stack."""
+        self._nav_overlay.left = 0
+        self._nav_overlay.top = None
+        self._nav_overlay.right = 0
+        self._nav_overlay.bottom = 0
+        self._nav_overlay.expand = False
+        self._nav_overlay.height = nav_overlay_height(self.page)
+
+    def _apply_shell_mode(self) -> None:
+        """Column nav on ≤420px (Windows Stack blanks the body); Stack when wide."""
+        compact = uses_column_nav_shell(self.page)
+        self._content_pane.expand = True
+        self._content_pane.left = None
+        self._content_pane.top = None
+        self._content_pane.right = None
+        self._content_pane.bottom = None
+        if compact:
+            self._clear_nav_position()
+            if self._column_shell_active is not True:
+                self._shell_stack.controls = []
+                self._shell_column.controls = [self._content_pane, self._nav_overlay]
+                self._shell.content = self._shell_column
+                self._column_shell_active = True
+            return
+        self._position_nav_overlay()
+        if self._column_shell_active is not False:
+            self._shell_column.controls = []
+            self._shell_stack.controls = [self._content_pane, self._nav_overlay]
+            self._shell.content = self._shell_stack
+            self._column_shell_active = False
 
     def _sync_stage_size(self) -> None:
         """Give the shell a finite box so a narrow resize cannot collapse the body."""
@@ -716,7 +758,7 @@ class FinanseApp:
 
             self._deactivate_view(self._active_view)
             self._active_view = None
-            self._nav_host.visible = False
+            self._set_nav_chrome_visible(False)
             lang = self.state.language
             self._content.content = ft.Container(
                 expand=True,
@@ -741,7 +783,7 @@ class FinanseApp:
         if not self.state.is_unlocked and self.state.pin_hash and self.state.pin_salt:
             self._deactivate_view(self._active_view)
             self._active_view = None
-            self._nav_host.visible = False
+            self._set_nav_chrome_visible(False)
             self._content.content = ft.Container(
                 expand=True,
                 key="lock",
@@ -786,7 +828,7 @@ class FinanseApp:
         if previous is not None and previous is not view:
             self._deactivate_view(previous)
 
-        self._nav_host.visible = route is None
+        self._set_nav_chrome_visible(route is None)
         self._build_navigation_bar()
 
         if self._rendered_tab is not None or self._rendered_secondary is not None:
@@ -794,11 +836,7 @@ class FinanseApp:
 
             haptic("light")
 
-        self._content.content = ft.Container(
-            expand=True,
-            key=route or f"tab-{tab}",
-            content=view,
-        )
+        self._content.content = view
         self._active_view = view
         self._activate_view(view)
         self._rendered_tab = tab

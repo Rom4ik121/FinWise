@@ -70,7 +70,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | PIN / lock | `test_encryption.py`, `test_app_state.py` (`reload_pin_gate`) |
 | Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key, fwbackup) |
 | Формы | `test_form_validation.py`, `test_money_input.py` (live grouping + caret-prepend `50` + orphan `05` + write-echo `500`) |
-| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py` (web skip fade, overlay `ignore_interactions`), `test_tx_filters_panel.py` (`visible_list_rows`), `test_responsive.py` (320/360/375 nav + xs resize rebuild + short-window overlay cap), `test_app_shell.py` (narrow shell: non-positioned content pane, finite stage, capped nav overlay) |
+| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py` (web skip fade, overlay `ignore_interactions`), `test_tx_filters_panel.py` (`visible_list_rows`), `test_responsive.py` (320/360/375 nav + xs resize rebuild + short-window overlay cap), `test_app_shell.py` (Column nav ≤420, Stack when wide, no AnimatedSwitcher) |
 
 ---
 
