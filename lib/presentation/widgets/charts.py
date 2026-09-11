@@ -69,8 +69,9 @@ def chart_layout(page: ft.Page | None = None) -> tuple[int, int]:
     elif page_width(page) < 400:
         height = min(height, 196)
     height = min(height, width + 4)
-    cap = int(layout_width(page))
-    return max(160, min(width, cap)), height
+    cap = max(1, int(layout_width(page)))
+    width = max(1, min(width, cap))
+    return width, height
 
 
 def _money_formatter(value: float, _pos: int = 0) -> str:
@@ -654,10 +655,11 @@ def _info_line_chart(
             )
         return shapes
 
-    # Compact sparkline and full charts both fill the card width.
+    # Compact sparkline must have an explicit width. expand=True + width=None
+    # under a LOOSE ancestor yields a 0-wide canvas (gray/blank on ~375 web).
     canvas = _SafeCanvas(
-        expand=True,
-        width=None if compact else width,
+        expand=not compact,
+        width=width,
         height=plot_h,
         shapes=_shapes(
             float(width),
@@ -682,7 +684,7 @@ def _info_line_chart(
     def _on_resize(e: cv.CanvasResizeEvent) -> None:
         w = float(getattr(e, "width", 0) or 0)
         h = float(getattr(e, "height", 0) or 0)
-        min_side = 40 if compact else 60
+        min_side = 16 if compact else 60
         if w < min_side or h < min_side:
             return
         # Keep height locked for compact so the home card does not stretch.
@@ -760,7 +762,8 @@ def _info_line_chart(
         plot_kwargs["expand"] = True
         plot_kwargs.update(glass_layer(elevated=True, opacity=0.22))
     else:
-        plot_kwargs["bgcolor"] = ft.Colors.with_opacity(0.12, ft.Colors.SURFACE)
+        plot_kwargs["width"] = width
+        plot_kwargs["bgcolor"] = None
         plot_kwargs["clip_behavior"] = ft.ClipBehavior.HARD_EDGE
     plot = ft.Container(**plot_kwargs)
     if compact:

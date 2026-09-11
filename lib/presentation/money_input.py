@@ -154,6 +154,14 @@ def repair_amount_caret_prepend(previous: str, current: str) -> str:
         if prepended == "0" and len(prev_digits) >= 2:
             return previous
         return f"{prev_digits}{prepended}"
+    # First on_change missed: field jumps from "" to "05" (typed 5 then 0).
+    if (
+        not prev_digits
+        and len(cur_digits) == 2
+        and cur_digits[0] == "0"
+        and cur_digits[1] != "0"
+    ):
+        return f"{cur_digits[1]}0"
     return current
 
 
@@ -224,6 +232,8 @@ def attach_grouped_digits(
             return
         repaired = repair_amount_caret_prepend(last["text"], current)
         formatted = format_amount_input(repaired, lang)
+        # Keep the cache even when the widget already shows ``formatted`` so a
+        # missed first keystroke still has a previous value for the next digit.
         last["text"] = formatted
         if formatted != current:
             applying["on"] = True

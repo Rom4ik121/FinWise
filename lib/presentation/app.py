@@ -33,9 +33,11 @@ from lib.presentation.utils import snack, tr
 from lib.presentation.widgets.lock_screen import LockScreen
 from lib.presentation.responsive import (
     breakpoint,
+    is_compact,
     nav_chrome_metrics,
     nav_overlay_height,
     page_width,
+    should_rebuild_layout,
     wrap_safe_area,
 )
 
@@ -140,7 +142,7 @@ class FinanseApp:
                 top=nav_m["margin_top"],
             ),
             border_radius=_NAV_RADIUS,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            clip_behavior=ft.ClipBehavior.NONE,
             bgcolor=ft.Colors.SURFACE_CONTAINER,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             animate=ft.Animation(280, ft.AnimationCurve.EASE_OUT),
@@ -156,26 +158,33 @@ class FinanseApp:
             ),
         )
         # Stack overlay (not a growing Column): Home ListView cannot push the
-        # tab bar off-screen on ~375px web viewports. The overlay is height-
-        # capped so it does not steal taps on the dashboard.
+        # tab bar off-screen on ~375px web viewports. Positioned fill +
+        # StackFit.EXPAND so LOOSE fit cannot size the stack to list content.
+        # Overlay is height-capped so it does not steal taps on the dashboard.
+        self._content_pane = ft.Container(
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=self._content,
+        )
         self._nav_overlay = ft.Container(
             left=0,
             right=0,
             bottom=0,
             height=nav_overlay_height(page),
             alignment=ft.Alignment.BOTTOM_CENTER,
+            clip_behavior=ft.ClipBehavior.NONE,
             content=self._nav_host,
         )
         self._shell = wrap_safe_area(
             ft.Stack(
                 expand=True,
-                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                fit=ft.StackFit.EXPAND,
+                clip_behavior=ft.ClipBehavior.NONE,
                 controls=[
-                    ft.Container(
-                        expand=True,
-                        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                        content=self._content,
-                    ),
+                    self._content_pane,
                     self._nav_overlay,
                 ],
             ),
@@ -324,15 +333,17 @@ class FinanseApp:
             self._apply_nav_metrics()
             bp = breakpoint(self.page)
             width = page_width(self.page)
-            modest = (
-                bp == self._layout_bp
-                and abs(width - self._layout_w) < 64
-            )
-            if modest:
+            if not should_rebuild_layout(
+                old_bp=self._layout_bp,
+                new_bp=bp,
+                old_width=self._layout_w,
+                new_width=width,
+            ):
                 try:
                     from lib.presentation.utils import safe_update
 
                     safe_update(self._nav_host)
+                    safe_update(self._nav_overlay)
                 except Exception:  # noqa: BLE001
                     pass
                 return
@@ -507,7 +518,8 @@ class FinanseApp:
         self._stage.bgcolor = skin.dark_bg if dark else skin.light_bg
         layer = glass_layer(opacity=0.38)
         self._nav_host.bgcolor = layer.get("bgcolor")
-        self._nav_host.blur = layer.get("blur")
+        # Backdrop blur on the tab bar looks clipped/smeared on ~375 web.
+        self._nav_host.blur = None if is_compact(self.page) else layer.get("blur")
         self._nav_host.border = ft.Border.all(
             1,
             ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE)
@@ -517,9 +529,9 @@ class FinanseApp:
         self._nav_host.border_radius = skin.card_radius
         self._nav_host.shadow = ft.BoxShadow(
             spread_radius=0,
-            blur_radius=22,
+            blur_radius=8 if is_compact(self.page) else 22,
             color=skin.glow,
-            offset=ft.Offset(0, 6),
+            offset=ft.Offset(0, 4 if is_compact(self.page) else 6),
         )
 
     def _build_navigation_bar(self) -> None:

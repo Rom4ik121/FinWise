@@ -105,7 +105,7 @@ CRUD цели, **вклад** со счёта (`contribute_to_goal`), проек
 
 | Класс | Назначение |
 |-------|------------|
-| Create / Update / Delete / List | Шаблоны income/expense |
+| Create / Update / Delete / List | Шаблоны income/expense. **Create** сдвигает `next_run` на следующий период, если дата ≤ сегодня — сохранение не проводит операцию сразу. Catch-up работает для уже существующих правил. |
 | `PauseRecurringRuleUseCase` | Пауза без удаления |
 | `SkipRecurringOccurrenceUseCase` | Пропустить ближайшую дату |
 | `ProcessDueRecurringRulesUseCase` | Автосоздание в ledger + catch-up (старт приложения, до 31) |

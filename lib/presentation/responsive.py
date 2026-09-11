@@ -531,9 +531,33 @@ def nav_chrome_metrics(page: ft.Page | None = None) -> dict[str, int]:
 
 
 def nav_overlay_height(page: ft.Page | None = None) -> int:
-    """Height of the bottom-nav overlay so it does not steal taps above the bar."""
+    """Height of the bottom-nav overlay so it does not steal taps above the bar.
+
+    Includes host padding (4+4) and a few extra pixels so labels are not
+    HARD_EDGE-clipped; keep this well under the dashboard tap zone.
+    """
     m = nav_chrome_metrics(page)
-    return int(m["bar_h"] + m["margin_top"] + m["margin_bottom"] + 8)
+    return int(m["bar_h"] + m["margin_top"] + m["margin_bottom"] + 16)
+
+
+def should_rebuild_layout(
+    *,
+    old_bp: str | None,
+    new_bp: str,
+    old_width: float,
+    new_width: float,
+) -> bool:
+    """Whether a window resize must remount cached pages.
+
+    A 64px slack is fine on tablet/desktop. On xs (320–390) even 15px
+    (390 fallback → 375 viewport) must rebuild so Home/nav/charts refit.
+    """
+    if old_bp != new_bp:
+        return True
+    delta = abs(float(new_width) - float(old_width))
+    if new_bp == BP_XS or old_bp == BP_XS:
+        return delta >= 8
+    return delta >= 64
 
 
 def list_nav_padding() -> ft.Padding:
@@ -663,10 +687,11 @@ def calendar_cell_size(page: ft.Page | None = None) -> int:
 def compact_chart_size(page: ft.Page | None = None) -> tuple[int, int]:
     """Dashboard / hero sparkline — sized to the hero card, not the window."""
     pad = card_padding(page, hero=True)
-    width = int(block_inner_width(page, columns=1, padding=pad))
+    cap = max(1, int(layout_width(page)))
+    inner = int(block_inner_width(page, columns=1, padding=pad))
+    width = max(1, min(inner, cap))
     h = page_height(page)
     height = max(104, min(148, int(h * 0.16)))
     if page_width(page) < NARROW_MAX:
         height = max(100, height - 8)
-    cap = int(layout_width(page))
-    return max(160, min(width, cap)), height
+    return width, height

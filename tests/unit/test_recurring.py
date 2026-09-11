@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import date
 
 from lib.domain.entities.recurring_rule import RecurringInterval, RecurringRule
-from lib.domain.use_cases.recurring import advance_recurring_date, preview_recurring_dates
+from lib.domain.use_cases.recurring import (
+    advance_recurring_date,
+    first_scheduled_run,
+    preview_recurring_dates,
+)
 from lib.presentation.money_input import parse_amount
 
 
@@ -29,6 +33,33 @@ def test_preview_recurring_dates_includes_start() -> None:
         date(2026, 4, 1),
         date(2026, 5, 1),
     ]
+
+
+def test_first_scheduled_run_skips_today_and_past() -> None:
+    today = date(2026, 9, 11)
+    assert (
+        first_scheduled_run(
+            today, RecurringInterval.MONTHLY, today=today
+        )
+        == date(2026, 10, 11)
+    )
+    assert (
+        first_scheduled_run(
+            today, RecurringInterval.DAILY, today=today
+        )
+        == date(2026, 9, 12)
+    )
+    assert (
+        first_scheduled_run(
+            date(2026, 9, 8), RecurringInterval.DAILY, today=today
+        )
+        == date(2026, 9, 12)
+    )
+    future = date(2026, 10, 1)
+    assert (
+        first_scheduled_run(future, RecurringInterval.MONTHLY, today=today)
+        == future
+    )
 
 
 def test_recurring_rule_accepts_parsed_template_amount() -> None:

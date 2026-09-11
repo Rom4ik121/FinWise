@@ -19,6 +19,7 @@ from lib.presentation.responsive import (
     nav_overlay_height,
     scale_font,
     shell_max_width,
+    should_rebuild_layout,
     swipe_action_strip_width,
     swipe_reveal_offset,
 )
@@ -94,7 +95,7 @@ def test_phone_widths_keep_nav_and_home_in_viewport() -> None:
     from lib.presentation.responsive import BP_XS, breakpoint
 
     for width in (320, 360, 375, 390):
-        page = _FakePage(width)  # type: ignore[arg-type]
+        page = _FakePage(width, height=667)  # type: ignore[arg-type]
         assert breakpoint(page) == BP_XS  # type: ignore[arg-type]
         nav = nav_chrome_metrics(page)  # type: ignore[arg-type]
         bar = width - 2 * nav["margin_h"]
@@ -102,12 +103,31 @@ def test_phone_widths_keep_nav_and_home_in_viewport() -> None:
         assert 4 * per_tab <= bar
         assert nav["label"] <= 10
         overlay = nav_overlay_height(page)  # type: ignore[arg-type]
-        assert overlay < 90
-        assert overlay < 560
+        bar_plus_margin = nav["bar_h"] + nav["margin_top"] + nav["margin_bottom"]
+        assert overlay >= bar_plus_margin
+        assert overlay < 96
+        assert overlay < 667 * 0.18
         chart_w, _chart_h = compact_chart_size(page)  # type: ignore[arg-type]
-        assert chart_w <= width
-        assert layout_width(page) <= width  # type: ignore[arg-type]
+        assert 0 < chart_w <= layout_width(page) <= width  # type: ignore[arg-type]
         assert content_inset(page) <= 10  # type: ignore[arg-type]
+
+
+def test_xs_resize_from_fallback_rebuilds_layout() -> None:
+    """390 (page_width fallback) → 375 must remount, not keep a 390 chart."""
+    from lib.presentation.responsive import BP_XS
+
+    assert should_rebuild_layout(
+        old_bp=BP_XS, new_bp=BP_XS, old_width=390, new_width=375
+    )
+    assert should_rebuild_layout(
+        old_bp=BP_XS, new_bp=BP_XS, old_width=360, new_width=320
+    )
+    assert not should_rebuild_layout(
+        old_bp=BP_XS, new_bp=BP_XS, old_width=375, new_width=375
+    )
+    assert not should_rebuild_layout(
+        old_bp="lg", new_bp="lg", old_width=1100, new_width=1140
+    )
 
 
 def test_breakpoints_and_grid() -> None:

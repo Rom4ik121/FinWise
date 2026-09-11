@@ -9,7 +9,7 @@ import flet as ft
 
 from lib.domain.entities.recurring_rule import RecurringInterval, RecurringRule
 from lib.domain.entities.transaction import TransactionType
-from lib.domain.use_cases.recurring import preview_recurring_dates
+from lib.domain.use_cases.recurring import first_scheduled_run, preview_recurring_dates
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.form_keyboard import configure_field, wire_field_chain
@@ -278,6 +278,8 @@ class RecurringPage(ft.Column):
             lang=lang,
             value=rule.account_id if rule else self._accounts[0].id,
         )
+        default_interval = RecurringInterval.MONTHLY
+        default_next = first_scheduled_run(date.today(), default_interval)
         next_field = DateTimeField(
             self._page,
             lang=lang,
@@ -285,7 +287,9 @@ class RecurringPage(ft.Column):
             value=(
                 datetime.combine(rule.next_run, datetime.min.time(), tzinfo=timezone.utc)
                 if rule
-                else datetime.now(timezone.utc)
+                else datetime.combine(
+                    default_next, datetime.min.time(), tzinfo=timezone.utc
+                )
             ),
         )
         auto_sw = ft.Switch(value=bool(rule.auto_create) if rule else True)
@@ -297,6 +301,10 @@ class RecurringPage(ft.Column):
                 start_d = start.date() if isinstance(start, datetime) else date.today()
                 interval = RecurringInterval(interval_dd.value or RecurringInterval.MONTHLY.value)
                 count = int(count_tf.value or "1")
+                if rule is None:
+                    start_d = first_scheduled_run(
+                        start_d, interval, interval_count=count
+                    )
                 dates = preview_recurring_dates(start_d, interval, interval_count=count, count=3)
                 preview_text.value = tr(
                     "recurring.preview", lang, dates=", ".join(d.isoformat() for d in dates)

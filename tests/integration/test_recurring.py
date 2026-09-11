@@ -16,7 +16,7 @@ def test_process_due_recurring_catchup_skip_pause(container) -> None:
         acc = await container.create_account.execute(make_account(balance="5000"))
         today = datetime.now(timezone.utc).date()
         start = today - timedelta(days=3)
-        await container.create_recurring_rule.execute(
+        created_rule = await container.create_recurring_rule.execute(
             RecurringRule(
                 name="Salary",
                 amount=Decimal("100"),
@@ -26,6 +26,13 @@ def test_process_due_recurring_catchup_skip_pause(container) -> None:
                 interval=RecurringInterval.DAILY,
                 next_run=start,
             )
+        )
+        # Create defers the first posting; catch-up still runs for existing rules.
+        assert created_rule.next_run == today + timedelta(days=1)
+        none_on_create = await container.process_due_recurring.execute(max_creates=31)
+        assert none_on_create == []
+        await container.update_recurring_rule.execute(
+            created_rule.model_copy(update={"next_run": start})
         )
         created = await container.process_due_recurring.execute(max_creates=31)
         assert len(created) == 4
@@ -45,6 +52,11 @@ def test_process_due_recurring_catchup_skip_pause(container) -> None:
                 interval=RecurringInterval.DAILY,
                 next_run=today - timedelta(days=1),
                 skip_next=True,
+            )
+        )
+        skip_rule = await container.update_recurring_rule.execute(
+            skip_rule.model_copy(
+                update={"next_run": today - timedelta(days=1), "skip_next": True}
             )
         )
         skipped_creates = await container.process_due_recurring.execute(
@@ -85,10 +97,38 @@ def test_recurring_skip_when_already_due(container) -> None:
                 next_run=today,
             )
         )
+        rule = await container.update_recurring_rule.execute(
+            rule.model_copy(update={"next_run": today})
+        )
         skipped = await container.skip_recurring_occurrence.execute(rule.id)
         assert skipped.next_run == today + timedelta(days=7)
         assert skipped.skip_next is False
         created = await container.process_due_recurring.execute(max_creates=31)
         assert created == []
+
+
+def test_create_template_today_does_not_post(container) -> None:
+    async def _run() -> None:
+        acc = await container.create_account.execute(make_account(balance="5000"))
+        today = date.today()
+        before = acc.balance
+        rule = await container.create_recurring_rule.execute(
+            RecurringRule(
+                name="Rent",
+                amount=Decimal("50"),
+                account_id=acc.id,
+                type=TransactionType.EXPENSE,
+                interval=RecurringInterval.MONTHLY,
+                next_run=today,
+            )
+        )
+        assert rule.next_run > today
+        posted = await container.process_due_recurring.execute(max_creates=31)
+        assert posted == []
+        txs = await container.list_transactions.execute(account_id=acc.id)
+        assert txs == []
+        refreshed = await container.list_accounts.execute(active_only=False)
+        cash = next(a for a in refreshed if a.id == acc.id)
+        assert cash.balance == before
 
     run_async(_run())

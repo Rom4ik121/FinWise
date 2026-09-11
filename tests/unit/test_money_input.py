@@ -61,6 +61,8 @@ def test_repair_caret_prepend_turns_05_into_50() -> None:
     assert repair_amount_caret_prepend("50", "500") == "500"
     assert repair_amount_caret_prepend("50", "050") == "50"
     assert repair_amount_caret_prepend("12", "1.234") == "1.234"
+    assert repair_amount_caret_prepend("", "05") == "50"
+    assert repair_amount_caret_prepend("", "5") == "5"
 
 
 def test_attach_grouped_digits_keeps_fifty() -> None:
@@ -79,6 +81,20 @@ def test_attach_grouped_digits_keeps_fifty() -> None:
     assert field.value == "50"
     field.value = "5"
     field.on_change(_Evt())
+    field.value = "05"
+    field.on_change(_Evt())
+    assert field.value == "50"
+
+
+def test_attach_grouped_digits_repairs_orphan_05() -> None:
+    """Flet web can skip the first on_change and deliver only ``05``."""
+    import flet as ft
+
+    class _Evt:
+        pass
+
+    field = ft.TextField(value="")
+    attach_grouped_digits(field, "en")
     field.value = "05"
     field.on_change(_Evt())
     assert field.value == "50"

@@ -68,6 +68,32 @@ def preview_recurring_dates(
     return out
 
 
+def first_scheduled_run(
+    start: date,
+    interval: RecurringInterval,
+    *,
+    interval_count: int = 1,
+    today: Optional[date] = None,
+) -> date:
+    """First auto-create date that does not post on the save day.
+
+    Creating a template with ``next_run`` today (or in the past) used to
+    fire ``process_due_recurring`` on the same launch and change balances
+    immediately. Catch-up of *existing* rules is unchanged.
+    """
+    moment = today or _utc_now().date()
+    cursor = start
+    if cursor > moment:
+        return cursor
+    safety = 0
+    while cursor <= moment and safety < 500:
+        cursor = advance_recurring_date(
+            cursor, interval, interval_count=interval_count
+        )
+        safety += 1
+    return cursor
+
+
 class CreateRecurringRuleUseCase:
     """Persist a new recurring template."""
 
@@ -76,7 +102,15 @@ class CreateRecurringRuleUseCase:
 
     async def execute(self, rule: RecurringRule) -> RecurringRule:
         now = _utc_now()
-        created = rule.model_copy(update={"created_at": now, "updated_at": now})
+        nxt = first_scheduled_run(
+            rule.next_run,
+            rule.interval,
+            interval_count=rule.interval_count,
+            today=now.date(),
+        )
+        created = rule.model_copy(
+            update={"created_at": now, "updated_at": now, "next_run": nxt}
+        )
         return await self._rules.create(created)
 
 

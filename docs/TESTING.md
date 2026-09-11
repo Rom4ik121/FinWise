@@ -68,8 +68,8 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | iOS IPA patch | `test_ios_notifications.py` (AppDelegate, Info.plist, PrivacyInfo, `--verify`) |
 | PIN / lock | `test_encryption.py`, `test_app_state.py` (`reload_pin_gate`) |
 | Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key, fwbackup) |
-| Формы | `test_form_validation.py`, `test_money_input.py` (live grouping + caret-prepend `50` + write-echo `500`) |
-| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py`, `test_tx_filters_panel.py`, `test_responsive.py` (375px nav) |
+| Формы | `test_form_validation.py`, `test_money_input.py` (live grouping + caret-prepend `50` + orphan `05` + write-echo `500`) |
+| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py`, `test_tx_filters_panel.py`, `test_responsive.py` (320/360/375 nav + xs resize rebuild) |
 
 ---
 
@@ -83,6 +83,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Операции / позиции чека | `test_transactions.py`, `test_transaction_items.py` |
 | Переводы + FX | `test_transfers.py` (fee on destination deleted with the pair) |
 | Цели / долги / подписки | `test_goals.py`, `test_debts.py` (interest tag stamp + reverse), `test_subscriptions.py` |
+| Шаблоны | `test_recurring.py` (create today does not post; catch-up after update) |
 | Бюджеты | `test_budgets.py` (debt repayments skipped; category match is case-insensitive), `test_budget_items_parity.py` |
 | Категории / валюты | `test_categories.py`, `test_currencies.py` |
 | Курсы upsert / safe convert | `test_exchange_rate_upsert.py`, `test_safe_convert.py` |
