@@ -53,6 +53,8 @@ class CsvImportPage(ft.Column):
                     body=self._body,
                     page=page,
                     extra=[form_hint(tr("csv.import.hint", lang), size=12)],
+                    on_back=state.close_secondary,
+                    lang=lang,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.UPLOAD_FILE,

@@ -58,3 +58,50 @@ def test_no_wrap_is_narrow_beside_expand_in_presentation() -> None:
         if "wrap=is_narrow" in text:
             hits.append(str(path.relative_to(root.parent.parent)))
     assert hits == []
+
+
+def test_page_frame_on_back_adds_leading_arrow() -> None:
+    from lib.presentation.components.layout.page_shell import page_frame
+
+    called: list[int] = []
+    kids = page_frame(
+        title="Templates",
+        body=ft.Text("body"),
+        on_back=lambda: called.append(1),
+        lang="en",
+    )
+    header = kids[0]
+    leading = header.content.controls[0].controls[0]
+    assert isinstance(leading, ft.IconButton)
+    assert leading.icon == ft.Icons.ARROW_BACK
+    leading.on_click(None)
+    assert called == [1]
+
+
+def test_secondary_pages_wire_back_to_close_secondary() -> None:
+    """Every non-primary route must have a leading Back that clears the route."""
+    pages = Path(__file__).resolve().parents[2] / "lib" / "presentation" / "pages"
+    secondary = (
+        "recurring.py",
+        "csv_import.py",
+        "goals.py",
+        "debts.py",
+        "subscriptions.py",
+        "budgets.py",
+        "analytics.py",
+        "currencies.py",
+        "account_detail.py",
+    )
+    missing = [
+        name
+        for name in secondary
+        if "on_back=state.close_secondary" not in (pages / name).read_text(encoding="utf-8")
+    ]
+    assert missing == []
+    primary = ("dashboard.py", "transactions.py", "accounts.py", "settings.py")
+    leaked = [
+        name
+        for name in primary
+        if "on_back=state.close_secondary" in (pages / name).read_text(encoding="utf-8")
+    ]
+    assert leaked == []

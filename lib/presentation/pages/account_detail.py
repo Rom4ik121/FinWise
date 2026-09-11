@@ -125,10 +125,8 @@ class AccountDetailPage(ft.Column):
                     extra=[
                         ft.Container(height=42, content=self._period_row),
                     ],
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         self._sync_btn,
                         ft.IconButton(

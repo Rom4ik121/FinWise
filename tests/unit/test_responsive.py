@@ -140,7 +140,7 @@ def test_shell_centers_on_desktop_without_skinny_island() -> None:
     assert se_nav["margin_h"] <= 8
     assert se_nav["label"] <= 11
     pad = list_nav_padding()
-    assert pad.bottom == 104
+    assert pad.bottom == 20
 
 
 def test_phone_widths_keep_nav_and_home_in_viewport() -> None:
@@ -364,7 +364,7 @@ def test_content_inset_never_exceeds_half_remaining() -> None:
         assert 2 * inset + min(240, width) <= width + 0.01
 
 
-def test_page_frame_does_not_hard_clip_or_bake_desktop_gutters() -> None:
+def test_page_frame_uses_small_gutters_and_clips_body() -> None:
     import flet as ft
 
     from lib.presentation.components.layout.page_shell import page_frame
@@ -380,4 +380,4 @@ def test_page_frame_does_not_hard_clip_or_bake_desktop_gutters() -> None:
     right = getattr(pad, "right", pad)
     assert float(left) <= 12
     assert float(right) <= 12
-    assert host.clip_behavior == ft.ClipBehavior.NONE
+    assert host.clip_behavior == ft.ClipBehavior.HARD_EDGE

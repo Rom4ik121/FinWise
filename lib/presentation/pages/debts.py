@@ -131,10 +131,8 @@ class DebtsPage(ft.Column):
                     body=self._list,
                     page=page,
                     extra=[self._search_tf],
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=state.language,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.TUNE,

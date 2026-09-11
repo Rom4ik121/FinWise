@@ -238,10 +238,8 @@ class CurrenciesPage(ft.Column):
                     title=tr("nav.currencies", lang),
                     body=self._body,
                     page=page,
-                    leading=ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        on_click=lambda _e: state.close_secondary(),
-                    ),
+                    on_back=state.close_secondary,
+                    lang=lang,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.SYNC,

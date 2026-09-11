@@ -13,7 +13,7 @@
 ### Навигация
 
 - Четыре **основные вкладки**: Главная, Операции, Счета, Настройки.
-- Кастомный **floating NavigationBar**. Оболочка — `Stack` (`StackFit.EXPAND`, clip NONE) с `_content_pane` **ltrb=0 + expand** (не LOOSE unpositioned expand → height 0 на xs). `is_compact` — ширина **≤420**. Compact: без nav blur, `AnimatedSwitcher` duration 0. **Windows blank body:** (1) `page.width` и `window.width` оба могут отставать — `note_viewport_size` кэширует `e.width` *до* inset math. (2) `page_header` / `form_header_bar` **не** `wrap` на Row с `expand=True`. Gutters ≤ `(width - min(240,width))/2`. `NARROW_MAX=400`, overlay height ≤ 18% окна.
+- Кастомный **floating NavigationBar**. Оболочка — `Stack` (`StackFit.EXPAND`, clip NONE) с `_content_pane` **fill-positioned + expand**. Когда nav виден, `pane.bottom = nav_overlay_height` и clip **HARD_EDGE**, чтобы имена счетов не рисовались поверх таббара. На secondary / lock nav скрыт и `bottom=0`. `is_compact` — ширина **≤420**. Compact: без nav blur, `AnimatedSwitcher` duration 0. **Windows blank body:** (1) `page.width` и `window.width` оба могут отставать — `note_viewport_size` кэширует `e.width` *до* inset math. (2) `page_header` / `form_header_bar` **не** `wrap` на Row с `expand=True`. Gutters ≤ `(width - min(240,width))/2`. `NARROW_MAX=400`, overlay height ≤ 18% окна.
 - Кэш построенных страниц.
 - **Вторичные маршруты** (состояние приложения, не URL):
 
@@ -30,6 +30,7 @@
 | `recurring` | Шаблоны повторяющихся операций |
 
 API состояния: `set_tab`, `open_secondary`, `close_secondary`.
+Каждый secondary-экран — `page_frame(..., on_back=state.close_secondary)`: leading `ARROW_BACK` в шапке (Шаблоны, CSV-импорт, цели, долги, подписки, бюджеты, валюты, аналитика, карточка счёта). Основные вкладки Back не показывают.
 
 ### Блокировка
 
@@ -103,7 +104,8 @@ Observer: `subscribe` / `notify` (с coalesce).
 - **Reload coalesce:** `reload_gate.py` — поиск/фильтры не штормят БД; скрытые вкладки не reload'ятся на каждый save (явный `mark_shown` / `mark_hidden`).
 - **Scroll / rebuild:** `ui_motion.replace_controls` сохраняет позицию списка. Главная при повторном reload мутирует слоты (баланс/ярлыки/бюджеты), не пересобирает ListView. Fullscreen-формы reuse'ят один overlay-слот (`push_overlay`); закрытие обнуляет дерево без `page.update()`.
 - Ошибки: `snack_exception` / `user_facing_error` — доменные тексты → i18n; technical English → `error.generic`; без traceback. Пустой Save на формах (счета, операции, долги, цели, подписки, бюджеты) не молчит: `form_validation.py` ставит `TextField.error` и красный тост поверх fullscreen (`ui_feedback.flash_error`).
-- Списки: нижний padding ListView (`LIST_NAV_CLEARANCE` = 104 px), чтобы контент не прятался под floating nav / home indicator.
+- Списки: нижний padding ListView (`list_nav_padding` / `LIST_NAV_CLEARANCE` = 20 px) — только зазор. Отступ под floating nav делает оболочка (`_content_pane.bottom`). Home indicator — SafeArea.
+- Карточки счетов: Edit / Delete / Sync **не** на лицевой стороне. Свайп (шеврон) сдвигает карточку влево и открывает **вертикальный** стек кнопок справа позади карты.
 - Категория из операции: `CategoryPicker` открывает полноценный редактор (имя / иконка / цвет), кнопка «Создать» сверху списка.
 ---
 
@@ -163,14 +165,14 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Settings language: fullscreen endonym list (`LanguagePicker`, English first) — not a Dropdown (Flet menus clip/scroll away `en`).
 - First-run default currency follows the device **region** (`uk-UA` → UAH) until Settings save or the first account (`currency_user_set`). The new-account ticker uses `settings.default_currency`.
 - Transactions Tune: filter panel (account / type / category / period / amount) with header **Apply**; period chips only fill dates; **Clear** is explicit. Opening Tune does not wipe filters.
-- Success toasts linger ~2.3s (`ui_feedback._BANNER_MS`) and stay above fullscreen overlays. Fullscreen sheets insert **under** the toast; dismissed sheets set `ignore_interactions` immediately. Native enter fades from `opacity=0` with `ignore_interactions` until the resting pose; Flet web never uses `opacity=0` overlays (they still steal taps). Settings accordion skips the fade on web and ignores hits while collapsed. Account Edit/Delete sit outside the card’s open-detail hit target. On xs, form Save is a compact 44px icon so the title is not crushed.
+- Success toasts linger ~2.3s (`ui_feedback._BANNER_MS`) and stay above fullscreen overlays. Fullscreen sheets insert **under** the toast; dismissed sheets set `ignore_interactions` immediately. Native enter fades from `opacity=0` with `ignore_interactions` until the resting pose; Flet web never uses `opacity=0` overlays (they still steal taps). Settings accordion skips the fade on web and ignores hits while collapsed. Account Edit/Delete/Sync are a **vertical** stack revealed behind the sliding card (chevron/swipe) — not face buttons and not a horizontal strip. On xs, form Save is a compact 44px icon so the title is not crushed.
 - Template chips (budget / debt / goal / subscription) fill the amount only when the field is empty (`amount_text`), so an unflushed grouped value is not overwritten.
 - First paint of empty lists uses **skeleton rows**, not a blank flash. Hidden-tab reloads stay coalesced (`ReloadGate` + `AppState.notify(coalesce=True)`).
 - Формы / lock: `clamp_content_width` вместо жёстких `width=280/340`.
 - Графики: `chart_layout` / `compact_chart_size` от `layout_width`.
 - ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный); на lg/xl nav сгруппирован (~520–560 px), вкладки не расползаются на всю ширину окна.
 - Resize: смена breakpoint пересобирает кэш страниц, чтобы сетки и gutters совпали с новым окном.
-- **Safe area:** `wrap_safe_area` (Flutter `SafeArea`) on the app shell, lock, splash, fullscreen forms/pickers, attachment viewer, and toasts. Uses MediaQuery padding (notch / Dynamic Island / home indicator / landscape sides) plus a small floor (`SAFE_MIN_TOP/BOTTOM` 8/4) — not a per-device pixel map. Nested lock SafeArea uses `minimum=0` so the floor is not doubled. List `LIST_NAV_CLEARANCE` only clears the floating nav; the home indicator is SafeArea. `maintain_bottom_view_padding` keeps the bottom inset when the keyboard is up.
+- **Safe area:** `wrap_safe_area` (Flutter `SafeArea`) on the app shell, lock, splash, fullscreen forms/pickers, attachment viewer, and toasts. Uses MediaQuery padding (notch / Dynamic Island / home indicator / landscape sides) plus a small floor (`SAFE_MIN_TOP/BOTTOM` 8/4) — not a per-device pixel map. Nested lock SafeArea uses `minimum=0` so the floor is not doubled. List `LIST_NAV_CLEARANCE` is a small comfort gap; the floating nav is cleared by the pane inset. `maintain_bottom_view_padding` keeps the bottom inset when the keyboard is up.
 
 ---
 

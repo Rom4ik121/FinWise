@@ -30,10 +30,11 @@ SHELL_MAX_XL = 960
 # Grouped floating tab bar on large windows (mobile chrome, not a spread).
 NAV_BAR_MAX_LG = 520
 NAV_BAR_MAX_XL = 560
-# ListView clearance under the floating nav. The home indicator / notch /
-# Dynamic Island are Flutter SafeArea's job (see wrap_safe_area), not a
-# per-device pixel offset.
-LIST_NAV_CLEARANCE = 104
+# Comfort gap under lists. The shell insets `_content_pane` above the
+# floating nav (`nav_overlay_height`); do not double that overlay height
+# here or last rows sit in a huge empty well. Notch / home indicator are
+# Flutter SafeArea (see wrap_safe_area).
+LIST_NAV_CLEARANCE = 20
 # Floor applied *with* MediaQuery padding (the greater of the two).
 # Not a notch or island height — those come from the OS.
 SAFE_MIN_TOP = 8
@@ -693,13 +694,10 @@ def should_rebuild_layout(
     return delta >= 64
 
 
-def list_nav_padding() -> ft.Padding:
-    """Bottom inset so ListView rows clear the floating nav.
-
-    Home-indicator / gesture-bar inset is applied by :func:`wrap_safe_area`
-    on the shell, not by this padding.
-    """
-    return ft.Padding.only(bottom=LIST_NAV_CLEARANCE)
+def list_nav_padding(page: ft.Page | None = None) -> ft.Padding:
+    """Last-row gap under lists. The shell insets the pane above the nav."""
+    _ = page
+    return ft.Padding.only(bottom=20)
 
 
 def safe_area_minimum(*, top: bool = True, bottom: bool = True) -> ft.Padding:

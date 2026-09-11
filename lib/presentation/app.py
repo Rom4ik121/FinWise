@@ -168,10 +168,10 @@ class FinanseApp:
             left=0,
             top=0,
             right=0,
-            bottom=0,
+            bottom=nav_overlay_height(page),
             expand=True,
             alignment=ft.Alignment.TOP_CENTER,
-            clip_behavior=ft.ClipBehavior.NONE,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             opacity=1,
             ignore_interactions=False,
             content=self._content,
@@ -371,6 +371,7 @@ class FinanseApp:
     def _set_nav_chrome_visible(self, visible: bool) -> None:
         self._nav_host.visible = visible
         self._nav_overlay.visible = visible
+        self._position_content_pane()
 
     def _clear_nav_position(self) -> None:
         """Column sibling: no Stack offsets, finite height, no flex steal."""
@@ -391,13 +392,15 @@ class FinanseApp:
         self._nav_overlay.height = nav_overlay_height(self.page)
 
     def _position_content_pane(self) -> None:
-        """Fill the Stack so EXPAND has a positioned child (not 0-height on xs)."""
+        """Fill-positioned pane that stops above the nav so list text cannot bleed."""
+        nav_on = bool(getattr(self._nav_overlay, "visible", True))
+        bottom = nav_overlay_height(self.page) if nav_on else 0
         self._content_pane.left = 0
         self._content_pane.top = 0
         self._content_pane.right = 0
-        self._content_pane.bottom = 0
+        self._content_pane.bottom = bottom
         self._content_pane.expand = True
-        self._content_pane.clip_behavior = ft.ClipBehavior.NONE
+        self._content_pane.clip_behavior = ft.ClipBehavior.HARD_EDGE
 
     def _sync_content_switcher(self) -> None:
         """Skip fade on compact remount (Flet Windows can stick at opacity 0)."""
@@ -422,7 +425,10 @@ class FinanseApp:
         """Apply (or clear) desktop centering pads so a squeeze cannot zero the body."""
         pad = shell_side_padding(self.page)
         self._content_pane.padding = ft.Padding.symmetric(horizontal=pad)
-        self._content_pane.clip_behavior = ft.ClipBehavior.NONE
+        # Clip the pane, not the stage: HARD_EDGE here stops list text from
+        # painting through the floating nav. Stage stays unclipped so a
+        # stale gutter cannot blank the whole window.
+        self._content_pane.clip_behavior = ft.ClipBehavior.HARD_EDGE
         self._stage.clip_behavior = ft.ClipBehavior.NONE
 
     def _sync_stage_size(self) -> None:
@@ -430,6 +436,7 @@ class FinanseApp:
         self._stage.width = page_width(self.page)
         self._stage.height = page_height(self.page)
         self._sync_shell_gutters()
+        self._position_content_pane()
 
     def _apply_nav_metrics(self) -> None:
         """Resize the floating tab bar for the current viewport."""
@@ -441,6 +448,7 @@ class FinanseApp:
             top=m["margin_top"],
         )
         self._nav_overlay.height = nav_overlay_height(self.page)
+        self._position_content_pane()
         self._nav_stack.height = m["bar_h"]
         self._nav_indicator.width = m["pill_w"]
         self._nav_indicator.height = m["pill_h"]

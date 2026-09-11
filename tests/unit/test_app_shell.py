@@ -5,7 +5,11 @@ from __future__ import annotations
 import flet as ft
 
 from lib.presentation.app import FinanseApp
-from lib.presentation.responsive import is_compact, uses_column_nav_shell
+from lib.presentation.responsive import (
+    is_compact,
+    nav_overlay_height,
+    uses_column_nav_shell,
+)
 
 
 class _FakeWindow:
@@ -35,6 +39,15 @@ class _FakePage:
         self.controls.append(control)
 
 
+def _assert_pane_clears_nav(app: FinanseApp, page: _FakePage) -> None:
+    pane = app._content_pane
+    assert pane.left == 0 and pane.top == 0
+    assert pane.right == 0
+    assert pane.bottom == nav_overlay_height(page)
+    assert pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
+    assert pane.expand is True
+
+
 def test_uses_column_nav_shell_at_phone_widths() -> None:
     assert uses_column_nav_shell(_FakePage(320)) is True  # type: ignore[arg-type]
     assert uses_column_nav_shell(_FakePage(375)) is True  # type: ignore[arg-type]
@@ -49,7 +62,7 @@ def test_is_compact_inclusive_at_420() -> None:
 
 
 def test_narrow_shell_fill_positions_content_pane() -> None:
-    """xs: positioned ltrb=0 + StackFit.EXPAND (not LOOSE unpositioned expand)."""
+    """xs: positioned pane stops above the nav so list text cannot bleed."""
     page = _FakePage(375, 667)
     app = FinanseApp(page, object())  # type: ignore[arg-type]
     pane = app._content_pane
@@ -58,10 +71,7 @@ def test_narrow_shell_fill_positions_content_pane() -> None:
     assert app._shell_stack.fit == ft.StackFit.EXPAND
     assert app._shell_stack.clip_behavior == ft.ClipBehavior.NONE
     assert app._shell_stack.controls == [pane, nav]
-    assert pane.expand is True
-    assert pane.left == 0 and pane.top == 0
-    assert pane.right == 0 and pane.bottom == 0
-    assert pane.clip_behavior == ft.ClipBehavior.NONE
+    _assert_pane_clears_nav(app, page)
     assert pane.opacity == 1
     assert pane.ignore_interactions is False
     assert nav.left == 0 and nav.right == 0 and nav.bottom == 0
@@ -82,9 +92,7 @@ def test_wide_shell_keeps_stack_overlay() -> None:
     pane = app._content_pane
     nav = app._nav_overlay
     assert app._shell.content is app._shell_stack
-    assert pane.expand is True
-    assert pane.left == 0 and pane.top == 0
-    assert pane.right == 0 and pane.bottom == 0
+    _assert_pane_clears_nav(app, page)
     assert nav.left == 0 and nav.right == 0 and nav.bottom == 0
     assert float(nav.height) < 800 * 0.18
     assert isinstance(app._content, ft.AnimatedSwitcher)
@@ -103,13 +111,10 @@ def test_resize_wide_to_narrow_keeps_positioned_pane() -> None:
     app._sync_stage_size()
     assert app._shell.content is app._shell_stack
     pane = app._content_pane
-    assert pane.left == 0 and pane.top == 0
-    assert pane.right == 0 and pane.bottom == 0
+    _assert_pane_clears_nav(app, page)
     assert app._stage.width == 360
-    assert pane.expand is True
     pad = pane.padding
     assert float(getattr(pad, "left", 0) or 0) == 0
-    assert pane.clip_behavior == ft.ClipBehavior.NONE
     assert app._content.duration == 0
     assert app._nav_host.blur is None
     assert not isinstance(app._shell, ft.SafeArea)
@@ -132,8 +137,7 @@ def test_desktop_gutters_move_to_shell_and_clear_on_squeeze() -> None:
     pad = app._content_pane.padding
     assert float(getattr(pad, "left", 0) or 0) == 0
     assert float(getattr(pad, "right", 0) or 0) == 0
-    assert app._content_pane.expand is True
-    assert app._content_pane.left == 0
+    _assert_pane_clears_nav(app, page)
     assert app._content.duration == 0
 
 
@@ -149,7 +153,28 @@ def test_resize_narrow_to_wide_restores_fade() -> None:
     app._sync_stage_size()
     assert app._shell.content is app._shell_stack
     assert app._nav_overlay.bottom == 0
+    _assert_pane_clears_nav(app, page)
     assert app._content.duration == 220
+
+
+def test_hiding_nav_lets_pane_fill_the_bottom() -> None:
+    """Secondary routes / lock: no tab bar, so the body uses the full height."""
+    page = _FakePage(375, 667)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    app._set_nav_chrome_visible(False)
+    assert app._content_pane.bottom == 0
+    assert app._content_pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
+    app._set_nav_chrome_visible(True)
+    _assert_pane_clears_nav(app, page)
+
+
+def test_gutter_sync_does_not_drop_pane_clip() -> None:
+    """Regression: _sync_shell_gutters used to reset clip to NONE (nav bleed)."""
+    page = _FakePage(375, 667)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    app._sync_shell_gutters()
+    app._sync_stage_size()
+    _assert_pane_clears_nav(app, page)
 
 
 def test_resize_event_notes_viewport_before_inset_math() -> None:
@@ -168,3 +193,5 @@ def test_resize_event_notes_viewport_before_inset_math() -> None:
     pad = app._content_pane.padding
     assert float(getattr(pad, "left", 0) or 0) == 0
     assert float(getattr(pad, "right", 0) or 0) == 0
+    assert app._content_pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
+    assert app._content_pane.bottom == nav_overlay_height(page)

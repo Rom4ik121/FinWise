@@ -50,6 +50,8 @@ class RecurringPage(ft.Column):
                     title=tr("nav.recurring", lang),
                     body=self._list,
                     page=page,
+                    on_back=state.close_secondary,
+                    lang=lang,
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.ADD,
