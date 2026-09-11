@@ -47,32 +47,131 @@ BP_LG = "lg"
 BP_XL = "xl"
 
 
-def page_width(page: ft.Page | None) -> float:
-    """Best-effort viewport width in logical pixels."""
+# Live viewport from the last resize event. On Flet Windows, both
+# ``page.width`` and ``page.window.width`` can stay at the pre-resize
+# desktop size (e.g. 1266) while the visible window is ~300px.
+_VIEWPORT_W_ATTR = "_fw_viewport_w"
+_VIEWPORT_H_ATTR = "_fw_viewport_h"
+_MIN_BODY_WIDTH = 240.0
+
+
+def _positive_dims(*values: Any) -> list[float]:
+    """Collect strictly positive numeric sizes (ignore None / 0 / junk)."""
+    found: list[float] = []
+    for raw in values:
+        try:
+            number = float(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            found.append(number)
+    return found
+
+
+def _first_positive(*values: Any) -> float | None:
+    found = _positive_dims(*values)
+    return found[0] if found else None
+
+
+def note_viewport_size(
+    page: ft.Page | None,
+    *,
+    width: Any = None,
+    height: Any = None,
+) -> None:
+    """Cache the live viewport from a resize event onto ``page``.
+
+    Call this with ``e.width`` / ``e.height`` *before* any breakpoint or
+    ``content_inset`` math. ``min(page.width, window.width)`` is not enough
+    — both properties can lag at ~1266 while the event carries ~300.
+    """
     if page is None:
-        return _REF_WIDTH
-    raw = getattr(page, "width", None)
-    if not raw:
-        raw = getattr(getattr(page, "window", None), "width", None)
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return _REF_WIDTH
-    return value if value > 0 else _REF_WIDTH
+        return
+    cached_w = _first_positive(width)
+    cached_h = _first_positive(height)
+    if cached_w is not None:
+        setattr(page, _VIEWPORT_W_ATTR, cached_w)
+    if cached_h is not None:
+        setattr(page, _VIEWPORT_H_ATTR, cached_h)
+
+
+def note_viewport_from_event(page: ft.Page | None, event: Any = None) -> None:
+    """Read ``width`` / ``height`` off a Flet resize event and cache them."""
+    note_viewport_size(
+        page,
+        width=_dim_from_resize_event(event, "width"),
+        height=_dim_from_resize_event(event, "height"),
+    )
+
+
+def _dim_from_resize_event(event: Any, name: str) -> Any:
+    if event is None:
+        return None
+    direct = getattr(event, name, None)
+    if _first_positive(direct) is not None:
+        return direct
+    control = getattr(event, "control", None)
+    if control is not None:
+        nested = getattr(control, name, None)
+        if _first_positive(nested) is not None:
+            return nested
+    data = getattr(event, "data", None)
+    if isinstance(data, dict):
+        return data.get(name)
+    return None
+
+
+def _page_dim(
+    page: ft.Page | None,
+    *,
+    cache_attr: str,
+    window_attr: str,
+    page_attr: str,
+    fallback: float,
+) -> float:
+    if page is None:
+        return fallback
+    win = getattr(page, "window", None)
+    found = _first_positive(
+        getattr(page, cache_attr, None),
+        getattr(win, window_attr, None),
+        getattr(page, page_attr, None),
+    )
+    return found if found is not None else fallback
+
+
+def page_width(page: ft.Page | None) -> float:
+    """Viewport width in logical pixels.
+
+    Flet Windows desktop can leave **both** ``page.width`` and
+    ``page.window.width`` stale (e.g. 1266) after a squeeze to ~300px.
+    Prefer, in order: the :func:`note_viewport_size` cache (resize event),
+    then ``window.width``, then ``page.width``. A stale wide value made
+    ``content_inset`` huge and crushed every tab body to 0/1px (nav still
+    painted).
+    """
+    return _page_dim(
+        page,
+        cache_attr=_VIEWPORT_W_ATTR,
+        window_attr="width",
+        page_attr="width",
+        fallback=_REF_WIDTH,
+    )
 
 
 def page_height(page: ft.Page | None) -> float:
-    """Best-effort viewport height in logical pixels."""
-    if page is None:
-        return 720.0
-    raw = getattr(page, "height", None)
-    if not raw:
-        raw = getattr(getattr(page, "window", None), "height", None)
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return 720.0
-    return value if value > 0 else 720.0
+    """Viewport height in logical pixels.
+
+    Same lag as :func:`page_width`: cache, then ``window.height``, then
+    ``page.height``.
+    """
+    return _page_dim(
+        page,
+        cache_attr=_VIEWPORT_H_ATTR,
+        window_attr="height",
+        page_attr="height",
+        fallback=720.0,
+    )
 
 
 def is_compact(page: ft.Page | None) -> bool:
@@ -83,8 +182,8 @@ def is_compact(page: ft.Page | None) -> bool:
 def uses_column_nav_shell(page: ft.Page | None = None) -> bool:
     """True when the tab bar is a Column sibling, not a Stack overlay.
 
-    Flet Windows desktop blanks every tab body when the shell is a Stack
-    (nav still paints). At ≤420px use ``Column([content expand, nav])``.
+    At ≤420px use ``Column([content expand, nav])``. The Windows blank-body
+    bug is stale viewport width (see :func:`page_width`), not Stack itself.
     """
     return page_width(page) <= COMPACT_MAX
 
@@ -161,16 +260,38 @@ def content_inset(page: ft.Page | None = None) -> int:
     """Horizontal page gutter (list / dashboard body).
 
     On lg/xl the gutter also *centers* the shell so cards are not a 1600px
-    stretch and not a 400px island in empty space.
+    stretch and not a 400px island in empty space. Gutters never exceed
+    ``(width - min(240, width)) / 2`` so a stale desktop inset cannot
+    crush the body to 0/1px.
     """
     bp = breakpoint(page)
     width = page_width(page)
     if bp == BP_XS:
-        return 8
-    if bp in (BP_SM, BP_MD):
-        return 12
-    cap = shell_max_width(page) or float(SHELL_MAX_LG)
-    return int(max(16.0, (width - cap) / 2.0))
+        raw = 8
+    elif bp in (BP_SM, BP_MD):
+        raw = 12
+    else:
+        cap = shell_max_width(page) or float(SHELL_MAX_LG)
+        raw = int(max(16.0, (width - cap) / 2.0))
+    return _clamp_h_inset(raw, page)
+
+
+def page_frame_inset(page: ft.Page | None = None) -> int:
+    """Small in-page gutter. Centering leftovers live on the shell (resize-safe)."""
+    raw = 8 if is_narrow(page) else 12
+    return _clamp_h_inset(raw, page)
+
+
+def shell_side_padding(page: ft.Page | None = None) -> int:
+    """Desktop centering applied by the app shell and updated on every resize."""
+    return max(0, content_inset(page) - page_frame_inset(page))
+
+
+def _clamp_h_inset(raw: int, page: ft.Page | None) -> int:
+    """Keep gutters at most ``(width - min(240, width)) / 2``."""
+    width = page_width(page)
+    max_inset = max(0, int((width - min(_MIN_BODY_WIDTH, width)) / 2.0))
+    return min(max(0, int(raw)), max_inset)
 
 
 def layout_width(page: ft.Page | None = None) -> float:
@@ -594,19 +715,24 @@ def safe_area_minimum(*, top: bool = True, bottom: bool = True) -> ft.Padding:
 def wrap_safe_area(
     content: ft.Control,
     *,
+    page: ft.Page | None = None,
     top: bool = True,
     bottom: bool = True,
     left: bool = True,
     right: bool = True,
     expand: bool = True,
     minimum: ft.Padding | int | float | None = None,
-) -> ft.SafeArea:
+) -> ft.Control:
     """Inset ``content`` past notch, Dynamic Island, home indicator, and sides.
 
     Uses Flutter ``SafeArea`` (MediaQuery padding / viewPadding) so SE-with-home
     button, notched X-class phones, Dynamic Island, and landscape all work
     without hard-coded island heights. ``minimum`` is a floor, never a
     substitute for the OS inset.
+
+    **Desktop (Windows / Linux / macOS):** skip SafeArea. Flet Windows can
+    pass zero-tight constraints through SafeArea when the window is squeezed,
+    which blanks the expanding body while a height-capped nav still paints.
 
     Nested SafeAreas do not double the cutout (Flutter consumes padding).
     Pass ``minimum=0`` when this wrapper sits *inside* another SafeArea
@@ -615,6 +741,10 @@ def wrap_safe_area(
     ``maintain_bottom_view_padding`` stays on whenever the bottom inset is
     honored so the home indicator does not collapse under the keyboard.
     """
+    if not needs_os_safe_area(page):
+        if expand:
+            return ft.Container(expand=True, content=content)
+        return content
     if minimum is None:
         minimum = safe_area_minimum(top=top, bottom=bottom)
     return ft.SafeArea(
@@ -627,6 +757,13 @@ def wrap_safe_area(
         maintain_bottom_view_padding=bottom,
         minimum_padding=minimum,
     )
+
+
+def needs_os_safe_area(page: ft.Page | None = None) -> bool:
+    """True only on native iOS/Android (notch / home indicator)."""
+    from lib.infrastructure.services.biometric import is_mobile_platform
+
+    return is_mobile_platform(page)
 
 
 def header_title_size(page: ft.Page | None = None, *, base: float = 22) -> int:

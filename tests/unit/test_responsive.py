@@ -17,11 +17,16 @@ from lib.presentation.responsive import (
     list_nav_padding,
     nav_chrome_metrics,
     nav_overlay_height,
+    note_viewport_from_event,
+    note_viewport_size,
+    page_height,
+    page_width,
     scale_font,
     shell_max_width,
     should_rebuild_layout,
     swipe_action_strip_width,
     swipe_reveal_offset,
+    uses_column_nav_shell,
 )
 
 
@@ -30,6 +35,52 @@ class _FakePage:
         self.width = width
         self.height = height
         self.window = type("W", (), {"width": width, "height": height})()
+
+
+def test_page_width_prefers_smaller_window_when_page_lags() -> None:
+    """When the cache is empty, window.width beats a stale page.width."""
+    page = _FakePage(1266, height=800)
+    page.window.width = 300
+    page.window.height = 640
+    assert page_width(page) == 300  # type: ignore[arg-type]
+    assert page_height(page) == 640  # type: ignore[arg-type]
+    assert content_inset(page) * 2 + min(240, 300) <= 300  # type: ignore[arg-type]
+    assert uses_column_nav_shell(page) is True  # type: ignore[arg-type]
+    assert is_compact(page) is True  # type: ignore[arg-type]
+
+
+def test_page_width_prefers_viewport_cache_when_page_and_window_lag() -> None:
+    """Flet Windows: both page.width and window.width can stay ~1266.
+
+    The resize event carries the live ~300px; note_viewport_size must win.
+    """
+    page = _FakePage(1266, height=800)
+    page.window.width = 1266
+    page.window.height = 800
+    assert page_width(page) == 1266  # type: ignore[arg-type]
+    note_viewport_size(page, width=300, height=640)
+    assert page_width(page) == 300  # type: ignore[arg-type]
+    assert page_height(page) == 640  # type: ignore[arg-type]
+    assert getattr(page, "_fw_viewport_w") == 300
+    assert content_inset(page) * 2 + min(240, 300) <= 300  # type: ignore[arg-type]
+    assert uses_column_nav_shell(page) is True  # type: ignore[arg-type]
+
+
+def test_note_viewport_from_event_reads_resize_payload() -> None:
+    page = _FakePage(1266, height=800)
+    page.window.width = 1266
+    event = type("Resize", (), {"width": 312, "height": 640})()
+    note_viewport_from_event(page, event)  # type: ignore[arg-type]
+    assert page_width(page) == 312  # type: ignore[arg-type]
+    assert page_height(page) == 640  # type: ignore[arg-type]
+
+
+def test_note_viewport_size_ignores_non_positive() -> None:
+    page = _FakePage(1266)
+    note_viewport_size(page, width=320, height=600)
+    note_viewport_size(page, width=0, height=None)
+    assert page_width(page) == 320  # type: ignore[arg-type]
+    assert page_height(page) == 600  # type: ignore[arg-type]
 
 
 def test_scale_font_clamped_on_se_and_pro_max() -> None:
@@ -240,7 +291,21 @@ def test_swipe_strip_shrinks_on_narrow_phones() -> None:
     assert frac * 320 >= narrow * 0.85
 
 
-def test_wrap_safe_area_uses_os_insets_not_device_heights() -> None:
+def test_wrap_safe_area_skips_on_desktop_windows() -> None:
+    import flet as ft
+
+    from lib.presentation.responsive import wrap_safe_area
+
+    page = _FakePage(1280)
+    page.platform = "windows"
+    child = ft.Text("ok")
+    wrapped = wrap_safe_area(child, page=page)  # type: ignore[arg-type]
+    assert not isinstance(wrapped, ft.SafeArea)
+    assert wrapped.content is child
+    assert wrapped.expand is True
+
+
+def test_wrap_safe_area_uses_os_insets_on_ios() -> None:
     import flet as ft
 
     from lib.presentation.responsive import (
@@ -250,21 +315,67 @@ def test_wrap_safe_area_uses_os_insets_not_device_heights() -> None:
         wrap_safe_area,
     )
 
-    # Floor is a few pixels, never an iPhone notch (44) or island (~54–59).
     assert 0 < SAFE_MIN_TOP < 20
     assert 0 < SAFE_MIN_BOTTOM < 20
+    page = _FakePage(375)
+    page.platform = "ios"
     child = ft.Text("ok")
-    shell = wrap_safe_area(child)
+    shell = wrap_safe_area(child, page=page)  # type: ignore[arg-type]
+    assert isinstance(shell, ft.SafeArea)
     assert shell.avoid_intrusions_top is True
     assert shell.avoid_intrusions_bottom is True
     assert shell.avoid_intrusions_left is True
     assert shell.avoid_intrusions_right is True
     assert shell.maintain_bottom_view_padding is True
     assert shell.minimum_padding == safe_area_minimum()
-    toast = wrap_safe_area(child, expand=False, bottom=False)
+    toast = wrap_safe_area(child, page=page, expand=False, bottom=False)  # type: ignore[arg-type]
     assert toast.avoid_intrusions_bottom is False
     assert toast.maintain_bottom_view_padding is False
     assert toast.avoid_intrusions_top is True
-    nested = wrap_safe_area(child, minimum=0)
+    nested = wrap_safe_area(child, page=page, minimum=0)  # type: ignore[arg-type]
     assert nested.minimum_padding == 0
     assert nested.avoid_intrusions_top is True
+
+
+def test_insets_never_zero_body_at_320() -> None:
+    from lib.presentation.responsive import page_frame_inset, shell_side_padding
+
+    phone = _FakePage(320)
+    desk = _FakePage(1400)
+    assert content_inset(phone) * 2 + 240 <= 320  # type: ignore[arg-type]
+    assert page_frame_inset(phone) <= 8  # type: ignore[arg-type]
+    assert shell_side_padding(phone) == 0  # type: ignore[arg-type]
+    assert page_frame_inset(desk) <= 12  # type: ignore[arg-type]
+    assert shell_side_padding(desk) >= 180  # type: ignore[arg-type]
+    assert content_inset(desk) >= 200  # type: ignore[arg-type]
+
+
+def test_content_inset_never_exceeds_half_remaining() -> None:
+    """Gutters cannot exceed (width - min(240, width)) / 2."""
+    for width in (200, 240, 300, 312, 320, 1266):
+        page = _FakePage(1266)
+        page.window.width = 1266
+        note_viewport_size(page, width=width, height=640)
+        inset = content_inset(page)  # type: ignore[arg-type]
+        max_inset = (width - min(240, width)) / 2
+        assert inset <= max_inset
+        assert 2 * inset + min(240, width) <= width + 0.01
+
+
+def test_page_frame_does_not_hard_clip_or_bake_desktop_gutters() -> None:
+    import flet as ft
+
+    from lib.presentation.components.layout.page_shell import page_frame
+
+    kids = page_frame(
+        title="Home",
+        body=ft.Text("body"),
+        page=_FakePage(1400),  # type: ignore[arg-type]
+    )
+    host = kids[-1]
+    pad = host.padding
+    left = getattr(pad, "left", pad)
+    right = getattr(pad, "right", pad)
+    assert float(left) <= 12
+    assert float(right) <= 12
+    assert host.clip_behavior == ft.ClipBehavior.NONE

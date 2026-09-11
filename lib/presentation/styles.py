@@ -238,9 +238,9 @@ def page_header(
 ) -> ft.Container:
     """Page top bar — sits below wrap_safe_area (notch / Dynamic Island)."""
     from lib.presentation.responsive import (
-        content_inset,
         header_title_size,
         is_narrow,
+        page_frame_inset,
     )
 
     left: list[ft.Control] = []
@@ -257,12 +257,12 @@ def page_header(
             expand=True,
         )
     )
-    inset = content_inset(page)
+    inset = page_frame_inset(page)
     actions_row = ft.Row(
         controls=list(actions or []),
         tight=True,
         spacing=0,
-        wrap=is_narrow(page),
+        wrap=False,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
     return ft.Container(
@@ -273,12 +273,14 @@ def page_header(
             top=12,
             bottom=8,
         ),
+        # Flutter forbids Expanded inside a wrapping Flex. wrap=True here
+        # plus the expand=True title row zeros the whole page on Windows xs
+        # (nav still paints from the shell). Title ellipsis handles overflow.
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            wrap=is_narrow(page),
+            wrap=False,
             spacing=4,
-            run_spacing=4,
             controls=[
                 ft.Row(
                     controls=left,
@@ -674,7 +676,6 @@ def form_header_bar(
         )
     )
     skin = get_active_skin()
-    wrap = is_narrow(page)
     return ft.Container(
         padding=ft.Padding.only(left=8, right=8, top=10, bottom=10),
         border=ft.Border.only(
@@ -684,9 +685,8 @@ def form_header_bar(
         content=ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            wrap=wrap,
+            wrap=False,
             spacing=4,
-            run_spacing=4,
             controls=[
                 ft.Row(
                     controls=left,
@@ -699,7 +699,7 @@ def form_header_bar(
                     controls=list(actions or []),
                     tight=True,
                     spacing=4,
-                    wrap=wrap,
+                    wrap=False,
                     expand=False,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),

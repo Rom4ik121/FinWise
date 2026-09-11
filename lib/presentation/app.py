@@ -36,9 +36,11 @@ from lib.presentation.responsive import (
     is_compact,
     nav_chrome_metrics,
     nav_overlay_height,
+    note_viewport_from_event,
     page_height,
     page_width,
     should_rebuild_layout,
+    shell_side_padding,
     uses_column_nav_shell,
     wrap_safe_area,
 )
@@ -168,7 +170,7 @@ class FinanseApp:
         self._content_pane = ft.Container(
             expand=True,
             alignment=ft.Alignment.TOP_CENTER,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            clip_behavior=ft.ClipBehavior.NONE,
             opacity=1,
             ignore_interactions=False,
             content=self._content,
@@ -190,15 +192,16 @@ class FinanseApp:
             controls=[],
         )
         self._column_shell_active: bool | None = None
-        self._shell = wrap_safe_area(self._shell_column)
+        self._shell = wrap_safe_area(self._shell_column, page=page)
         self._apply_shell_mode()
         self._stage = ft.Container(
             expand=True,
             width=page_width(page),
             height=page_height(page),
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            clip_behavior=ft.ClipBehavior.NONE,
             content=self._shell,
         )
+        self._sync_shell_gutters()
         self._nav_pills: list[ft.Container] = []
         self._nav_icons: list[ft.Icon] = []
         self._nav_labels: list[ft.Text] = []
@@ -334,6 +337,9 @@ class FinanseApp:
                     previous(e)
                 except Exception:  # noqa: BLE001
                     logger.exception("Previous resize handler failed")
+            # Flet Windows: page.width AND window.width can stay ~1266 while
+            # the resize event carries the live ~300px. Cache event size first.
+            note_viewport_from_event(self.page, e)
             self._apply_nav_metrics()
             self._apply_shell_mode()
             self._sync_stage_size()
@@ -384,7 +390,7 @@ class FinanseApp:
         self._nav_overlay.height = nav_overlay_height(self.page)
 
     def _apply_shell_mode(self) -> None:
-        """Column nav on ≤420px (Windows Stack blanks the body); Stack when wide."""
+        """Column nav on ≤420px; Stack overlay when wide."""
         compact = uses_column_nav_shell(self.page)
         self._content_pane.expand = True
         self._content_pane.left = None
@@ -406,10 +412,18 @@ class FinanseApp:
             self._shell.content = self._shell_stack
             self._column_shell_active = False
 
+    def _sync_shell_gutters(self) -> None:
+        """Apply (or clear) desktop centering pads so a squeeze cannot zero the body."""
+        pad = shell_side_padding(self.page)
+        self._content_pane.padding = ft.Padding.symmetric(horizontal=pad)
+        self._content_pane.clip_behavior = ft.ClipBehavior.NONE
+        self._stage.clip_behavior = ft.ClipBehavior.NONE
+
     def _sync_stage_size(self) -> None:
         """Give the shell a finite box so a narrow resize cannot collapse the body."""
         self._stage.width = page_width(self.page)
         self._stage.height = page_height(self.page)
+        self._sync_shell_gutters()
 
     def _apply_nav_metrics(self) -> None:
         """Resize the floating tab bar for the current viewport."""

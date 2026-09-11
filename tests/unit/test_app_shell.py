@@ -110,6 +110,31 @@ def test_resize_wide_to_narrow_switches_to_column() -> None:
     assert not _positioned(app._nav_overlay)
     assert app._stage.width == 360
     assert app._content_pane.expand is True
+    pad = app._content_pane.padding
+    assert float(getattr(pad, "left", 0) or 0) == 0
+    assert app._content_pane.clip_behavior == ft.ClipBehavior.NONE
+    assert not isinstance(app._shell, ft.SafeArea)
+
+
+def test_desktop_gutters_move_to_shell_and_clear_on_squeeze() -> None:
+    """Stale page_frame 200px inset must not stay when the window is squeezed."""
+    page = _FakePage(1400, 800)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    pad = app._content_pane.padding
+    assert float(getattr(pad, "left", 0) or 0) >= 180
+    assert not isinstance(app._shell, ft.SafeArea)
+    page.width = 320
+    page.height = 667
+    page.window.width = 320
+    page.window.height = 667
+    app._apply_nav_metrics()
+    app._apply_shell_mode()
+    app._sync_stage_size()
+    pad = app._content_pane.padding
+    assert float(getattr(pad, "left", 0) or 0) == 0
+    assert float(getattr(pad, "right", 0) or 0) == 0
+    assert app._content_pane.expand is True
+    assert app._column_shell_active is True
 
 
 def test_resize_narrow_to_wide_restores_stack() -> None:
@@ -125,3 +150,20 @@ def test_resize_narrow_to_wide_restores_stack() -> None:
     assert app._column_shell_active is False
     assert app._shell.content is app._shell_stack
     assert app._nav_overlay.bottom == 0
+
+
+def test_resize_event_notes_viewport_before_inset_math() -> None:
+    """Event size wins when both page.width and window.width stay at 1266."""
+    from lib.presentation.responsive import page_width
+
+    page = _FakePage(1266, 800)
+    app = FinanseApp(page, object())  # type: ignore[arg-type]
+    app._render = lambda **_kw: None  # type: ignore[method-assign]
+    app._forget_cached_views = lambda: None  # type: ignore[method-assign]
+    app._install_resize_handler()
+    page.on_resize(type("Resize", (), {"width": 312, "height": 640})())
+    assert page_width(page) == 312  # type: ignore[arg-type]
+    assert app._column_shell_active is True
+    pad = app._content_pane.padding
+    assert float(getattr(pad, "left", 0) or 0) == 0
+    assert float(getattr(pad, "right", 0) or 0) == 0

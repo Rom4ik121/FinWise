@@ -31,6 +31,7 @@ from lib.presentation.responsive import (  # noqa: F401
     is_wide,
     layout_width,
     list_nav_padding,
+    note_viewport_size,
     page_height,
     page_width,
     scale_factor,

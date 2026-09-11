@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import flet as ft
 
-from lib.presentation.responsive import content_inset, scale_space
+from lib.presentation.responsive import page_frame_inset, scale_space
 from lib.presentation.styles import page_header
 
 
@@ -26,7 +26,7 @@ def page_frame(
     handled by ``wrap_safe_area`` on the app shell, not by extra header pixels.
     """
     _ = lang
-    inset = content_inset(page)
+    inset = page_frame_inset(page)
     kids: list[ft.Control] = [
         page_header(title, actions=actions, leading=leading, page=page),
     ]
@@ -43,7 +43,9 @@ def page_frame(
         ft.Container(
             expand=True,
             padding=ft.Padding.symmetric(horizontal=inset),
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            # HARD_EDGE + a stale desktop inset (200px × 2) in a 320px window
+            # clips the body to empty while the nav (outside this padding) lives.
+            clip_behavior=ft.ClipBehavior.NONE,
             content=body,
         )
     )
