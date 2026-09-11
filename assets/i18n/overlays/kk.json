@@ -815,7 +815,7 @@
   "settings.export_csv": "CSV экспорт",
   "settings.export_date_from": "Басталу күні",
   "settings.export_date_to": "Аяқталу күні",
-  "settings.export_hint": "Деректерді құрылғыдағы құпия сөзбен қорғалған файлға сақтаңыз.",
+  "settings.export_hint": "PDF есебін жасаңыз: кезеңді, шоттарды және бөлімдерді таңдаңыз.",
   "settings.export_json": "JSON экспорт",
   "settings.export_json_encrypted": "JSON экспорт (құпия сөз)",
   "settings.export_need_account": "Кемінде бір шотты таңдаңыз",

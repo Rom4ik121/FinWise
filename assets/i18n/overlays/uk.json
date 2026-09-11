@@ -815,7 +815,7 @@
   "settings.export_csv": "Експорт CSV",
   "settings.export_date_from": "Дата від",
   "settings.export_date_to": "Дата до",
-  "settings.export_hint": "Збережіть дані в захищений паролем файл на пристрої.",
+  "settings.export_hint": "Створіть звіт PDF: виберіть період, рахунки та розділи.",
   "settings.export_json": "Експорт JSON",
   "settings.export_json_encrypted": "Експорт JSON (пароль)",
   "settings.export_need_account": "Виберіть хоча б один рахунок",

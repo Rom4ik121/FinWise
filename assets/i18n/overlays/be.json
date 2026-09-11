@@ -815,7 +815,7 @@
   "settings.export_csv": "Экспарт CSV",
   "settings.export_date_from": "Дата ад",
   "settings.export_date_to": "Дата да",
-  "settings.export_hint": "Захавайце даныя ў абаронены паролем файл на прыладзе.",
+  "settings.export_hint": "Стварыце справаздачу PDF: выберыце перыяд, рахункі і раздзелы.",
   "settings.export_json": "Экспарт JSON",
   "settings.export_json_encrypted": "Экспарт JSON (пароль)",
   "settings.export_need_account": "Выберыце хаця б адзін рахунак",
