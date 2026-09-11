@@ -22,6 +22,20 @@ def amount_separators(lang: str) -> tuple[str, str]:
     return ".", ","
 
 
+def amount_text(field: Any) -> str:
+    """Best-effort amount string from a TextField.
+
+    Flet web can leave ``value`` empty until blur while the grouped ``on_change``
+    cache already has the digits the user typed.
+    """
+    live = str(getattr(field, "value", None) or "").strip()
+    cached = getattr(field, "_fw_amount_text", None)
+    stored = ""
+    if isinstance(cached, dict):
+        stored = str(cached.get("text") or "").strip()
+    return live or stored
+
+
 def parse_optional_amount(text: str | None) -> Decimal:
     """Parse a fee-like field: empty means zero."""
     if not (text or "").strip():
@@ -112,6 +126,7 @@ def attach_grouped_digits(
     ``05`` and grouping strips it back to ``5``.
     """
     last = {"text": field.value or ""}
+    field._fw_amount_text = last
 
     def _on_change(e: ft.ControlEvent) -> None:
         current = field.value or ""

@@ -13,9 +13,9 @@ from lib.domain.use_cases.recurring import preview_recurring_dates
 from lib.presentation.components.layout.page_shell import page_column, page_frame
 from lib.presentation.dropdown_options import icon_dropdown_option
 from lib.presentation.form_keyboard import configure_field, wire_field_chain
-from lib.presentation.form_validation import require_positive_amount
+from lib.presentation.form_validation import require_name, require_positive_amount
 from lib.presentation.layout import make_v_scroll
-from lib.presentation.money_input import make_amount_field, parse_amount
+from lib.presentation.money_input import make_amount_field
 from lib.presentation.reload_gate import ReloadGate
 from lib.presentation.styles import card_surface, form_hint, labeled_switch, muted_text
 from lib.presentation.ui_motion import replace_controls
@@ -313,20 +313,16 @@ class RecurringPage(ft.Column):
         _refresh_preview()
 
         async def _save() -> None:
-            name = (name_tf.value or "").strip()
+            name = require_name(name_tf, self._page, lang)
             if not name:
-                snack(self._page, tr("error.generic", lang), error=True)
                 return
-            try:
-                amount = parse_amount(amount_tf.value)
-                require_positive_amount(amount)
-            except Exception:
-                snack(self._page, tr("invalid_amount", lang), error=True)
+            amount = require_positive_amount(amount_tf, self._page, lang)
+            if amount is None:
                 return
             try:
                 count = int(count_tf.value or "1")
             except ValueError:
-                snack(self._page, tr("invalid_amount", lang), error=True)
+                snack(self._page, tr("error.generic", lang), error=True)
                 return
             start = next_field.value
             if start is None:

@@ -8,6 +8,7 @@ import pytest
 
 from lib.presentation.money_input import (
     amount_separators,
+    amount_text,
     attach_grouped_digits,
     format_amount_input,
     format_amount_value,
@@ -89,6 +90,7 @@ def test_format_groups_while_typing_en() -> None:
 
 
 def test_parse_grouped_amounts() -> None:
+    assert parse_amount("10") == Decimal("10")
     assert parse_amount("1.234,50") == Decimal("1234.50")
     assert parse_amount("1,234.50") == Decimal("1234.50")
     assert parse_amount("25.000") == Decimal("25000")
@@ -101,6 +103,20 @@ def test_parse_grouped_amounts() -> None:
     assert parse_optional_amount("") == Decimal("0")
     assert parse_optional_amount("  ") == Decimal("0")
     assert parse_optional_amount("1,50") == Decimal("1.50")
+
+
+def test_amount_text_prefers_live_then_grouped_cache() -> None:
+    class _Field:
+        def __init__(self, value: str = "") -> None:
+            self.value = value
+
+    live = _Field("10")
+    live._fw_amount_text = {"text": "99"}
+    assert amount_text(live) == "10"
+    stale = _Field("")
+    stale._fw_amount_text = {"text": "10"}
+    assert amount_text(stale) == "10"
+    assert amount_text(_Field("")) == ""
 
 
 def test_format_amount_value_from_decimal() -> None:

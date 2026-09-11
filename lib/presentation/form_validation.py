@@ -7,7 +7,7 @@ from typing import Any
 
 import flet as ft
 
-from lib.presentation.money_input import parse_amount
+from lib.presentation.money_input import amount_text, parse_amount
 from lib.presentation.utils import safe_update, snack, tr
 
 
@@ -56,7 +56,7 @@ def require_positive_amount(
     """Parse a positive amount from ``field``, or show an error and ``None``."""
     message = tr(message_key, lang)
     try:
-        amount = parse_amount(getattr(field, "value", None))
+        amount = parse_amount(amount_text(field))
         if amount <= 0:
             raise InvalidOperation
     except (InvalidOperation, ValueError, ArithmeticError):
