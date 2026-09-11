@@ -13,7 +13,7 @@
 ### Навигация
 
 - Четыре **основные вкладки**: Главная, Операции, Счета, Настройки.
-- Кастомный **floating NavigationBar**. На **≤420 px** оболочка — `Column([content expand, nav])`. Шире 420 — `Stack` overlay. **Windows blank body:** (1) `page.width` и `window.width` оба могут отставать — `note_viewport_size` кэширует `e.width` с resize *до* inset math; `page_width()` предпочитает кэш, затем window, затем page. (2) `page_header` / `form_header_bar` **не** `wrap` на Row с `expand=True` (Flutter запрещает Expanded в wrapping Flex — иначе body 0px при ширине ~320, nav жив). Gutters ≤ `(width - min(240,width))/2`. `NARROW_MAX=400`, overlay height ≤ 18% окна.
+- Кастомный **floating NavigationBar**. Оболочка — `Stack` (`StackFit.EXPAND`, clip NONE) с `_content_pane` **ltrb=0 + expand** (не LOOSE unpositioned expand → height 0 на xs). `is_compact` — ширина **≤420**. Compact: без nav blur, `AnimatedSwitcher` duration 0. **Windows blank body:** (1) `page.width` и `window.width` оба могут отставать — `note_viewport_size` кэширует `e.width` *до* inset math. (2) `page_header` / `form_header_bar` **не** `wrap` на Row с `expand=True`. Gutters ≤ `(width - min(240,width))/2`. `NARROW_MAX=400`, overlay height ≤ 18% окна.
 - Кэш построенных страниц.
 - **Вторичные маршруты** (состояние приложения, не URL):
 
@@ -153,7 +153,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 - Шрифты, паддинги, иконки и высота плиток через `scale_font` / `scale_size` / `entity_card_metrics` от **ширины колонки** (`layout_width`), не сырого окна.
 - Все экраны — `page_frame` с **маленьким** gutter (8/12). Центрирование lg/xl делает **оболочка** (`shell_side_padding`, обновляется на resize) — иначе stale 200px inset + `HARD_EDGE` обнуляет body при сжатии окна до 320 без remount. SafeArea только на iOS/Android.
-- **xs (~320–390):** `NARROW_MAX=400`; оболочка **`Column([body expand, nav])`**. Заголовок страницы — `wrap=False` на Row с `expand=True` (ellipsis на title). `clamp_content_width` никогда не шире viewport; nav margin/label уже; tap ≥ **44**; dual-add в списке; ListView `HARD_EDGE`. Resize 390→375 пересобирает layout (≥8 px на xs).
+- **xs (~320–390):** `NARROW_MAX=400`; оболочка **Stack** с fill-positioned pane. Заголовок — `wrap=False` на Row с `expand=True` (ellipsis на title). `clamp_content_width` никогда не шире viewport; nav margin/label уже; tap ≥ **44**; dual-add в списке; ListView `HARD_EDGE`. Resize 390→375 пересобирает layout (≥8 px на xs).
 - **sm (~400–420):** основные поля — gutter 12 px.
 - Суммы и названия карточек: `adaptive_text` / `money_label` с ellipsis.
 - Touch targets ≥ **44** logical px (`tap_button_style`, calendar cell **height**, nav pads, account/tx chevrons). Calendar **width** uses `calendar_day_width` so all 7 weekdays fit on SE.

@@ -94,6 +94,8 @@ def test_scale_font_clamped_on_se_and_pro_max() -> None:
 
 def test_compact_and_wide_breakpoints() -> None:
     assert is_compact(_FakePage(360))  # type: ignore[arg-type]
+    assert is_compact(_FakePage(420))  # type: ignore[arg-type]
+    assert not is_compact(_FakePage(421))  # type: ignore[arg-type]
     assert not is_compact(_FakePage(480))  # type: ignore[arg-type]
     assert is_wide(_FakePage(800))  # type: ignore[arg-type]
     assert not is_wide(_FakePage(600))  # type: ignore[arg-type]

@@ -41,7 +41,6 @@ from lib.presentation.responsive import (
     page_width,
     should_rebuild_layout,
     shell_side_padding,
-    uses_column_nav_shell,
     wrap_safe_area,
 )
 
@@ -78,17 +77,16 @@ class FinanseApp:
     def __init__(self, page: ft.Page, container: Any) -> None:
         self.page = page
         self.state = AppState(container)
-        # Do NOT use AnimatedSwitcher FADE for tab bodies. On Flet Windows
-        # desktop the incoming child can stick at opacity 0, or the switcher
-        # + nested expand Column lays out at height 0. Nav is a sibling
-        # overlay, so that matches "tabs work, body is light-gray".
-        self._content = ft.Container(
-            expand=True,
-            alignment=ft.Alignment.TOP_CENTER,
-            opacity=1,
-            ignore_interactions=False,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        # Tab bodies: AnimatedSwitcher FADE on wide; duration 0 on compact
+        # remount so Flet Windows cannot stick the incoming child at opacity 0.
+        self._content = ft.AnimatedSwitcher(
             content=ft.Container(expand=True, alignment=ft.Alignment.TOP_CENTER),
+            transition=ft.AnimatedSwitcherTransition.FADE,
+            duration=0 if is_compact(page) else 220,
+            reverse_duration=0 if is_compact(page) else 160,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_OUT,
+            expand=True,
         )
         nav_m = nav_chrome_metrics(page)
         self._nav = ft.Row(
@@ -164,10 +162,13 @@ class FinanseApp:
                 content=self._nav_stack,
             ),
         )
-        # Windows Flet blanks Stack-hosted tab bodies (nav overlay still
-        # paints). ≤420px uses a Column sibling nav so expand=True is a
-        # real Flex child. Wider windows keep the floating Stack overlay.
+        # Fill-positioned pane + StackFit.EXPAND: a LOOSE non-positioned
+        # expand child lays out at height 0 on xs (nav still paints).
         self._content_pane = ft.Container(
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
             expand=True,
             alignment=ft.Alignment.TOP_CENTER,
             clip_behavior=ft.ClipBehavior.NONE,
@@ -389,23 +390,28 @@ class FinanseApp:
         self._nav_overlay.expand = False
         self._nav_overlay.height = nav_overlay_height(self.page)
 
-    def _apply_shell_mode(self) -> None:
-        """Column nav on ≤420px; Stack overlay when wide."""
-        compact = uses_column_nav_shell(self.page)
+    def _position_content_pane(self) -> None:
+        """Fill the Stack so EXPAND has a positioned child (not 0-height on xs)."""
+        self._content_pane.left = 0
+        self._content_pane.top = 0
+        self._content_pane.right = 0
+        self._content_pane.bottom = 0
         self._content_pane.expand = True
-        self._content_pane.left = None
-        self._content_pane.top = None
-        self._content_pane.right = None
-        self._content_pane.bottom = None
-        if compact:
-            self._clear_nav_position()
-            if self._column_shell_active is not True:
-                self._shell_stack.controls = []
-                self._shell_column.controls = [self._content_pane, self._nav_overlay]
-                self._shell.content = self._shell_column
-                self._column_shell_active = True
-            return
+        self._content_pane.clip_behavior = ft.ClipBehavior.NONE
+
+    def _sync_content_switcher(self) -> None:
+        """Skip fade on compact remount (Flet Windows can stick at opacity 0)."""
+        compact = is_compact(self.page)
+        self._content.duration = 0 if compact else 220
+        self._content.reverse_duration = 0 if compact else 160
+
+    def _apply_shell_mode(self) -> None:
+        """Stack overlay: fill-positioned body + height-capped nav."""
+        self._position_content_pane()
         self._position_nav_overlay()
+        self._sync_content_switcher()
+        self._shell_stack.fit = ft.StackFit.EXPAND
+        self._shell_stack.clip_behavior = ft.ClipBehavior.NONE
         if self._column_shell_active is not False:
             self._shell_column.controls = []
             self._shell_stack.controls = [self._content_pane, self._nav_overlay]
@@ -459,6 +465,8 @@ class FinanseApp:
                 self._nav_icons[i].size = m["icon"]
             if i < len(self._nav_labels):
                 self._nav_labels[i].size = m["label"]
+        if is_compact(self.page):
+            self._nav_host.blur = None
 
     def _ask_notification_permission(self) -> None:
         """Ask iOS/Android for alerts after the window is active."""
@@ -774,6 +782,7 @@ class FinanseApp:
             self._active_view = None
             self._set_nav_chrome_visible(False)
             lang = self.state.language
+            self._sync_content_switcher()
             self._content.content = ft.Container(
                 expand=True,
                 key="lock-failed",
@@ -798,6 +807,7 @@ class FinanseApp:
             self._deactivate_view(self._active_view)
             self._active_view = None
             self._set_nav_chrome_visible(False)
+            self._sync_content_switcher()
             self._content.content = ft.Container(
                 expand=True,
                 key="lock",
@@ -850,6 +860,7 @@ class FinanseApp:
 
             haptic("light")
 
+        self._sync_content_switcher()
         self._content.content = view
         self._active_view = view
         self._activate_view(view)

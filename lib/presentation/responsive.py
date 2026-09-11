@@ -175,8 +175,8 @@ def page_height(page: ft.Page | None) -> float:
 
 
 def is_compact(page: ft.Page | None) -> bool:
-    """True on phone-narrow viewports (SE / small Android)."""
-    return page_width(page) < COMPACT_MAX
+    """True on phone-narrow viewports (SE / small Android), inclusive 420."""
+    return page_width(page) <= COMPACT_MAX
 
 
 def uses_column_nav_shell(page: ft.Page | None = None) -> bool:
