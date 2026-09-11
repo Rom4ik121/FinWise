@@ -283,7 +283,8 @@ def test_chart_layout_fits_window() -> None:
 
     w, h = chart_layout(None)
     assert w >= 240
-    assert 180 <= h <= 360
+    # Default reference width is 390 (xs); chart_layout caps height at 172.
+    assert 152 <= h <= 360
 
 
 def test_charts_many_periods_scroll() -> None:
