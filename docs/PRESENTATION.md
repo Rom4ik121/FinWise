@@ -88,8 +88,8 @@ Observer: `subscribe` / `notify` (с coalesce).
 
 | Страница | Файл | Содержание |
 |----------|------|------------|
-| Dashboard | `pages/dashboard.py` (`views`) | Баланс, день, быстрые действия, бюджеты, бейджи, график; `page_frame` + слоты |
-| Операции | `pages/transactions.py` | Поиск (FTS `query=` по категории/комментарию/тегам/payee/сумме), фильтры (счёт, тип, даты, сумма) — панель Tune с Apply/Clear, persist, импорт CSV; `page_frame` |
+| Dashboard | `pages/dashboard.py` (`views`) | Баланс, день, быстрые действия, бюджеты, бейджи, график; `page_frame` + слоты. Поиска на Главной нет — только вкладка Операции. |
+| Операции | `pages/transactions.py` | Поиск (FTS + LIKE по категории/комментарию/тегам/позициям/сумме; ввод и Enter; без дневного окна, пока Tune не задал диапазон), фильтры (счёт, тип, даты, сумма) — панель Tune с Apply/Clear, persist, импорт CSV; `page_frame` |
 | Accounts | `pages/accounts.py` | Список счетов (`card_grid` 1–3 колонки), биржи, корпоративные workspace |
 | Account detail | `pages/account_detail.py` | История, статистика, графики счёта; быстрый расход/доход; перевод; PDF-отчёт за период; детали tx с фото; `page_frame` |
 | Analytics | `pages/analytics.py` | Поток, капитал во времени (снимки), цели, долги, подписки, бюджеты; `page_frame` |
@@ -115,7 +115,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 Реализации: карточки счетов / операций / целей / долгов / подписок в `widgets/`.  
 `QuickAddSheet`; `TransferSheet`; `CategoryPicker`; `CurrencyTickerPicker`;  
 `AccountStripPicker` — круговая карусель счетов (иконка, цвет, название, баланс; листание замыкается) в формах операций / переводов / целей / долгов / подписок; `DateTimeField` — горизонтальная лента дней текущего месяца + полноэкранный календарь (`push_overlay`); в сетке видны все 7 дней недели и числа соседних месяцев.  
-`DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor`;  
+`DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor` — карточки позиций (название сверху, сумма снизу, опциональное фото строки);  
 `pdf_export_sheet` — период, счета и разделы PDF-отчёта; кнопка **Экспорт PDF** закреплена внизу листа (в шапке — компактная иконка). Сборка PDF идёт в фоне (`asyncio.to_thread`), matplotlib только с backend **Agg**.
 
 Клавиатура форм: `form_keyboard.py`. Ввод сумм: `money_input.py` (caret всегда в конце при группировке, иначе «50» схлопывается в «5»). Валидация: `form_validation.py`.

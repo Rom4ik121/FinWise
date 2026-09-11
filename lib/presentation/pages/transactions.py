@@ -41,7 +41,7 @@ from lib.presentation.widgets.empty_state import EmptyState
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
 from lib.presentation.layout import make_v_scroll
 from lib.presentation.ui_motion import replace_controls
-from lib.presentation.widgets.line_items_editor import LineItemsEditor
+from lib.presentation.widgets.line_items_editor import LineItemsEditor, merge_line_item_photos
 from lib.presentation.widgets.loading import fill_loading, loading_indicator
 from lib.presentation.widgets.transaction_tile import TransactionTile
 
@@ -65,6 +65,11 @@ def visible_list_rows(
         for tx in rows
         if in_range(tx) and getattr(tx, "account_id", None) not in corporate_ids
     ]
+
+
+def search_skips_day_window(query: str, *, range_mode: bool) -> bool:
+    """Free-text search looks across days unless Tune set an explicit range."""
+    return bool((query or "").strip()) and not range_mode
 
 
 def period_preset_range(
@@ -128,12 +133,14 @@ class TransactionsPage(ft.Column):
         self._has_more = False
         self._shown: list[Transaction] = []
         self._search_gen = 0
+        self._search_query = ""
         self._last_group: str | None = None
         lang = state.language
         self._search = ft.TextField(
             label=tr("field.search", lang),
             prefix_icon=ft.Icons.SEARCH,
-            on_change=lambda _e: run_async(page, self._debounced_search),
+            on_change=self._on_search_change,
+            on_submit=self._on_search_submit,
             dense=True,
             border_radius=12,
             filled=True,
@@ -247,6 +254,7 @@ class TransactionsPage(ft.Column):
         pending_q = getattr(state, "pending_tx_query", None)
         if pending_q:
             self._search.value = pending_q
+            self._search_query = str(pending_q)
             state.pending_tx_query = None
         self._reload_gate.request()
 
@@ -257,6 +265,35 @@ class TransactionsPage(ft.Column):
     def _on_state(self, state: "AppState") -> None:
         if state.transactions_token != self._token:
             self._reload_gate.request()
+
+    def _active_search_query(self) -> str:
+        return (self._search_query or self._search.value or "").strip()
+
+    def _capture_search(self, e: ft.ControlEvent | None = None) -> str:
+        if e is not None:
+            raw = getattr(e.control, "value", None)
+            if raw is not None:
+                self._search_query = str(raw)
+                self._search.value = self._search_query
+        elif self._search.value is not None:
+            self._search_query = str(self._search.value)
+        return self._active_search_query()
+
+    def _on_search_change(self, e: ft.ControlEvent) -> None:
+        self._capture_search(e)
+        run_async(self._page, self._debounced_search)
+
+    def _on_search_submit(self, e: ft.ControlEvent) -> None:
+        self._capture_search(e)
+        self._search_gen += 1
+        run_async(self._page, self.reload)
+
+    def _sync_day_nav_for_search(self) -> None:
+        searching = search_skips_day_window(
+            self._active_search_query(), range_mode=self._range_mode
+        )
+        self._day_nav.visible = not searching
+        safe_update(self._day_nav)
 
     # --- Day navigation ---
 
@@ -313,6 +350,10 @@ class TransactionsPage(ft.Column):
 
     def _tx_in_selected_range(self, tx: Transaction) -> bool:
         """Check if a transaction falls within the selected day or range."""
+        if search_skips_day_window(
+            self._active_search_query(), range_mode=self._range_mode
+        ):
+            return True
         local = self._tx_local_date(tx)
         if self._range_mode and self._range_from and self._range_to:
             return self._range_from <= local <= self._range_to
@@ -374,7 +415,7 @@ class TransactionsPage(ft.Column):
         self._date_to_value = to
 
     def _filters_active(self) -> bool:
-        if (self._search.value or "").strip():
+        if (self._search.value or "").strip() or self._search_query.strip():
             return True
         if self._type_value not in (None, "all"):
             return True
@@ -400,6 +441,7 @@ class TransactionsPage(ft.Column):
         self._range_to = None
         self._selected_date = date.today()
         self._search.value = ""
+        self._search_query = ""
         self._apply_day_filter()
         run_async(self._page, self._persist_filters)
 
@@ -896,13 +938,16 @@ class TransactionsPage(ft.Column):
         if not self._has_more:
             return
         lang = self._state.language
-        query = (self._search.value or "").strip()
+        query = self._active_search_query()
         try:
             date_from = _parse_date(self._date_from_value)
             date_to = _parse_date(self._date_to_value, end_of_day=True)
         except ValueError:
             snack(self._page, tr("invalid_date", lang), error=True)
             return
+        if search_skips_day_window(query, range_mode=self._range_mode):
+            date_from = None
+            date_to = None
         try:
             chunk, self._has_more, self._offset = await self._fetch_visible_page(
                 sql_offset=self._offset,
@@ -924,8 +969,11 @@ class TransactionsPage(ft.Column):
         pending_q = getattr(self._state, "pending_tx_query", None)
         if pending_q:
             self._search.value = pending_q
+            self._search_query = str(pending_q)
             self._state.pending_tx_query = None
+        query = self._active_search_query()
         self._filter_summary.value = self._filter_summary_text()
+        self._sync_day_nav_for_search()
         had_list = bool(self._list.controls)
         # Avoid spinner flash when the list already has tiles (search storms).
         if not had_list:
@@ -945,7 +993,10 @@ class TransactionsPage(ft.Column):
 
         try:
             await self._ensure_meta()
-            query = (self._search.value or "").strip()
+            query = self._active_search_query()
+            if search_skips_day_window(query, range_mode=self._range_mode):
+                date_from = None
+                date_to = None
             self._list_prefetch = []
             self._shown, self._has_more, self._offset = await self._fetch_visible_page(
                 sql_offset=0,
@@ -1243,7 +1294,11 @@ class TransactionsPage(ft.Column):
             label=tr("field.amount", lang),
             value=tx.amount if tx else "",
         )
-        items_editor = LineItemsEditor(lang)
+        items_editor = LineItemsEditor(
+            lang,
+            page=self._page,
+            transaction_id=tx.id if tx else None,
+        )
 
         def _sync_amount_visibility() -> None:
             amount_tf.visible = not items_editor.enabled
@@ -1387,6 +1442,9 @@ class TransactionsPage(ft.Column):
             elif goal_id:
                 category = normalize_savings_category(category)
 
+            tx_id = tx.id if tx else attachments.transaction_id
+            items_editor.set_transaction_id(tx_id)
+            attachments.set_transaction_id(tx_id)
             line_items = items_editor.collect(default_category=category)
             try:
                 fee = parse_optional_amount_field(fee_tf)
@@ -1408,7 +1466,7 @@ class TransactionsPage(ft.Column):
 
             tx_id = tx.id if tx else attachments.transaction_id
             attachments.set_transaction_id(tx_id)
-            paths = attachments.collected_paths()
+            paths = merge_line_item_photos(attachments.collected_paths(), items)
             entity = Transaction(
                 id=tx_id,
                 account_id=account.id,

@@ -1689,6 +1689,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Attach photo",
         "uz": "Fotosurat biriktirish",
     },
+    "tx.item_photo_remove": {
+        "ru": "Убрать фото",
+        "en": "Remove photo",
+        "uz": "Fotosuratni olib tashlash",
+    },
     "tx.attachments": {
         "ru": "Вложения",
         "en": "Attachments",

@@ -50,6 +50,7 @@ def _items_from_model(raw: object) -> list[TransactionItem]:
                     name=str(row.get("name") or ""),
                     amount=Decimal(str(row.get("amount") or "0")),
                     category=str(row.get("category") or ""),
+                    attachment=str(row.get("attachment") or ""),
                 )
             )
         except (ValueError, TypeError, ArithmeticError):
@@ -63,6 +64,7 @@ def _items_to_json(items: list[TransactionItem]) -> list[dict]:
             "name": item.name,
             "amount": str(item.amount),
             "category": item.category,
+            "attachment": item.attachment or "",
         }
         for item in items
     ]
@@ -446,6 +448,14 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
 
             q = (query or "").strip()
             if q:
+                pattern = f"%{q}%"
+                like_clause = or_(
+                    TransactionModel.category.ilike(pattern),
+                    TransactionModel.comment.ilike(pattern),
+                    cast(TransactionModel.tags, String).ilike(pattern),
+                    cast(TransactionModel.amount, String).ilike(pattern),
+                    cast(TransactionModel.items, String).ilike(pattern),
+                )
                 match = build_fts_match(q)
                 fts_ids: list[str] | None = None
                 if match:
@@ -460,22 +470,13 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
                         fts_ids = [str(r[0]) for r in rows]
                     except Exception:  # noqa: BLE001
                         fts_ids = None
-                if fts_ids is not None:
-                    if not fts_ids:
-                        return []
-                    stmt = stmt.where(TransactionModel.id.in_(fts_ids))
-                else:
-                    # LIKE fallback when FTS table is missing.
-                    pattern = f"%{q}%"
+                if fts_ids:
                     stmt = stmt.where(
-                        or_(
-                            TransactionModel.category.ilike(pattern),
-                            TransactionModel.comment.ilike(pattern),
-                            cast(TransactionModel.tags, String).ilike(pattern),
-                            cast(TransactionModel.amount, String).ilike(pattern),
-                            cast(TransactionModel.items, String).ilike(pattern),
-                        )
+                        or_(TransactionModel.id.in_(fts_ids), like_clause)
                     )
+                else:
+                    # FTS miss / missing table: substring match on title, comment, lines.
+                    stmt = stmt.where(like_clause)
 
             stmt = stmt.order_by(TransactionModel.date.desc())
             required_tags = [str(t) for t in (tags or []) if str(t)]

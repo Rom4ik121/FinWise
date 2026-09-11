@@ -6,7 +6,11 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from lib.presentation.pages.transactions import period_preset_range, visible_list_rows
+from lib.presentation.pages.transactions import (
+    period_preset_range,
+    search_skips_day_window,
+    visible_list_rows,
+)
 
 
 def test_period_preset_fills_range_without_all_time_wipe_on_7d() -> None:
@@ -37,4 +41,11 @@ def test_visible_list_rows_drops_corporate_and_out_of_range() -> None:
         in_range=in_range,
     )
     assert rows == [personal]
+
+
+def test_search_skips_day_window_unless_tune_range() -> None:
+    assert search_skips_day_window("долг", range_mode=False) is True
+    assert search_skips_day_window("  coffee ", range_mode=False) is True
+    assert search_skips_day_window("", range_mode=False) is False
+    assert search_skips_day_window("долг", range_mode=True) is False
 

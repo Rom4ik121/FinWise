@@ -70,7 +70,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | PIN / lock | `test_encryption.py`, `test_app_state.py` (`reload_pin_gate`) |
 | Медиа / бэкап | `test_media_store.py` (path confinement), `test_backup_service.py` (embedded key, fwbackup) |
 | Формы | `test_form_validation.py`, `test_money_input.py` (live grouping + caret-prepend `50` + orphan `05` + write-echo `500`) |
-| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py` (web/desktop skip fade, overlay `ignore_interactions`), `test_tx_filters_panel.py` (`visible_list_rows`), `test_responsive.py` (viewport cache + content_inset clamp + 320/360/375 nav + is_compact ≤420 + page_frame gutters), `test_app_shell.py` (pane `bottom=nav_overlay_height` + HARD_EDGE so lists cannot paint over the tab bar), `test_page_header.py` (no wrap+Expanded on xs; `page_frame(on_back=)` + every secondary page wires Back), `test_ui_widgets_smoke.py` (account card vertical swipe stack, no face Edit/Delete) |
+| UX helpers | `test_count_up.py`, `test_frequent_account.py`, `test_form_keyboard.py`, `test_ui_motion.py` (web/desktop skip fade, overlay `ignore_interactions`), `test_tx_filters_panel.py` (`visible_list_rows`, `search_skips_day_window`), `test_line_items_editor.py` (vertical name/amount cards), `test_responsive.py` (viewport cache + content_inset clamp + 320/360/375 nav + is_compact ≤420 + page_frame gutters), `test_app_shell.py` (pane `bottom=nav_overlay_height` + HARD_EDGE so lists cannot paint over the tab bar), `test_page_header.py` (no wrap+Expanded on xs; `page_frame(on_back=)` + every secondary page wires Back), `test_ui_widgets_smoke.py` (account card vertical swipe stack, no face Edit/Delete) |
 
 ---
 
@@ -81,7 +81,7 @@ Async в тестах — через `asyncio.run` / `tests.conftest.run_async` 
 | Область | Файл |
 |---------|------|
 | Счета | `test_accounts.py` |
-| Операции / позиции чека | `test_transactions.py`, `test_transaction_items.py` |
+| Операции / позиции чека | `test_transactions.py` (FTS + LIKE substring), `test_transaction_items.py` (line photo path), `test_line_items_editor.py` (vertical cards), `test_tx_filters_panel.py` (`search_skips_day_window`) |
 | Переводы + FX | `test_transfers.py` (fee on destination deleted with the pair) |
 | Цели / долги / подписки | `test_goals.py`, `test_debts.py` (interest tag stamp + reverse), `test_subscriptions.py` (orphan account pauses auto-charge) |
 | Шаблоны | `test_recurring.py` (create today does not post; catch-up after update; missing account pauses) |

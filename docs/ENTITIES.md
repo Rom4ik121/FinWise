@@ -55,8 +55,9 @@
 | `transfer_id` | Общий id пары перевода |
 | `transfer_peer_account_id` | Счёт второй ноги |
 | `items` | Список `TransactionItem` (позиции чека) |
+| `attachments` | Пути к фото чека в `media/` |
 
-**`TransactionItem`:** `name`, `category`, `amount` — сумма позиций должна согласовываться с итогом операции.
+**`TransactionItem`:** `name`, `category`, `amount`, опционально `attachment` (фото этой позиции). Сумма позиций должна согласовываться с итогом операции.
 
 Свойство **`is_transfer`** — true, если задан `transfer_id`.
 

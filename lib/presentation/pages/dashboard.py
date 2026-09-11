@@ -106,21 +106,12 @@ class DashboardPage(ft.Column):
         self._alert_slot: ft.Container | None = None
         self._add_slot: ft.Container | None = None
         self._slots_ready = False
-        self._home_search = ft.TextField(
-            hint_text=tr("home.search", state.language),
-            prefix_icon=ft.Icons.SEARCH,
-            dense=True,
-            border_radius=12,
-            filled=True,
-            on_submit=lambda e: self._go_tx_search(getattr(e.control, "value", "")),
-        )
         super().__init__(
             **page_column(
                 page_frame(
                     title=tr("nav.home", state.language),
                     body=self._body,
                     page=page,
-                    extra=[self._home_search],
                     actions=[
                         ft.IconButton(
                             icon=ft.Icons.REFRESH,
@@ -146,11 +137,6 @@ class DashboardPage(ft.Column):
         """Home empty CTA → Accounts tab + create form."""
         self._state.pending_open_account_create = True
         self._state.set_tab(self._state.TAB_ACCOUNTS)
-
-    def _go_tx_search(self, raw: object) -> None:
-        query = str(raw or "").strip()
-        self._state.pending_tx_query = query
-        self._state.set_tab(self._state.TAB_TRANSACTIONS)
 
     def _on_state(self, state: "AppState") -> None:
         if state.dashboard_token != self._token:

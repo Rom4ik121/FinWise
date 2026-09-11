@@ -28,7 +28,7 @@ from lib.presentation.widgets.attachment_picker import AttachmentPicker
 from lib.presentation.widgets.category_picker import CategoryPicker
 from lib.presentation.widgets.date_time_field import DateTimeField
 from lib.presentation.widgets.fullscreen_form import open_fullscreen_form
-from lib.presentation.widgets.line_items_editor import LineItemsEditor
+from lib.presentation.widgets.line_items_editor import LineItemsEditor, merge_line_item_photos
 
 if TYPE_CHECKING:
     from lib.presentation.state.app_state import AppState
@@ -170,6 +170,8 @@ async def _show_form(
     items_editor = LineItemsEditor(
         lang,
         on_changed=lambda: _sync_amount_visibility(),
+        page=page,
+        transaction_id=existing.id if editing else None,
     )
 
     def _sync_amount_visibility() -> None:
@@ -322,6 +324,7 @@ async def _show_form(
                 account_id=cat_account_id,
             )
 
+        items_editor.set_transaction_id(attachments.transaction_id)
         line_items = items_editor.collect(default_category=category_name)
         try:
             fee = (
@@ -359,7 +362,7 @@ async def _show_form(
         elif editing:
             occurred = existing.date
 
-        paths = attachments.collected_paths()
+        paths = merge_line_item_photos(attachments.collected_paths(), items)
         if editing:
             tx = existing.model_copy(
                 update={

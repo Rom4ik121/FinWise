@@ -108,6 +108,14 @@ def test_list_transactions_fts_query(container) -> None:
             account_id=acc.id, query="12.00"
         )
         assert [t.id for t in by_amount] == [hit.id]
+        # Substring in comment (FTS prefix-only would miss this; LIKE must hit).
+        buried = await container.update_transaction.execute(
+            hit.model_copy(update={"comment": "xxSECRETNAMEyy"})
+        )
+        by_substr = await container.list_transactions.execute(
+            account_id=acc.id, query="SECRETNAME"
+        )
+        assert [t.id for t in by_substr] == [buried.id]
 
     run_async(_run())
 

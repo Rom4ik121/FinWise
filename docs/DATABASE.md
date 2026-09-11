@@ -77,7 +77,7 @@
 `goal_id` / `debt_id` / `subscription_id` (SET NULL),  
 `goal_credit_amount` / `debt_credit_amount`,  
 `transfer_id`, `transfer_peer_account_id`,  
-`items` (JSON позиций чека), `attachments` (JSON путей к фото в `media/`), timestamps.
+`items` (JSON позиций чека, включая опциональный `attachment` на строке), `attachments` (JSON путей к фото в `media/`), timestamps.
 
 ### `goals`
 

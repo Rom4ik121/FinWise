@@ -18,7 +18,12 @@ def test_expense_with_items_sums_and_roundtrips(container) -> None:
         acc = await container.create_account.execute(make_account(balance="1000"))
         items = [
             TransactionItem(name="Bread", amount=Decimal("40"), category="Еда"),
-            TransactionItem(name="Milk", amount=Decimal("60"), category="Еда"),
+            TransactionItem(
+                name="Milk",
+                amount=Decimal("60"),
+                category="Еда",
+                attachment="tx/demo/milk.jpg",
+            ),
             TransactionItem(name="Eggs", amount=Decimal("50"), category="Еда"),
         ]
         tx = make_transaction(
@@ -54,10 +59,10 @@ def test_expense_with_items_sums_and_roundtrips(container) -> None:
         assert loaded is not None
         assert loaded.amount == Decimal("150.00")
         assert len(loaded.items) == 3
-        assert [(i.name, i.amount, i.category) for i in loaded.items] == [
-            ("Bread", Decimal("40.00"), "Еда"),
-            ("Milk", Decimal("60.00"), "Еда"),
-            ("Eggs", Decimal("50.00"), "Еда"),
+        assert [(i.name, i.amount, i.category, i.attachment) for i in loaded.items] == [
+            ("Bread", Decimal("40.00"), "Еда", ""),
+            ("Milk", Decimal("60.00"), "Еда", "tx/demo/milk.jpg"),
+            ("Eggs", Decimal("50.00"), "Еда", ""),
         ]
 
     run_async(_run())
