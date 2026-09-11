@@ -27,7 +27,7 @@ from lib.presentation.views import (
 )
 from lib.presentation.skins import get_active_skin
 from lib.presentation.state.app_state import AppState
-from lib.presentation.styles import glass_layer
+from lib.presentation.styles import nav_chrome_layer
 from lib.presentation.theme import apply_theme_from_settings, is_dark_mode
 from lib.presentation.utils import snack, tr
 from lib.presentation.widgets.lock_screen import LockScreen
@@ -148,7 +148,6 @@ class FinanseApp:
             ),
             border_radius=_NAV_RADIUS,
             clip_behavior=ft.ClipBehavior.NONE,
-            bgcolor=ft.Colors.SURFACE_CONTAINER,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             animate=ft.Animation(280, ft.AnimationCurve.EASE_OUT),
             shadow=ft.BoxShadow(
@@ -164,11 +163,13 @@ class FinanseApp:
         )
         # Fill-positioned pane + StackFit.EXPAND: a LOOSE non-positioned
         # expand child lays out at height 0 on xs (nav still paints).
+        # Pane fills the window so list content can scroll *under* the
+        # floating glass pill; list padding clears the last rows.
         self._content_pane = ft.Container(
             left=0,
             top=0,
             right=0,
-            bottom=nav_overlay_height(page),
+            bottom=0,
             expand=True,
             alignment=ft.Alignment.TOP_CENTER,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -179,8 +180,10 @@ class FinanseApp:
         self._nav_overlay = ft.Container(
             alignment=ft.Alignment.BOTTOM_CENTER,
             clip_behavior=ft.ClipBehavior.NONE,
+            bgcolor=ft.Colors.TRANSPARENT,
             content=self._nav_host,
         )
+        self._paint_nav_chrome()
         self._shell_column = ft.Column(
             expand=True,
             spacing=0,
@@ -392,13 +395,11 @@ class FinanseApp:
         self._nav_overlay.height = nav_overlay_height(self.page)
 
     def _position_content_pane(self) -> None:
-        """Fill-positioned pane that stops above the nav so list text cannot bleed."""
-        nav_on = bool(getattr(self._nav_overlay, "visible", True))
-        bottom = nav_overlay_height(self.page) if nav_on else 0
+        """Fill-positioned pane; content scrolls under the floating nav pill."""
         self._content_pane.left = 0
         self._content_pane.top = 0
         self._content_pane.right = 0
-        self._content_pane.bottom = bottom
+        self._content_pane.bottom = 0
         self._content_pane.expand = True
         self._content_pane.clip_behavior = ft.ClipBehavior.HARD_EDGE
 
@@ -425,9 +426,9 @@ class FinanseApp:
         """Apply (or clear) desktop centering pads so a squeeze cannot zero the body."""
         pad = shell_side_padding(self.page)
         self._content_pane.padding = ft.Padding.symmetric(horizontal=pad)
-        # Clip the pane, not the stage: HARD_EDGE here stops list text from
-        # painting through the floating nav. Stage stays unclipped so a
-        # stale gutter cannot blank the whole window.
+        # Clip the pane, not the stage, so a stale gutter cannot paint
+        # outside the body. Stage stays unclipped. The glass pill sits
+        # on top of scrolling content (no solid rear strip).
         self._content_pane.clip_behavior = ft.ClipBehavior.HARD_EDGE
         self._stage.clip_behavior = ft.ClipBehavior.NONE
 
@@ -473,8 +474,15 @@ class FinanseApp:
                 self._nav_icons[i].size = m["icon"]
             if i < len(self._nav_labels):
                 self._nav_labels[i].size = m["label"]
-        if is_compact(self.page):
-            self._nav_host.blur = None
+        self._paint_nav_chrome()
+
+    def _paint_nav_chrome(self) -> None:
+        """Glass pill on a transparent overlay — no solid rear strip."""
+        layer = nav_chrome_layer(self.page)
+        self._nav_host.bgcolor = layer.get("bgcolor")
+        self._nav_host.blur = layer.get("blur")
+        self._nav_overlay.bgcolor = ft.Colors.TRANSPARENT
+        self._nav_overlay.clip_behavior = ft.ClipBehavior.NONE
 
     def _ask_notification_permission(self) -> None:
         """Ask iOS/Android for alerts after the window is active."""
@@ -603,15 +611,9 @@ class FinanseApp:
         self._apply_nav_metrics()
         self._stage.gradient = skin.page_gradient(dark=dark)
         self._stage.bgcolor = skin.dark_bg if dark else skin.light_bg
-        layer = glass_layer(opacity=0.38)
-        self._nav_host.bgcolor = layer.get("bgcolor")
-        # Backdrop blur on the tab bar looks clipped/smeared on ~375 web.
-        self._nav_host.blur = None if is_compact(self.page) else layer.get("blur")
         self._nav_host.border = ft.Border.all(
             1,
-            ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE)
-            if skin.glass
-            else ft.Colors.OUTLINE_VARIANT,
+            ft.Colors.with_opacity(0.28, ft.Colors.ON_SURFACE),
         )
         self._nav_host.border_radius = skin.card_radius
         self._nav_host.shadow = ft.BoxShadow(

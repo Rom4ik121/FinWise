@@ -7,7 +7,6 @@ import flet as ft
 from lib.presentation.app import FinanseApp
 from lib.presentation.responsive import (
     is_compact,
-    nav_overlay_height,
     uses_column_nav_shell,
 )
 
@@ -43,9 +42,20 @@ def _assert_pane_clears_nav(app: FinanseApp, page: _FakePage) -> None:
     pane = app._content_pane
     assert pane.left == 0 and pane.top == 0
     assert pane.right == 0
-    assert pane.bottom == nav_overlay_height(page)
+    assert pane.bottom == 0
     assert pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
     assert pane.expand is True
+    overlay = app._nav_overlay
+    overlay_bg = str(getattr(overlay, "bgcolor", None) or "").lower()
+    assert overlay_bg in ("", "transparent", "colors.transparent")
+    assert overlay.clip_behavior == ft.ClipBehavior.NONE
+    from lib.presentation.styles import nav_chrome_layer
+
+    layer = nav_chrome_layer(page)  # type: ignore[arg-type]
+    assert app._nav_host.bgcolor == layer["bgcolor"]
+    assert app._nav_host.bgcolor != ft.Colors.SURFACE_CONTAINER
+    if not getattr(page, "web", False):
+        assert app._nav_host.blur is not None
 
 
 def test_uses_column_nav_shell_at_phone_widths() -> None:
@@ -62,7 +72,7 @@ def test_is_compact_inclusive_at_420() -> None:
 
 
 def test_narrow_shell_fill_positions_content_pane() -> None:
-    """xs: positioned pane stops above the nav so list text cannot bleed."""
+    """xs: fill-positioned pane; glass pill floats over content, no rear strip."""
     page = _FakePage(375, 667)
     app = FinanseApp(page, object())  # type: ignore[arg-type]
     pane = app._content_pane
@@ -81,7 +91,7 @@ def test_narrow_shell_fill_positions_content_pane() -> None:
     assert isinstance(app._content, ft.AnimatedSwitcher)
     assert app._content.duration == 0
     assert app._content.reverse_duration == 0
-    assert app._nav_host.blur is None
+    assert app._nav_host.blur is not None
     assert app._stage.width == 375
     assert app._stage.height == 667
 
@@ -116,7 +126,7 @@ def test_resize_wide_to_narrow_keeps_positioned_pane() -> None:
     pad = pane.padding
     assert float(getattr(pad, "left", 0) or 0) == 0
     assert app._content.duration == 0
-    assert app._nav_host.blur is None
+    assert app._nav_host.blur is not None
     assert not isinstance(app._shell, ft.SafeArea)
 
 
@@ -194,4 +204,15 @@ def test_resize_event_notes_viewport_before_inset_math() -> None:
     assert float(getattr(pad, "left", 0) or 0) == 0
     assert float(getattr(pad, "right", 0) or 0) == 0
     assert app._content_pane.clip_behavior == ft.ClipBehavior.HARD_EDGE
-    assert app._content_pane.bottom == nav_overlay_height(page)
+    assert app._content_pane.bottom == 0
+
+
+def test_compact_web_skips_nav_blur() -> None:
+    """Backdrop blur smears on ~375 web; native compact still gets glass."""
+    web = _FakePage(375, 667)
+    web.web = True
+    app = FinanseApp(web, object())  # type: ignore[arg-type]
+    assert app._nav_host.blur is None
+    native = _FakePage(375, 667)
+    app2 = FinanseApp(native, object())  # type: ignore[arg-type]
+    assert app2._nav_host.blur is not None

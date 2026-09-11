@@ -41,6 +41,30 @@ def glass_layer(*, elevated: bool = False, opacity: float | None = None) -> dict
     }
 
 
+def nav_chrome_layer(page: ft.Page | None = None) -> dict:
+    """Translucent glass fill for the floating tab pill (Classic and Neon).
+
+    Cards may stay opaque on Classic; the nav must not become a solid slab.
+    Backdrop blur is skipped for Reduce Motion and for compact *web* (smear),
+    but kept on native compact Windows / iOS / Android.
+    """
+    from lib.presentation.responsive import is_compact
+    from lib.presentation.ui_motion import is_web_page, prefers_reduced_motion
+
+    token = ft.Colors.SURFACE_CONTAINER
+    bgcolor = ft.Colors.with_opacity(0.58, token)
+    skip_blur = prefers_reduced_motion(page)
+    if not skip_blur and is_web_page(page) and is_compact(page):
+        skip_blur = True
+    if skip_blur:
+        blur = None
+    else:
+        blur = get_active_skin().backdrop_blur() or ft.Blur(
+            8, 8, ft.BlurTileMode.CLAMP
+        )
+    return {"bgcolor": bgcolor, "blur": blur}
+
+
 def card_surface(
     content: ft.Control,
     *,

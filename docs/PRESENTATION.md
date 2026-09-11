@@ -13,7 +13,7 @@
 ### Навигация
 
 - Четыре **основные вкладки**: Главная, Операции, Счета, Настройки.
-- Кастомный **floating NavigationBar**. Оболочка — `Stack` (`StackFit.EXPAND`, clip NONE) с `_content_pane` **fill-positioned + expand**. Когда nav виден, `pane.bottom = nav_overlay_height` и clip **HARD_EDGE**, чтобы имена счетов не рисовались поверх таббара. На secondary / lock nav скрыт и `bottom=0`. `is_compact` — ширина **≤420**. Compact: без nav blur, `AnimatedSwitcher` duration 0. **Windows blank body:** (1) `page.width` и `window.width` оба могут отставать — `note_viewport_size` кэширует `e.width` *до* inset math. (2) `page_header` / `form_header_bar` **не** `wrap` на Row с `expand=True`. Gutters ≤ `(width - min(240,width))/2`. `NARROW_MAX=400`, overlay height ≤ 18% окна.
+- Кастомный **floating NavigationBar**. Оболочка — `Stack` (`StackFit.EXPAND`, clip NONE) с `_content_pane` **fill-positioned + expand**, `pane.bottom = 0` (контент скроллится под плавающую пилюлю). `_nav_overlay` прозрачный (без сплошной подложки на всю ширину); стекло рисует только `_nav_host` (`nav_chrome_layer`: полупрозрачный fill + blur, в т.ч. Classic и native compact; compact **web** blur пропускается из‑за smear). Отступ последних строк — `list_nav_padding` / `LIST_NAV_CLEARANCE` = **104**. На secondary / lock nav скрыт. `is_compact` — ширина **≤420**. Compact: `AnimatedSwitcher` duration 0. **Windows blank body:** (1) `page.width` и `window.width` оба могут отставать — `note_viewport_size` кэширует `e.width` *до* inset math. (2) `page_header` / `form_header_bar` **не** `wrap` на Row с `expand=True`. Gutters ≤ `(width - min(240,width))/2`. `NARROW_MAX=400`, overlay height ≤ 18% окна.
 - Кэш построенных страниц.
 - **Вторичные маршруты** (состояние приложения, не URL):
 
@@ -104,7 +104,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - **Reload coalesce:** `reload_gate.py` — поиск/фильтры не штормят БД; скрытые вкладки не reload'ятся на каждый save (явный `mark_shown` / `mark_hidden`).
 - **Scroll / rebuild:** `ui_motion.replace_controls` сохраняет позицию списка. Главная при повторном reload мутирует слоты (баланс/ярлыки/бюджеты), не пересобирает ListView. Fullscreen-формы reuse'ят один overlay-слот (`push_overlay`); закрытие обнуляет дерево без `page.update()`.
 - Ошибки: `snack_exception` / `user_facing_error` — доменные тексты → i18n; technical English → `error.generic`; без traceback. Пустой Save на формах (счета, операции, долги, цели, подписки, бюджеты) не молчит: `form_validation.py` ставит `TextField.error` и красный тост поверх fullscreen (`ui_feedback.flash_error`).
-- Списки: нижний padding ListView (`list_nav_padding` / `LIST_NAV_CLEARANCE` = 20 px) — только зазор. Отступ под floating nav делает оболочка (`_content_pane.bottom`). Home indicator — SafeArea.
+- Списки: нижний padding ListView (`list_nav_padding` / `LIST_NAV_CLEARANCE` = **104 px**), чтобы последние строки можно было проскроллить выше плавающей пилюли. Оболочка **не** поднимает `_content_pane.bottom` над nav (контент уходит под бар). Home indicator — SafeArea.
 - Карточки счетов: Edit / Delete / Sync **не** на лицевой стороне. Свайп (шеврон) сдвигает карточку влево и открывает **вертикальный** стек кнопок справа позади карты.
 - Категория из операции: `CategoryPicker` открывает полноценный редактор (имя / иконка / цвет), кнопка «Создать» сверху списка.
 ---
@@ -115,7 +115,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 Реализации: карточки счетов / операций / целей / долгов / подписок в `widgets/`.  
 `QuickAddSheet`; `TransferSheet`; `CategoryPicker`; `CurrencyTickerPicker`;  
 `AccountStripPicker` — круговая карусель счетов (иконка, цвет, название, баланс; листание замыкается) в формах операций / переводов / целей / долгов / подписок; `DateTimeField` — горизонтальная лента дней текущего месяца + полноэкранный календарь (`push_overlay`); в сетке видны все 7 дней недели и числа соседних месяцев.  
-`DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor` — карточки позиций (название сверху, сумма снизу, опциональное фото строки);  
+`DualAddButton`; ConfirmDialog; FullscreenForm; `LineItemsEditor` — карточки позиций (название сверху, сумма снизу); на строке **одна** кнопка с иконкой камеры (`PopupMenuButton`: Галерея / Камера → `pick_image_bytes` / FilePicker IMAGE, тот же `MediaStore.save_receipt`); при вложении — превью + снять;  
 `pdf_export_sheet` — период, счета и разделы PDF-отчёта; кнопка **Экспорт PDF** закреплена внизу листа (в шапке — компактная иконка). Сборка PDF идёт в фоне (`asyncio.to_thread`), matplotlib только с backend **Agg**.
 
 Клавиатура форм: `form_keyboard.py`. Ввод сумм: `money_input.py` (caret всегда в конце при группировке, иначе «50» схлопывается в «5»). Валидация: `form_validation.py`.
@@ -127,7 +127,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Экспорт: `offer_saved_file` → `save_file(..., src_bytes=...)` → `materialize_saved_file`.  
   Отмена пользователя → `None`, без ложного «успеха».
 - Телефон: share sheet.
-- Restore: `pick_files(with_data=True)`, классификация `.fwbackup` / sqlite / json / `.key`.
+- Restore: `pick_files(with_data=True)`, классификация `.fwbackup` / sqlite / json / `.key`. Фото: `pick_image_bytes` (галерея или диалог «камера»; Flet 0.86 без capture API — тот же IMAGE picker).
 
 ---
 
@@ -172,7 +172,7 @@ Observer: `subscribe` / `notify` (с coalesce).
 - Графики: `chart_layout` / `compact_chart_size` от `layout_width`.
 - ПК и мобильные: одна floating bottom nav (sidebar нет — паритет полный); на lg/xl nav сгруппирован (~520–560 px), вкладки не расползаются на всю ширину окна.
 - Resize: смена breakpoint пересобирает кэш страниц, чтобы сетки и gutters совпали с новым окном.
-- **Safe area:** `wrap_safe_area` (Flutter `SafeArea`) on the app shell, lock, splash, fullscreen forms/pickers, attachment viewer, and toasts. Uses MediaQuery padding (notch / Dynamic Island / home indicator / landscape sides) plus a small floor (`SAFE_MIN_TOP/BOTTOM` 8/4) — not a per-device pixel map. Nested lock SafeArea uses `minimum=0` so the floor is not doubled. List `LIST_NAV_CLEARANCE` is a small comfort gap; the floating nav is cleared by the pane inset. `maintain_bottom_view_padding` keeps the bottom inset when the keyboard is up.
+- **Safe area:** `wrap_safe_area` (Flutter `SafeArea`) on the app shell, lock, splash, fullscreen forms/pickers, attachment viewer, and toasts. Uses MediaQuery padding (notch / Dynamic Island / home indicator / landscape sides) plus a small floor (`SAFE_MIN_TOP/BOTTOM` 8/4) — not a per-device pixel map. Nested lock SafeArea uses `minimum=0` so the floor is not doubled. List `LIST_NAV_CLEARANCE` (104) lets last rows scroll above the floating glass pill; the pane is not inset. `maintain_bottom_view_padding` keeps the bottom inset when the keyboard is up.
 
 ---
 

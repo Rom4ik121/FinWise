@@ -1689,6 +1689,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "Attach photo",
         "uz": "Fotosurat biriktirish",
     },
+    "tx.photo_gallery": {
+        "ru": "Галерея",
+        "en": "Gallery",
+        "uz": "Galereya",
+    },
+    "tx.take_photo": {
+        "ru": "Камера",
+        "en": "Take photo",
+        "uz": "Kamera",
+    },
     "tx.item_photo_remove": {
         "ru": "Убрать фото",
         "en": "Remove photo",

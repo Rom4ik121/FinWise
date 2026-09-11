@@ -247,6 +247,31 @@ async def offer_saved_file(
     return str(written) if written else None
 
 
+IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
+
+
+async def pick_image_bytes(
+    page: ft.Page,
+    *,
+    title: str,
+    source: str = "gallery",
+) -> tuple[str, bytes] | None:
+    """Pick a photo via the existing FilePicker IMAGE path.
+
+    Flet 0.86 has no camera-capture / ``image_picker`` API. ``source`` only
+    changes the dialog title (gallery vs take-photo) so the same storage
+    path is used; on mobile the system image picker often includes a camera
+    control. Desktop Windows falls back to a file dialog.
+    """
+    _ = source
+    return await pick_restore_bytes(
+        page,
+        title=title,
+        extensions=list(IMAGE_EXTENSIONS),
+        images=True,
+    )
+
+
 async def pick_restore_bytes(
     page: ft.Page,
     *,

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from lib.presentation.file_transfer import (
+    IMAGE_EXTENSIONS,
     SQLITE_MAGIC,
     classify_restore_payload,
+    pick_image_bytes,
     safe_filename,
 )
 
@@ -66,3 +68,9 @@ def test_restricted_icloud_downloads_path() -> None:
         raise AssertionError("expected PermissionError")
     except PermissionError:
         pass
+
+
+def test_image_extensions_cover_common_photos() -> None:
+    assert "jpg" in IMAGE_EXTENSIONS
+    assert "heic" in IMAGE_EXTENSIONS
+    assert pick_image_bytes is not None

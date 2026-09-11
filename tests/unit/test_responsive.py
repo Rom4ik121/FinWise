@@ -140,7 +140,7 @@ def test_shell_centers_on_desktop_without_skinny_island() -> None:
     assert se_nav["margin_h"] <= 8
     assert se_nav["label"] <= 11
     pad = list_nav_padding()
-    assert pad.bottom == 20
+    assert pad.bottom == 104
 
 
 def test_phone_widths_keep_nav_and_home_in_viewport() -> None:
@@ -381,3 +381,20 @@ def test_page_frame_uses_small_gutters_and_clips_body() -> None:
     assert float(left) <= 12
     assert float(right) <= 12
     assert host.clip_behavior == ft.ClipBehavior.HARD_EDGE
+
+
+def test_nav_chrome_layer_is_translucent_on_classic() -> None:
+    import flet as ft
+
+    from lib.presentation.styles import nav_chrome_layer
+
+    native = nav_chrome_layer(_FakePage(375))  # type: ignore[arg-type]
+    assert native["bgcolor"] != ft.Colors.SURFACE_CONTAINER
+    assert "0.58" in str(native["bgcolor"])
+    assert native["blur"] is not None
+    web = _FakePage(375)
+    web.web = True
+    compact_web = nav_chrome_layer(web)  # type: ignore[arg-type]
+    assert compact_web["blur"] is None
+    wide = nav_chrome_layer(_FakePage(1280))  # type: ignore[arg-type]
+    assert wide["blur"] is not None

@@ -13,7 +13,7 @@ import flet as ft
 from lib.domain.entities.transaction import TransactionItem
 from lib.presentation.money_input import amount_text, make_amount_field, parse_amount
 from lib.presentation.responsive import tap_icon_button
-from lib.presentation.styles import card_surface
+from lib.presentation.styles import card_surface, style_popup_menu
 from lib.presentation.utils import control_page, run_async, safe_update, tr
 
 
@@ -41,7 +41,6 @@ class _LineRow:
     pending: tuple[str, bytes] | None = None
     photo_btn: ft.Control | None = None
     photo_clear: ft.Control | None = None
-    photo_label: ft.Text | None = None
     photo_preview: ft.Container | None = None
     card: ft.Control | None = None
 
@@ -151,14 +150,6 @@ class LineItemsEditor(ft.Column):
             on_click=lambda _e, current=row: self._remove_row(current),
             padding=8,
         )
-        photo_label = ft.Text(
-            self._photo_caption(row),
-            size=12,
-            color=ft.Colors.ON_SURFACE_VARIANT,
-            expand=True,
-            max_lines=1,
-            overflow=ft.TextOverflow.ELLIPSIS,
-        )
         photo_preview = ft.Container(
             width=40,
             height=40,
@@ -166,14 +157,33 @@ class LineItemsEditor(ft.Column):
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
             alignment=ft.Alignment.CENTER,
+            visible=False,
             content=ft.Icon(ft.Icons.IMAGE_OUTLINED, size=18),
         )
-        photo_btn = tap_icon_button(
-            icon=ft.Icons.ADD_A_PHOTO_OUTLINED,
-            icon_size=18,
-            tooltip=tr("tx.attach_photo", self._lang),
-            on_click=lambda _e, current=row: self._pick_photo(current),
-            padding=8,
+        photo_btn = style_popup_menu(
+            ft.PopupMenuButton(
+                icon=ft.Icons.PHOTO_CAMERA_OUTLINED,
+                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                icon_size=20,
+                tooltip=tr("tx.attach_photo", self._lang),
+                padding=12,
+                items=[
+                    ft.PopupMenuItem(
+                        content=ft.Text(tr("tx.photo_gallery", self._lang)),
+                        icon=ft.Icons.PHOTO_LIBRARY_OUTLINED,
+                        on_click=lambda _e, current=row: self._pick_photo(
+                            current, source="gallery"
+                        ),
+                    ),
+                    ft.PopupMenuItem(
+                        content=ft.Text(tr("tx.take_photo", self._lang)),
+                        icon=ft.Icons.PHOTO_CAMERA_OUTLINED,
+                        on_click=lambda _e, current=row: self._pick_photo(
+                            current, source="camera"
+                        ),
+                    ),
+                ],
+            )
         )
         photo_clear = tap_icon_button(
             icon=ft.Icons.CLOSE,
@@ -184,14 +194,13 @@ class LineItemsEditor(ft.Column):
         )
         row.photo_btn = photo_btn
         row.photo_clear = photo_clear
-        row.photo_label = photo_label
         row.photo_preview = photo_preview
         self._refresh_photo_row(row)
         photo_strip = ft.Row(
             spacing=8,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             visible=self._page is not None,
-            controls=[photo_preview, photo_btn, photo_label, photo_clear],
+            controls=[photo_preview, photo_btn, photo_clear],
         )
         body = ft.Column(
             spacing=10,
@@ -215,40 +224,30 @@ class LineItemsEditor(ft.Column):
         self._refresh_total()
         safe_update(self._list)
 
-    def _photo_caption(self, row: _LineRow) -> str:
-        if row.pending:
-            return row.pending[0]
-        if row.photo_rel:
-            return Path(row.photo_rel).name
-        return tr("tx.attach_photo", self._lang)
-
     def _refresh_photo_row(self, row: _LineRow) -> None:
         has = bool(row.photo_rel or row.pending)
-        if row.photo_label is not None:
-            row.photo_label.value = self._photo_caption(row)
         if row.photo_clear is not None:
             row.photo_clear.visible = has
         if row.photo_btn is not None:
             row.photo_btn.visible = not has
         if row.photo_preview is not None:
-            content: ft.Control
-            abs_path = self._preview_path(row)
-            if abs_path is not None and abs_path.is_file():
-                content = ft.Image(
-                    src=str(abs_path),
-                    width=40,
-                    height=40,
-                    fit=ft.BoxFit.COVER,
-                )
-            else:
-                content = ft.Icon(
-                    ft.Icons.ADD_A_PHOTO_OUTLINED if not has else ft.Icons.IMAGE_OUTLINED,
-                    size=18,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                )
-            row.photo_preview.content = content
+            row.photo_preview.visible = has
+            if has:
+                abs_path = self._preview_path(row)
+                if abs_path is not None and abs_path.is_file():
+                    row.photo_preview.content = ft.Image(
+                        src=str(abs_path),
+                        width=40,
+                        height=40,
+                        fit=ft.BoxFit.COVER,
+                    )
+                else:
+                    row.photo_preview.content = ft.Icon(
+                        ft.Icons.IMAGE_OUTLINED,
+                        size=18,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    )
             safe_update(row.photo_preview)
-            safe_update(row.photo_label)
             safe_update(row.photo_clear)
             safe_update(row.photo_btn)
 
@@ -262,24 +261,24 @@ class LineItemsEditor(ft.Column):
         except Exception:  # noqa: BLE001
             return None
 
-    def _pick_photo(self, row: _LineRow) -> None:
+    def _pick_photo(self, row: _LineRow, *, source: str = "gallery") -> None:
         page = self._host_page()
         if page is None:
             return
-        run_async(page, self._pick_photo_async, row)
+        run_async(page, self._pick_photo_async, row, source)
 
-    async def _pick_photo_async(self, row: _LineRow) -> None:
-        from lib.presentation.file_transfer import pick_restore_bytes
+    async def _pick_photo_async(self, row: _LineRow, source: str = "gallery") -> None:
+        from lib.presentation.file_transfer import pick_image_bytes
         from lib.presentation.utils import snack
 
         page = self._host_page()
         if page is None:
             return
-        picked = await pick_restore_bytes(
+        title_key = "tx.take_photo" if source == "camera" else "tx.photo_gallery"
+        picked = await pick_image_bytes(
             page,
-            title=tr("tx.attach_photo", self._lang),
-            extensions=["jpg", "jpeg", "png", "webp", "gif", "heic"],
-            images=True,
+            title=tr(title_key, self._lang),
+            source=source,
         )
         if picked is None:
             return
